@@ -71,7 +71,8 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   const decoder = new StringDecoder('utf8');
   stream.on('data', (chunk: Buffer) => {
     const text = decoder.write(chunk);
-    if (text !== '') send(EVENTS.termData, { id, data: text });
+    if (text === '' || !sessions.has(id)) return;
+    send(EVENTS.termData, { id, data: text });
   });
 
   const finish = (): void => {

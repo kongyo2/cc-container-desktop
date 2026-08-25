@@ -62,6 +62,7 @@ export interface ContainerState {
   readonly id: string | null;
   readonly image: string | null;
   readonly startedAt: string | null;
+  readonly homeVolume: string | null;
 }
 
 export interface TmuxSession {

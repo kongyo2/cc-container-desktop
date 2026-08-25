@@ -7,9 +7,16 @@ import type { AppConfig, Profile } from '../../shared/types.ts';
 import { describeError, logError, logWarn } from '../logger.ts';
 import { defaultConfig, readConfig } from './schema.ts';
 
+type SecretEncoding = 'safeStorage' | 'plain';
+
+interface SecretEntry {
+  readonly enc: SecretEncoding;
+  readonly value: string;
+}
+
 interface SecretFile {
-  readonly encrypted: boolean;
-  readonly entries: Record<string, string>;
+  readonly version: 2;
+  readonly entries: Record<string, SecretEntry>;
 }
 
 let cache: AppConfig | null = null;
@@ -140,17 +147,31 @@ export function secretsAreEncrypted(): boolean {
   }
 }
 
+function parseSecretFile(raw: unknown): SecretFile | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const candidate = raw as { encrypted?: unknown; entries?: unknown };
+  const source = candidate.entries;
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) return null;
+
+  const legacyEncoding: SecretEncoding = candidate.encrypted === true ? 'safeStorage' : 'plain';
+  const entries: Record<string, SecretEntry> = {};
+  for (const [id, stored] of Object.entries(source as Record<string, unknown>)) {
+    if (typeof stored === 'string') {
+      if (stored !== '') entries[id] = { enc: legacyEncoding, value: stored };
+      continue;
+    }
+    if (typeof stored !== 'object' || stored === null) continue;
+    const entry = stored as { enc?: unknown; value?: unknown };
+    if (typeof entry.value !== 'string' || entry.value === '') continue;
+    entries[id] = { enc: entry.enc === 'safeStorage' ? 'safeStorage' : 'plain', value: entry.value };
+  }
+  return { version: 2, entries };
+}
+
 function readSecretFile(): SecretFile {
   if (secretCache !== null) return secretCache;
-  const raw = readJson(secretsPath());
-  if (raw !== null && typeof raw === 'object' && 'entries' in raw) {
-    const candidate = raw as { encrypted?: unknown; entries?: unknown };
-    const entries =
-      typeof candidate.entries === 'object' && candidate.entries !== null
-        ? (candidate.entries as Record<string, string>)
-        : {};
-    secretCache = { encrypted: candidate.encrypted === true, entries };
-  } else {
+  const parsed = parseSecretFile(readJson(secretsPath()));
+  if (parsed === null) {
     if (existsSync(secretsPath())) {
       const backup = keepAside(secretsPath());
       logError(
@@ -159,7 +180,9 @@ function readSecretFile(): SecretFile {
           `${backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`}`,
       );
     }
-    secretCache = { encrypted: secretsAreEncrypted(), entries: {} };
+    secretCache = { version: 2, entries: {} };
+  } else {
+    secretCache = parsed;
   }
   return secretCache;
 }
@@ -170,39 +193,32 @@ function writeSecretFile(file: SecretFile): void {
 }
 
 export function getSecret(profileId: string): string {
-  const file = readSecretFile();
-  const stored = file.entries[profileId];
-  if (stored === undefined || stored === '') return '';
-  if (!file.encrypted) return stored;
+  const stored = readSecretFile().entries[profileId];
+  if (stored === undefined || stored.value === '') return '';
+  if (stored.enc === 'plain') return stored.value;
   try {
-    return safeStorage.decryptString(Buffer.from(stored, 'base64'));
+    return safeStorage.decryptString(Buffer.from(stored.value, 'base64'));
   } catch (error) {
-    logWarn('app', `API キーを復号できませんでした / could not decrypt API key: ${describeError(error)}`);
+    logWarn(
+      'app',
+      `API キーを復号できませんでした。保存はされているので、OS のキーリングが戻れば読めます / could not decrypt the stored API key; it is still on disk and becomes readable again once the OS keyring is back: ${describeError(error)}`,
+    );
     return '';
   }
 }
 
 export function setSecret(profileId: string, secret: string): void {
-  const file = readSecretFile();
-  const canEncrypt = secretsAreEncrypted();
-
-  const entries: Record<string, string> = {};
-  if (file.encrypted !== canEncrypt) {
-    for (const id of Object.keys(file.entries)) {
-      const plain = getSecret(id);
-      if (plain !== '') entries[id] = canEncrypt ? safeStorage.encryptString(plain).toString('base64') : plain;
-    }
-  } else {
-    Object.assign(entries, file.entries);
-  }
+  const entries = { ...readSecretFile().entries };
 
   if (secret === '') {
     delete entries[profileId];
+  } else if (secretsAreEncrypted()) {
+    entries[profileId] = { enc: 'safeStorage', value: safeStorage.encryptString(secret).toString('base64') };
   } else {
-    entries[profileId] = canEncrypt ? safeStorage.encryptString(secret).toString('base64') : secret;
+    entries[profileId] = { enc: 'plain', value: secret };
   }
 
-  writeSecretFile({ encrypted: canEncrypt, entries });
+  writeSecretFile({ version: 2, entries });
 }
 
 export function deleteSecret(profileId: string): void {
@@ -210,7 +226,7 @@ export function deleteSecret(profileId: string): void {
   if (!(profileId in file.entries)) return;
   const entries = { ...file.entries };
   delete entries[profileId];
-  writeSecretFile({ encrypted: file.encrypted, entries });
+  writeSecretFile({ version: 2, entries });
 }
 
 export function appDataDir(): string {

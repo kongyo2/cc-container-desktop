@@ -7,6 +7,9 @@ const buffers = new Map<string, string[]>();
 const dataHandlers = new Map<string, DataHandler>();
 const exitHandlers = new Map<string, ExitHandler>();
 const pendingExits = new Map<string, TerminalExit>();
+const abandoned = new Set<string>();
+
+const ABANDONED_LIMIT = 64;
 
 let started = false;
 
@@ -20,6 +23,7 @@ export function startTerminalBus(): void {
       handler(data);
       return;
     }
+    if (abandoned.has(id)) return;
     const buffer = buffers.get(id);
     if (buffer === undefined) buffers.set(id, [data]);
     else buffer.push(data);
@@ -27,12 +31,28 @@ export function startTerminalBus(): void {
 
   window.cc.onTerminalExit((exit) => {
     const handler = exitHandlers.get(exit.id);
-    if (handler !== undefined) handler(exit);
-    else pendingExits.set(exit.id, exit);
+    if (handler !== undefined) {
+      handler(exit);
+      return;
+    }
+    if (abandoned.has(exit.id)) return;
+    pendingExits.set(exit.id, exit);
   });
 }
 
+export function forgetTerminal(id: string): void {
+  buffers.delete(id);
+  pendingExits.delete(id);
+  abandoned.add(id);
+  while (abandoned.size > ABANDONED_LIMIT) {
+    const oldest = abandoned.values().next();
+    if (oldest.done) break;
+    abandoned.delete(oldest.value);
+  }
+}
+
 export function attachTerminal(id: string, onData: DataHandler, onExit: ExitHandler): () => void {
+  abandoned.delete(id);
   dataHandlers.set(id, onData);
   exitHandlers.set(id, onExit);
 

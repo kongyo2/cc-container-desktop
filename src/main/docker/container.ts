@@ -2,10 +2,10 @@ import type { Container } from 'dockerode';
 import { PassThrough } from 'node:stream';
 
 import { CONTAINER_HOME, CONTAINER_USER, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
-import type { ContainerState, ExecResult, TmuxSession } from '../../shared/types.ts';
+import type { AppConfig, ContainerState, ExecResult, TmuxSession } from '../../shared/types.ts';
 import { getConfig } from '../config/store.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
-import { docker, isNotFound } from './engine.ts';
+import { docker, inspectImage, isNotFound } from './engine.ts';
 
 const MANAGED_LABEL = 'com.cc-container-desktop.managed';
 
@@ -15,12 +15,37 @@ export function containerHandle(): Container {
   return docker().getContainer(getConfig().containerName);
 }
 
+interface InspectMount {
+  readonly Type?: string;
+  readonly Name?: string;
+  readonly Destination?: string;
+}
+
 interface InspectResponse {
   readonly Id?: string;
   readonly Image?: string;
   readonly Config?: { readonly Image?: string };
   readonly State?: { readonly Running?: boolean; readonly Status?: string; readonly StartedAt?: string };
+  readonly Mounts?: readonly InspectMount[];
 }
+
+function homeVolumeOf(raw: InspectResponse): string | null {
+  for (const mount of raw.Mounts ?? []) {
+    if (mount.Destination !== CONTAINER_HOME) continue;
+    return mount.Type === 'volume' ? (mount.Name ?? null) : null;
+  }
+  return null;
+}
+
+const MISSING_CONTAINER: Omit<ContainerState, 'name'> = {
+  exists: false,
+  running: false,
+  status: 'missing',
+  id: null,
+  image: null,
+  startedAt: null,
+  homeVolume: null,
+};
 
 export async function inspectContainer(): Promise<ContainerState> {
   const name = getConfig().containerName;
@@ -35,28 +60,56 @@ export async function inspectContainer(): Promise<ContainerState> {
       id: raw.Id ?? null,
       image: raw.Config?.Image ?? raw.Image ?? null,
       startedAt: running ? (raw.State?.StartedAt ?? null) : null,
+      homeVolume: homeVolumeOf(raw),
     };
   } catch (error) {
-    if (isNotFound(error)) {
-      return { name, exists: false, running: false, status: 'missing', id: null, image: null, startedAt: null };
-    }
+    if (isNotFound(error)) return { name, ...MISSING_CONTAINER };
+    throw error;
+  }
+}
+
+function foreignVolumeError(name: string): Error {
+  return new Error(
+    `${name} はこのアプリが作ったボリュームではありません。「設定」タブでボリューム名を変えてください / ${name} was not created by this app; change the volume name on the Settings tab`,
+  );
+}
+
+async function inspectVolume(name: string): Promise<{ readonly labels: unknown } | null> {
+  try {
+    const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
+    return { labels: raw.Labels ?? {} };
+  } catch (error) {
+    if (isNotFound(error)) return null;
     throw error;
   }
 }
 
 async function ensureVolume(): Promise<void> {
   const name = getConfig().volumeName;
-  try {
-    await docker().getVolume(name).inspect();
-  } catch (error) {
-    if (!isNotFound(error)) throw error;
-    logInfo('app', `ボリュームを作成します / creating volume: ${name}`);
-    await docker().createVolume({ Name: name, Labels: { [MANAGED_LABEL]: 'true' } });
+  const found = await inspectVolume(name);
+  if (found !== null) {
+    if (!isManaged(found.labels)) throw foreignVolumeError(name);
+    return;
   }
+
+  logInfo('app', `ボリュームを作成します / creating volume: ${name}`);
+  await docker().createVolume({ Name: name, Labels: { [MANAGED_LABEL]: 'true' } });
+
+  const created = await inspectVolume(name);
+  if (created !== null && !isManaged(created.labels)) throw foreignVolumeError(name);
+}
+
+export async function volumeExists(name: string): Promise<boolean> {
+  return (await inspectVolume(name)) !== null;
 }
 
 async function createContainer(): Promise<void> {
   const config = getConfig();
+  if (!(await inspectImage(config.imageTag)).exists) {
+    throw new Error(
+      `${config.imageTag} がまだビルドされていません。「接続」タブでビルドしてください / ${config.imageTag} has not been built yet — build it on the Connect tab`,
+    );
+  }
   await ensureVolume();
   logInfo('app', `コンテナを作成します / creating container: ${config.containerName}`);
   await docker().createContainer({
@@ -84,20 +137,23 @@ function foreignContainerError(name: string): Error {
   );
 }
 
+function staleReason(state: ContainerState, config: AppConfig): string | null {
+  if (!state.exists) return null;
+  if (state.image !== null && state.image !== config.imageTag) return `image ${config.imageTag}`;
+  if (state.homeVolume !== null && state.homeVolume !== config.volumeName) return `volume ${config.volumeName}`;
+  return null;
+}
+
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
 
-  // Never adopt a container this app did not create — starting it would go on
-  // to rewrite its Claude settings and run our post-create script inside it.
   if (state.exists && !(await containerIsOurs())) {
     throw foreignContainerError(getConfig().containerName);
   }
 
-  if (state.exists && state.image !== null && state.image !== getConfig().imageTag) {
-    logInfo(
-      'app',
-      `イメージが変わったのでコンテナを作り直します / recreating container for image ${getConfig().imageTag}`,
-    );
+  const stale = staleReason(state, getConfig());
+  if (stale !== null) {
+    logInfo('app', `設定が変わったのでコンテナを作り直します / recreating container for ${stale}`);
     await removeContainer(false);
     state = await inspectContainer();
   }
@@ -105,6 +161,23 @@ export async function startContainer(): Promise<ContainerState> {
   if (!state.exists) {
     await createContainer();
     state = await inspectContainer();
+  }
+  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
+    throw foreignVolumeError(state.homeVolume);
+  }
+  if (!state.running) {
+    await containerHandle().start();
+    logInfo('app', 'コンテナを起動しました / container started');
+  }
+  return inspectContainer();
+}
+
+export async function startExistingContainer(): Promise<ContainerState> {
+  const state = await inspectContainer();
+  if (!state.exists) return startContainer();
+  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
+    throw foreignVolumeError(state.homeVolume);
   }
   if (!state.running) {
     await containerHandle().start();
@@ -115,6 +188,9 @@ export async function startContainer(): Promise<ContainerState> {
 
 export async function stopContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
+  if (state.exists && !(await containerIsOurs())) {
+    throw foreignContainerError(getConfig().containerName);
+  }
   if (state.running) {
     await containerHandle().stop({ t: 5 });
     logInfo('app', 'コンテナを停止しました / container stopped');
@@ -126,6 +202,7 @@ export async function restartContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
   if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+  if (staleReason(state, getConfig()) !== null) return startContainer();
   await containerHandle().restart({ t: 5 });
   logInfo('app', 'コンテナを再起動しました / container restarted');
   return inspectContainer();
@@ -137,13 +214,8 @@ function isManaged(labels: unknown): boolean {
 }
 
 async function volumeIsOurs(name: string): Promise<boolean> {
-  try {
-    const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
-    return isManaged(raw.Labels);
-  } catch (error) {
-    if (isNotFound(error)) return true;
-    throw error;
-  }
+  const found = await inspectVolume(name);
+  return found === null || isManaged(found.labels);
 }
 
 async function containerIsOurs(): Promise<boolean> {
@@ -159,6 +231,7 @@ async function containerIsOurs(): Promise<boolean> {
 export async function removeContainer(removeVolume: boolean): Promise<ContainerState> {
   const config = getConfig();
   const state = await inspectContainer();
+  const volumeName = state.homeVolume ?? config.volumeName;
 
   if (state.exists) {
     if (!(await containerIsOurs())) {
@@ -173,14 +246,14 @@ export async function removeContainer(removeVolume: boolean): Promise<ContainerS
   }
 
   if (removeVolume) {
-    if (!(await volumeIsOurs(config.volumeName))) {
+    if (!(await volumeIsOurs(volumeName))) {
       throw new Error(
-        `${config.volumeName} はこのアプリが作ったボリュームではないので消しません。「設定」タブでボリューム名を変えてください / ${config.volumeName} was not created by this app and was left alone; change the volume name on the Settings tab`,
+        `${volumeName} はこのアプリが作ったボリュームではないので消しません。「設定」タブでボリューム名を変えてください / ${volumeName} was not created by this app and was left alone; change the volume name on the Settings tab`,
       );
     }
     try {
-      await docker().getVolume(config.volumeName).remove();
-      logInfo('app', `ボリュームを削除しました / volume removed: ${config.volumeName}`);
+      await docker().getVolume(volumeName).remove();
+      logInfo('app', `ボリュームを削除しました / volume removed: ${volumeName}`);
     } catch (error) {
       if (!isNotFound(error)) throw error;
     }

@@ -201,11 +201,17 @@ export function parseConfig(raw: unknown): AppConfig {
   return readConfig(raw).config;
 }
 
+function resolveActiveProfile(activeProfileId: string | null, profiles: readonly Profile[]): string | null {
+  if (activeProfileId === null) return null;
+  if (profiles.some((profile) => profile.id === activeProfileId)) return activeProfileId;
+  return profiles[0]?.id ?? null;
+}
+
 function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
   return {
     version: 1,
     language: value.language,
-    activeProfileId: value.activeProfileId,
+    activeProfileId: resolveActiveProfile(value.activeProfileId, value.profiles),
     profiles: value.profiles,
     containerName: value.containerName,
     imageTag: value.imageTag,

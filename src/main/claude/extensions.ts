@@ -26,8 +26,6 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   const entry: Record<string, unknown> = {};
 
   if (server.transport === 'stdio') {
-    // Optional for stdio, but `claude mcp add` writes it and `claude mcp list`
-    // renders entries uniformly when it is present.
     entry['type'] = 'stdio';
     entry['command'] = server.command.trim();
     if (server.args.length > 0) entry['args'] = server.args.map((arg) => arg.trim()).filter((arg) => arg !== '');
@@ -44,24 +42,49 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   return entry;
 }
 
+function sameEntry(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((item, index) => sameEntry(item, right[index]));
+  }
+  if (typeof left !== 'object' || typeof right !== 'object') return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && sameEntry(a[key], b[key]));
+}
+
 function reconcile(
   current: Record<string, unknown>,
   next: Record<string, unknown>,
   previouslyManaged: readonly string[],
+  label: string,
+  warnings: string[],
 ): { merged: Record<string, unknown>; managed: string[] } {
   const merged = emptyMap();
   for (const [key, value] of Object.entries(current)) merged[key] = value;
   for (const name of previouslyManaged) {
     if (!Object.hasOwn(next, name)) delete merged[name];
   }
-  for (const [key, value] of Object.entries(next)) merged[key] = value;
-  return { merged, managed: Object.keys(next) };
+
+  const managed: string[] = [];
+  for (const [key, value] of Object.entries(next)) {
+    const foreign = !previouslyManaged.includes(key) && Object.hasOwn(current, key) && !sameEntry(current[key], value);
+    if (foreign) {
+      warnings.push(
+        `${label} ${key}: 同じ名前の設定がコンテナ内に既にあるので触りません。別の名前にしてください / an entry of this name already exists in the container and was left alone; rename yours`,
+      );
+      continue;
+    }
+    merged[key] = value;
+    managed.push(key);
+  }
+  return { merged, managed };
 }
 
-// `reconcile` reads absence as deletion, which is right when an entry is
-// disabled or removed but wrong when it merely failed validation: a half-edited
-// URL must not take down the configuration that was working a minute ago. Keep
-// the last applied entry for names that are still ours.
 function preserveInvalid(
   next: Record<string, unknown>,
   existing: Record<string, unknown>,
@@ -93,6 +116,7 @@ export interface ExtensionPlan {
   readonly skills: readonly PlannedSkill[];
   readonly removedSkills: readonly string[];
   readonly ownedSkills: readonly string[];
+  readonly preservedSkills: readonly string[];
 }
 
 export function planExtensions(
@@ -120,7 +144,7 @@ export function planExtensions(
       ? (currentClaudeJson['mcpServers'] as Record<string, unknown>)
       : {};
   preserveInvalid(nextServers, existingServers, managed.mcpServers, invalidServerNames, warnings);
-  const servers = reconcile(existingServers, nextServers, managed.mcpServers);
+  const servers = reconcile(existingServers, nextServers, managed.mcpServers, 'mcp', warnings);
 
   const nextMarkets = emptyMap();
   const invalidMarketNames: string[] = [];
@@ -152,7 +176,7 @@ export function planExtensions(
       ? (currentSettings['extraKnownMarketplaces'] as Record<string, unknown>)
       : {};
   preserveInvalid(nextMarkets, existingMarkets, managed.marketplaces, invalidMarketNames, warnings);
-  const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces);
+  const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces, 'marketplace', warnings);
 
   const nextPlugins = emptyMap();
   for (const plugin of extensions.plugins) {
@@ -170,16 +194,26 @@ export function planExtensions(
     typeof currentSettings['enabledPlugins'] === 'object' && currentSettings['enabledPlugins'] !== null
       ? (currentSettings['enabledPlugins'] as Record<string, unknown>)
       : {};
-  const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins);
+  const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins, 'plugin', warnings);
 
   const skills: PlannedSkill[] = [];
+  const preservedSkills: string[] = [];
   const claimed = new Set<string>();
   for (const skill of extensions.skills) {
     if (!skill.enabled) continue;
     const check = validateSkill(skill.body, skill.files);
     for (const problem of check.errors) warnings.push(`skill: ${problem}`);
     for (const note of check.warnings) warnings.push(`skill ${check.name || '?'}: ${note}`);
-    if (check.errors.length > 0) continue;
+    if (check.errors.length > 0) {
+      if (check.name !== '' && managed.skills.includes(check.name) && !claimed.has(check.name)) {
+        claimed.add(check.name);
+        preservedSkills.push(check.name);
+        warnings.push(
+          `skill ${check.name}: 無効な編集は反映せず、直前に書き込んだスキルを残しました / the invalid edit was not applied; the skill last written was kept`,
+        );
+      }
+      continue;
+    }
     if (claimed.has(check.name)) {
       warnings.push(
         `skill ${check.name}: 同じ名前のスキルが 2 つあります / two skills share this name; keeping the first`,
@@ -196,7 +230,7 @@ export function planExtensions(
     skills.push({ name: check.name, body: skill.body, files });
   }
   const skillNames = skills.map((skill) => skill.name);
-  const removedSkills = managed.skills.filter((name) => !skillNames.includes(name));
+  const removedSkills = managed.skills.filter((name) => !skillNames.includes(name) && !preservedSkills.includes(name));
 
   const claudeJson: Record<string, unknown> = {};
   if (Object.keys(servers.merged).length > 0 || Object.hasOwn(currentClaudeJson, 'mcpServers')) {
@@ -218,20 +252,16 @@ export function planExtensions(
       mcpServers: servers.managed,
       marketplaces: markets.managed,
       plugins: plugins.managed,
-      skills: skillNames,
+      skills: [...skillNames, ...preservedSkills],
     },
     warnings,
     skills,
     removedSkills,
     ownedSkills: managed.skills,
+    preservedSkills,
   };
 }
 
-// A skill name the app has not managed before may already belong to a
-// hand-written or synced skill in the container. That check has to happen
-// BEFORE the managed list is persisted: claiming first and probing later meant
-// the very next provision believed the name was ours and rm -rf'd someone
-// else's work. This narrows the plan to the skills the app may actually own.
 export async function claimSkills(
   plan: ExtensionPlan,
 ): Promise<{ readonly plan: ExtensionPlan; readonly warnings: readonly string[] }> {
@@ -263,12 +293,21 @@ export async function claimSkills(
   const skills = probes.filter((probe) => probe.keep).map((probe) => probe.skill);
   const warnings = probes.map((probe) => probe.warning).filter((warning): warning is string => warning !== null);
   return {
-    plan: { ...plan, skills, managed: { ...plan.managed, skills: skills.map((skill) => skill.name) } },
+    plan: {
+      ...plan,
+      skills,
+      managed: { ...plan.managed, skills: [...skills.map((skill) => skill.name), ...plan.preservedSkills] },
+    },
     warnings,
   };
 }
 
-export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[]> {
+export interface SkillWriteResult {
+  readonly warnings: readonly string[];
+  readonly owned: readonly string[];
+}
+
+export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult> {
   const warnings: string[] = [];
 
   const removals = plan.removedSkills
@@ -280,39 +319,54 @@ export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[
       }
     });
 
-  const writes = plan.skills.map(async (skill) => {
+  const writes = plan.skills.map(async (skill): Promise<string | null> => {
     const root = `${SKILLS_DIR}/${skill.name}`;
-
-    await execCapture(['rm', '-rf', root], { workdir: '/' });
 
     const directories = new Set<string>();
     for (const file of skill.files) {
       const slash = file.path.lastIndexOf('/');
       if (slash > 0) directories.add(`${root}/${file.path.slice(0, slash)}`);
     }
-    await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
 
-    await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
-    /* oxlint-disable no-await-in-loop */
-    for (const file of skill.files) {
+    const discard = async (reason: string): Promise<string | null> => {
+      warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${reason}`);
       try {
+        const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
+        if (cleared.exitCode === 0) return null;
+      } catch {}
+      return skill.name;
+    };
+
+    try {
+      const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
+      if (cleared.exitCode !== 0) return await discard(cleared.stderr.trim() || `rm -rf → exit ${cleared.exitCode}`);
+
+      const made = await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
+      if (made.exitCode !== 0) return await discard(made.stderr.trim() || `mkdir -p → exit ${made.exitCode}`);
+
+      await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
+      /* oxlint-disable no-await-in-loop */
+      for (const file of skill.files) {
         await writeFileText(`${root}/${file.path}`, file.content, file.path.startsWith('scripts/') ? 0o755 : 0o644);
-      } catch (error) {
-        warnings.push(
-          `skill ${skill.name}: ${file.path} を書けませんでした / could not write ${file.path}: ${describeError(error)}`,
-        );
       }
+      /* oxlint-enable no-await-in-loop */
+    } catch (error) {
+      return await discard(describeError(error));
     }
-    /* oxlint-enable no-await-in-loop */
+    return skill.name;
   });
 
-  const results = await Promise.allSettled([...removals, ...writes]);
-  for (const result of results) {
+  const [removed, wrote] = await Promise.all([Promise.allSettled(removals), Promise.allSettled(writes)]);
+
+  const owned: string[] = [];
+  for (const result of [...removed, ...wrote]) {
     if (result.status === 'rejected') {
       warnings.push(`skill: ${describeError(result.reason)}`);
+      continue;
     }
+    if (typeof result.value === 'string') owned.push(result.value);
   }
-  return warnings;
+  return { warnings, owned };
 }
 
 interface RawMcpStatus {

@@ -81,6 +81,7 @@ async function snapshot(): Promise<Snapshot> {
         id: null,
         image: null,
         startedAt: null,
+        homeVolume: null,
       },
       secretsEncrypted: secretsAreEncrypted(),
       appVersion: appVersion,

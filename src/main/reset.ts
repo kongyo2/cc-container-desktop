@@ -2,7 +2,14 @@ import type { ResetRequest } from '../shared/ipc.ts';
 import type { ResetSummary } from '../shared/types.ts';
 import { provisionContainer } from './claude/provision.ts';
 import { getConfig, saveConfig } from './config/store.ts';
-import { inspectContainer, removeContainer, startContainer } from './docker/container.ts';
+import {
+  inspectContainer,
+  removeContainer,
+  startContainer,
+  startExistingContainer,
+  volumeExists,
+} from './docker/container.ts';
+import { inspectImage } from './docker/engine.ts';
 import { exportWorkspace } from './docker/files.ts';
 import { buildImage } from './docker/image.ts';
 import { closeAllTerminals } from './docker/terminal.ts';
@@ -22,13 +29,17 @@ async function exportFirst(destination: string | null): Promise<Exported> {
   }
 
   const state = await inspectContainer();
-  if (!state.exists) {
-    logWarn('app', 'コンテナが無いので取り出しはありません / no container to export from');
+  const volume = state.homeVolume ?? getConfig().volumeName;
+  if (!state.exists && !(await volumeExists(volume))) {
+    logWarn(
+      'app',
+      'コンテナもボリュームも無いので取り出しはありません / there is no container and no home volume to export from',
+    );
     return { path: '', files: 0, skipped: 0 };
   }
   if (!state.running) {
     logInfo('app', '取り出しのためにコンテナを起動します / starting the container so the workspace can be exported');
-    await startContainer();
+    await startExistingContainer();
   }
 
   logInfo('app', 'リセット前にワークスペースを取り出します / exporting the workspace before the reset');
@@ -44,14 +55,23 @@ export async function resetContainer(request: ResetRequest, destination: string 
     saveConfig({ ...getConfig(), lastExportDir: destination });
   }
 
-  closeAllTerminals();
-
-  logInfo('app', `リセットします / resetting: container=${config.containerName} volume=${config.volumeName}`);
-  await removeContainer(true);
-
   if (request.rebuildImage) {
     await buildImage(config.imageTag, true);
   }
+  if (!(await inspectImage(config.imageTag)).exists) {
+    throw new Error(
+      `${config.imageTag} がまだビルドされていないので、何も消していません。「接続」タブでビルドしてください / ${config.imageTag} has not been built, so nothing was destroyed — build it on the Connect tab first`,
+    );
+  }
+
+  closeAllTerminals();
+
+  const before = await inspectContainer();
+  logInfo(
+    'app',
+    `リセットします / resetting: container=${config.containerName} volume=${before.homeVolume ?? config.volumeName}`,
+  );
+  await removeContainer(true);
 
   await startContainer();
 
