@@ -1,21 +1,69 @@
-/**
- * Message catalogue.
- *
- * `ja` is the reference shape: `MessageKey` is derived from it and `en` is typed
- * against that record, so adding a Japanese string without its English twin (or
- * vice versa) is a compile error rather than a blank label at runtime.
- */
-
 import type { Language } from './types.ts';
 
 const ja = {
   appTitle: 'Claude Code コンテナ ワークベンチ',
+
+  panelDocker: 'Docker',
+  panelImage: 'イメージ',
+  panelContainer: 'コンテナ',
+  panelModel: 'モデル',
+  panelExtensions: '拡張',
+  panelDown: '停止',
+  panelNotBuilt: '未ビルド',
+  panelNone: 'なし',
 
   navConnect: '接続',
   navTerminal: 'ターミナル',
   navFiles: 'ファイル',
   navProfiles: 'プロファイル',
   navImage: 'イメージ',
+  navExtensions: '拡張',
+
+  extTitle: 'セッションに注入する拡張',
+  extHint: 'MCP サーバ・プラグイン・スキルを、セッション作成時にコンテナへ書き込みます。',
+  extManagedHint:
+    'このアプリが書いたものだけを管理します。コンテナ内で claude mcp add や /plugin で足したものには触れません。',
+  extSave: '保存',
+  extApply: '保存してコンテナに反映',
+  extAdd: '追加',
+  extEdit: '編集',
+  extName: '名前',
+
+  extMcpTitle: 'MCP サーバ',
+  extMcpHint: '~/.claude.json の mcpServers に書き込みます (ユーザースコープ)。',
+  extMcpEmpty: 'MCP サーバは登録されていません。',
+  extMcpStatus: '接続状態',
+  extTransport: 'トランスポート',
+  extCommand: 'コマンド',
+  extArgs: '引数',
+  extEnv: '環境変数',
+  extUrl: 'URL',
+  extHeaders: 'ヘッダー',
+  extTimeout: 'ツール実行のタイムアウト',
+
+  extMarketTitle: 'プラグイン マーケットプレイス',
+  extMarketHint: 'settings.json の extraKnownMarketplaces に書き込みます。',
+  extMarketEmpty: 'マーケットプレイスは登録されていません。',
+  extMarketName: 'マーケットプレイス名',
+  extSource: 'ソース',
+  extAutoUpdate: '自動更新する',
+
+  extPluginTitle: 'プラグイン',
+  extPluginHint: 'settings.json の enabledPlugins に plugin@marketplace 形式で書き込みます。',
+  extPluginEmpty: 'プラグインは登録されていません。',
+  extPluginName: 'プラグイン名',
+
+  extSkillTitle: 'スキル',
+  extSkillHint: '~/.claude/skills/<名前>/SKILL.md として書き込みます。/名前 で呼び出せます。',
+  extSkillEmpty: 'スキルは登録されていません。',
+  extSkillName: 'スキル名',
+  extSkillInvalid: '(frontmatter が不正)',
+  extSkillFiles: '同梱ファイル',
+  extSkillFilePath: 'パス',
+  extSkillFilesHint:
+    'scripts/ references/ assets/ に置いたファイルは、必要になったときだけ読み込まれます。scripts/ 配下は実行可能になります。',
+
+  commonDelete: '削除',
   navSettings: '設定',
 
   statusDockerOk: 'Docker 稼働中',
@@ -32,6 +80,19 @@ const ja = {
   sectionContainer: 'コンテナ',
   sectionLaunch: 'Claude Code',
   sectionLog: 'ログ',
+  sectionSession: 'セッション',
+
+  resetTitle: '新しいセッション',
+  resetButton: '新しいセッションを開始',
+  resetExportFirst: '先にワークスペースを取り出す',
+  resetRebuildImage: 'イメージも作り直す（Claude Code を最新に）',
+  resetHint:
+    'コンテナとボリュームを丸ごと捨てて作り直します。ワークスペース、~/.claude、あとから入れたパッケージは全部消えます。',
+  resetKeepsHint: 'イメージは残ります。setup.sh でビルド時に入れたものはそのままなので、リセットは数秒で終わります。',
+  resetConfirm: '本当にリセットしますか？ 消えたものは戻せません。',
+  resetDone: '新しいセッションを開始しました',
+  resetExported: '取り出し先',
+  resetWarnNoExport: 'エクスポートせずに破棄します。',
 
   dockerHint: 'Docker Desktop が起動しているか確認してください。',
   dockerRecheck: '再チェック',
@@ -120,7 +181,12 @@ const ja = {
 
   imageSectionSources: 'イメージのソース',
   imageDockerfile: 'Dockerfile',
-  imagePostCreate: '起動後スクリプト (post-create)',
+  imagePostCreate: '起動後スクリプト (post-create) — 毎回実行',
+  imageSetup: 'セットアップスクリプト (setup) — ビルド時に1回だけ',
+  imageSetupHint:
+    'イメージに焼き込まれるので、リセットしても残ります。重いツールチェーンはこちらへ。編集したら「ビルド」が必要です。',
+  imageSetupMissing:
+    '注意: Dockerfile が setup.sh を参照していません。「初期状態に戻す」で復元するか、COPY setup.sh /opt/cc/setup.sh と RUN bash /opt/cc/setup.sh を追加してください。',
   imageSourcesHint:
     'ここを編集して「ビルド」すると中身を丸ごと差し替えられます。post-create はコンテナ起動のたびに実行されます。',
   imageSave: '保存',
@@ -166,11 +232,67 @@ export type MessageKey = keyof typeof ja;
 const en: Record<MessageKey, string> = {
   appTitle: 'Claude Code Container Workbench',
 
+  panelDocker: 'Docker',
+  panelImage: 'Image',
+  panelContainer: 'Container',
+  panelModel: 'Model',
+  panelExtensions: 'Extensions',
+  panelDown: 'down',
+  panelNotBuilt: 'not built',
+  panelNone: 'none',
+
   navConnect: 'Connect',
   navTerminal: 'Terminal',
   navFiles: 'Files',
   navProfiles: 'Profiles',
   navImage: 'Image',
+  navExtensions: 'Extensions',
+
+  extTitle: 'What gets injected into a session',
+  extHint: 'MCP servers, plugins and skills, written into the container when the session is provisioned.',
+  extManagedHint:
+    'Only entries this app created are managed. Anything you added inside the container with claude mcp add or /plugin is left alone.',
+  extSave: 'Save',
+  extApply: 'Save and apply to the container',
+  extAdd: 'Add',
+  extEdit: 'Edit',
+  extName: 'Name',
+
+  extMcpTitle: 'MCP servers',
+  extMcpHint: 'Written to mcpServers in ~/.claude.json (user scope).',
+  extMcpEmpty: 'No MCP servers yet.',
+  extMcpStatus: 'Check status',
+  extTransport: 'Transport',
+  extCommand: 'Command',
+  extArgs: 'Arguments',
+  extEnv: 'Environment',
+  extUrl: 'URL',
+  extHeaders: 'Headers',
+  extTimeout: 'Tool timeout',
+
+  extMarketTitle: 'Plugin marketplaces',
+  extMarketHint: 'Written to extraKnownMarketplaces in settings.json.',
+  extMarketEmpty: 'No marketplaces yet.',
+  extMarketName: 'Marketplace',
+  extSource: 'Source',
+  extAutoUpdate: 'Keep up to date',
+
+  extPluginTitle: 'Plugins',
+  extPluginHint: 'Written to enabledPlugins in settings.json, keyed as plugin@marketplace.',
+  extPluginEmpty: 'No plugins yet.',
+  extPluginName: 'Plugin',
+
+  extSkillTitle: 'Skills',
+  extSkillHint: 'Written to ~/.claude/skills/<name>/SKILL.md, so /name invokes it.',
+  extSkillEmpty: 'No skills yet.',
+  extSkillName: 'Skill name',
+  extSkillInvalid: '(invalid frontmatter)',
+  extSkillFiles: 'Bundled files',
+  extSkillFilePath: 'Path',
+  extSkillFilesHint:
+    'Files under scripts/, references/ and assets/ are loaded only when the task needs them. Anything in scripts/ is written executable.',
+
+  commonDelete: 'Delete',
   navSettings: 'Settings',
 
   statusDockerOk: 'Docker running',
@@ -187,6 +309,20 @@ const en: Record<MessageKey, string> = {
   sectionContainer: 'Container',
   sectionLaunch: 'Claude Code',
   sectionLog: 'Log',
+  sectionSession: 'Session',
+
+  resetTitle: 'New session',
+  resetButton: 'Start a new session',
+  resetExportFirst: 'Export the workspace first',
+  resetRebuildImage: 'Rebuild the image too (picks up a newer Claude Code)',
+  resetHint:
+    'Throws the container and its volume away and builds a fresh one. The workspace, ~/.claude and anything you installed afterwards all go.',
+  resetKeepsHint:
+    'The image stays, so whatever setup.sh installed at build time is still there and a reset takes seconds.',
+  resetConfirm: 'Reset now? What goes is not coming back.',
+  resetDone: 'Fresh session ready',
+  resetExported: 'Exported to',
+  resetWarnNoExport: 'Nothing will be exported first.',
 
   dockerHint: 'Make sure Docker Desktop is running.',
   dockerRecheck: 'Re-check',
@@ -274,7 +410,12 @@ const en: Record<MessageKey, string> = {
 
   imageSectionSources: 'Image sources',
   imageDockerfile: 'Dockerfile',
-  imagePostCreate: 'Post-create script',
+  imagePostCreate: 'Post-create script — runs every start',
+  imageSetup: 'Setup script — runs once, at build time',
+  imageSetupHint:
+    'Baked into the image, so it survives a reset. Slow toolchains belong here. Editing it needs a rebuild.',
+  imageSetupMissing:
+    'Heads up: your Dockerfile does not reference setup.sh. Restore defaults, or add COPY setup.sh /opt/cc/setup.sh and RUN bash /opt/cc/setup.sh.',
   imageSourcesHint:
     'Edit these and hit Build to replace the image wholesale. The post-create script runs on every container start.',
   imageSave: 'Save',

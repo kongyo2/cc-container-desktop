@@ -1,15 +1,3 @@
-/**
- * Smoke test for a packaged build.
- *
- * `paths.ts` resolves the bundled Dockerfile differently once `app.isPackaged`
- * is true (`process.resourcesPath` instead of the project root), and that branch
- * never runs during development. This launches the real binary produced by
- * `electron-builder --dir` and checks it can still find and seed its sources.
- *
- * Usage:
- *   xvfb-run -a node tests/e2e/packaged.mjs release/linux-unpacked/cc-container-desktop
- */
-
 import { existsSync } from 'node:fs';
 import { _electron as electron } from 'playwright';
 

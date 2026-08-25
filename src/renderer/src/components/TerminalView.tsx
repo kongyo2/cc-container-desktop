@@ -1,5 +1,3 @@
-/** One xterm.js instance bound to a `docker exec` session in the container. */
-
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -49,11 +47,6 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
   const termRef = useRef<Terminal | null>(null);
   const idRef = useRef<string | null>(null);
 
-  // Props read inside the mount effect are held in a ref: the effect must run
-  // exactly once per tab, and listing them as dependencies would tear the
-  // session down and rebuild it on every parent render. `useRef(props)` seeds
-  // the first render's values; the sync effect below (declared first, so it runs
-  // first) keeps them current without writing to a ref during render.
   const propsRef = useRef(props);
   useEffect(() => {
     propsRef.current = props;
@@ -78,21 +71,15 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
     term.loadAddon(new WebLinksAddon());
     const unicode = new Unicode11Addon();
     term.loadAddon(unicode);
-    // Width-2 CJK glyphs are the norm here; the default v6 table gets them wrong.
     term.unicode.activeVersion = '11';
 
     term.open(mount);
 
-    // WebGL rendering keeps a full-screen TUI redraw cheap, but the context is
-    // not always available (software GL, a lost context after sleep). Falling
-    // back to the DOM renderer is fine; failing to open the terminal is not.
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       term.loadAddon(webgl);
-    } catch {
-      // DOM renderer stays in place.
-    }
+    } catch {}
 
     fit.fit();
     termRef.current = term;
@@ -100,6 +87,8 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
 
     let detach: (() => void) | null = null;
     let disposed = false;
+
+    const pendingInput: string[] = [];
 
     void (async () => {
       const result = await window.cc.termOpen({
@@ -116,6 +105,11 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
       }
       idRef.current = result.value.id;
       propsRef.current.onOpened(result.value.id, result.value.sessionName);
+      if (pendingInput.length > 0) {
+        const buffered = pendingInput.join('');
+        pendingInput.length = 0;
+        void window.cc.termWrite(result.value.id, buffered);
+      }
       detach = attachTerminal(
         result.value.id,
         (data) => term.write(data),
@@ -125,7 +119,8 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
 
     const inputDisposable = term.onData((data) => {
       const id = idRef.current;
-      if (id !== null) void window.cc.termWrite(id, data);
+      if (id === null) pendingInput.push(data);
+      else void window.cc.termWrite(id, data);
     });
 
     const resize = (): void => {
@@ -150,8 +145,6 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
     };
   }, []);
 
-  // Becoming visible changes the element's measured size from zero; refit and
-  // focus so the shell's idea of the viewport matches what is on screen.
   useEffect(() => {
     if (!props.active) return;
     const timer = window.setTimeout(() => {

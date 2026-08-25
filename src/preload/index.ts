@@ -1,11 +1,3 @@
-/**
- * The context bridge.
- *
- * Runs sandboxed, so `electron`'s `ipcRenderer` is the only capability available
- * — which is the point: the renderer gets exactly the calls listed in `Api` and
- * no filesystem, no child processes, no Docker socket.
- */
-
 import { contextBridge, ipcRenderer } from 'electron';
 
 import { CHANNELS, EVENTS } from '../shared/ipc.ts';
@@ -45,6 +37,10 @@ const api: Api = {
   containerExec: (request) => ipcRenderer.invoke(CHANNELS.containerExec, request),
   containerProvision: () => ipcRenderer.invoke(CHANNELS.containerProvision),
   containerVscode: () => ipcRenderer.invoke(CHANNELS.containerVscode),
+  containerReset: (request) => ipcRenderer.invoke(CHANNELS.containerReset, request),
+
+  extensionsSave: (extensions) => ipcRenderer.invoke(CHANNELS.extensionsSave, extensions),
+  mcpStatus: () => ipcRenderer.invoke(CHANNELS.mcpStatus),
 
   tmuxList: () => ipcRenderer.invoke(CHANNELS.tmuxList),
   tmuxKill: (name) => ipcRenderer.invoke(CHANNELS.tmuxKill, name),
@@ -66,6 +62,7 @@ const api: Api = {
   onTerminalData: (listener) => subscribe<TerminalData>(EVENTS.termData, listener),
   onTerminalExit: (listener) => subscribe<TerminalExit>(EVENTS.termExit, listener),
   onStateChanged: (listener) => subscribe<void>(EVENTS.stateChanged, () => listener()),
+  onTerminalsReset: (listener) => subscribe<void>(EVENTS.terminalsReset, () => listener()),
 };
 
 contextBridge.exposeInMainWorld('cc', api);

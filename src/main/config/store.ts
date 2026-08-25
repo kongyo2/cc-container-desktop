@@ -1,13 +1,3 @@
-/**
- * Configuration and secret storage.
- *
- * `config.json` holds everything that is safe to read in the clear. API keys go
- * to `secrets.json` through Electron's `safeStorage`, which is DPAPI on Windows
- * — bound to the OS user account, so the file is useless if copied elsewhere.
- * When the platform has no encryption backend the keys are still stored, but in
- * the clear, and the UI says so instead of silently pretending otherwise.
- */
-
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -39,7 +29,6 @@ function secretsPath(): string {
   return join(userDataDir(), 'secrets.json');
 }
 
-/** Write via a temp file + rename so a crash mid-write cannot truncate the real file. */
 function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, content, 'utf8');
@@ -99,8 +88,6 @@ export function activateProfile(id: string): AppConfig {
   return patchConfig({ activeProfileId: id });
 }
 
-/* --------------------------------- secrets -------------------------------- */
-
 export function secretsAreEncrypted(): boolean {
   try {
     return safeStorage.isEncryptionAvailable();
@@ -147,8 +134,6 @@ export function setSecret(profileId: string, secret: string): void {
   const file = readSecretFile();
   const canEncrypt = secretsAreEncrypted();
 
-  // The file carries a single `encrypted` flag, so switching modes has to rewrite
-  // every entry — otherwise old values would be read back with the wrong codec.
   const entries: Record<string, string> = {};
   if (file.encrypted !== canEncrypt) {
     for (const id of Object.keys(file.entries)) {
@@ -176,7 +161,6 @@ export function deleteSecret(profileId: string): void {
   writeSecretFile({ encrypted: file.encrypted, entries });
 }
 
-/** Exposed for the Image tab, which materializes editable Dockerfile sources next to the config. */
 export function appDataDir(): string {
   return userDataDir();
 }

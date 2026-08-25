@@ -1,18 +1,3 @@
-/**
- * Live-model checks: does Claude Code actually *work* inside the container?
- *
- * The other two suites prove the plumbing. This one spends real tokens on the
- * configured endpoint to prove the things a user would notice:
- *
- *   - Claude Code can use its tools (read and write files in the container)
- *   - the `sonnet` / `opus` / `haiku` aliases resolve to the profile's models
- *   - a conversation survives closing the terminal tab and reattaching, which is
- *     the whole point of running it under tmux
- *
- * Usage:
- *   CC_E2E_API_KEY=sk-... xvfb-run -a node tests/e2e/live.mjs
- */
-
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
@@ -42,10 +27,7 @@ function check(label, condition, detail = '') {
 }
 
 async function call(page, method, args = []) {
-  const result = await page.evaluate(
-    ([name, callArgs]) => window.cc[name](...callArgs),
-    /** @type {[string, unknown[]]} */ ([method, args]),
-  );
+  const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
   if (result === null || typeof result !== 'object' || !('ok' in result)) {
     throw new Error(`${method}: unexpected reply ${JSON.stringify(result)}`);
   }
@@ -58,24 +40,18 @@ async function ok(page, method, args = []) {
   return result.value;
 }
 
-/** The stealth model shares an upstream pool, so a 429 is a wait, not a failure. */
 function isTransient(text) {
-  return /rate.?limit|429|overloaded|temporarily/iu.test(text);
+  return /rate.?limit|429|50[234]|overloaded|temporarily|empty or malformed response|Provider returned error/iu.test(
+    text,
+  );
 }
 
-/**
- * Wraps a string in single quotes for `bash -lc`.
- *
- * Double quotes would let bash expand `$`, `\` and backticks inside a prompt,
- * which silently rewrites what the model is asked.
- */
 function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 /* oxlint-disable no-await-in-loop -- retry and polling loops are sequential by nature */
 
-/** Runs a headless Claude Code prompt, retrying only on upstream rate limits. */
 async function prompt(page, text, { model = '', attempts = 4 } = {}) {
   const modelFlag = model === '' ? '' : ` --model ${model}`;
   let last = { exitCode: -1, stdout: '', stderr: '' };
@@ -94,7 +70,17 @@ async function prompt(page, text, { model = '', attempts = 4 } = {}) {
   return last;
 }
 
-/** Reads what is currently painted in the visible terminal. */
+async function focusTerminal(page) {
+  await page.evaluate(() => {
+    const body = [...document.querySelectorAll('.term-body')].find(
+      (node) => node instanceof HTMLElement && node.style.display !== 'none',
+    );
+    body?.querySelector('.xterm-screen')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    body?.querySelector('.xterm-helper-textarea')?.focus();
+  });
+  await page.waitForTimeout(300);
+}
+
 async function terminalText(page) {
   return page.evaluate(() => {
     const bodies = [...document.querySelectorAll('.term-body')].filter(
@@ -104,7 +90,6 @@ async function terminalText(page) {
   });
 }
 
-/** Waits until the terminal shows `needle`, or gives up. */
 async function waitForTerminal(page, predicate, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let text = '';
@@ -203,8 +188,6 @@ try {
   );
 
   console.log('\n[4] model aliases resolve to the profile');
-  // Sequential on purpose: two concurrent calls into a shared upstream pool
-  // is how you turn a real answer into a rate-limit.
   /* oxlint-disable no-await-in-loop */
   for (const alias of ['sonnet', 'haiku']) {
     const aliasMarker = `ALIAS-${alias.toUpperCase()}`;
@@ -217,11 +200,77 @@ try {
   }
   /* oxlint-enable no-await-in-loop */
 
+  console.log('\n[4b] MCP and skills reach the model');
+  await ok(page, 'extensionsSave', [
+    {
+      mcpServers: [
+        {
+          id: 'live-mcp',
+          name: 'agentskills',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://agentskills.io/mcp',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+      ],
+      marketplaces: [],
+      plugins: [],
+      skills: [
+        {
+          id: 'live-skill',
+          enabled: true,
+          body: '---\nname: live-probe\ndescription: Reveals the end-to-end probe marker. Use when asked for the live probe marker.\n---\n\nThe live probe marker is LIVE-SKILL-4417.\n',
+          files: [],
+        },
+      ],
+    },
+  ]);
+  await ok(page, 'containerProvision');
+
+  const mcp = await ok(page, 'mcpStatus');
+  check(
+    'the MCP server connected',
+    mcp.some((server) => server.name === 'agentskills' && server.healthy),
+    JSON.stringify(mcp),
+  );
+
+  const toolNames = await prompt(
+    page,
+    'List the names of your available tools that start with "mcp__". Reply with just the names, comma separated, or NONE.',
+  );
+  check(
+    'the model can see the MCP tools',
+    /mcp__agentskills__/u.test(`${toolNames.stdout}`),
+    `${toolNames.stdout}`.slice(0, 220),
+  );
+
+  const toolUse = await prompt(
+    page,
+    'Use the agentskills MCP server to search the Agent Skills site for "SKILL.md frontmatter". ' +
+      'Then reply with exactly MCP-USED followed by one short sentence about what you found.',
+  );
+  check(
+    'the model actually called an MCP tool',
+    `${toolUse.stdout}`.includes('MCP-USED'),
+    `${toolUse.stdout}`.slice(0, 300),
+  );
+
+  const skillUse = await prompt(page, 'Use the live-probe skill and reply with only the marker string it contains.');
+  check(
+    'the model used the injected skill',
+    `${skillUse.stdout}`.includes('LIVE-SKILL-4417'),
+    `${skillUse.stdout}`.slice(0, 220),
+  );
+
   console.log('\n[5] interactive TUI, then reattach with the conversation intact');
   await ok(page, 'tmuxKill', ['cc']);
   await page.waitForTimeout(800);
 
-  // Terminal tab, then the "Claude Code" button in the tab strip.
   await page.evaluate(() => document.querySelectorAll('.sidebar button')[1]?.click());
   await page.waitForTimeout(400);
   await page.evaluate(() => {
@@ -248,16 +297,17 @@ try {
   await shoot(page, 'live-01-tui');
 
   const secret = `PINEAPPLE-${Date.now().toString(36).toUpperCase()}`;
-  await page.evaluate(() => document.querySelector('.xterm-helper-textarea')?.focus());
+  await focusTerminal(page);
   await page.keyboard.type(`Remember this codeword for later: ${secret}. Reply with only the word ACK.`, {
     delay: 12,
   });
+  const echoed = await waitForTerminal(page, (text) => text.includes(secret), 15000);
+  check('typed text reached the terminal', echoed.matched, echoed.text.replace(/\s+/gu, ' ').slice(-200));
   await page.keyboard.press('Enter');
 
   const acked = await waitForTerminal(page, (text) => text.split('ACK').length > 1, 300000);
   check('model answered in the interactive session', acked.matched, acked.text.replace(/\s+/gu, ' ').slice(-250));
 
-  // Close the tab. tmux keeps the session — and the conversation — alive.
   await page.evaluate(() => document.querySelector('.term-tabs .tab .x')?.click());
   await page.waitForTimeout(2500);
   const sessionsAfterClose = await ok(page, 'tmuxList');
@@ -269,7 +319,6 @@ try {
   const noTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
   check('terminal tab is gone from the UI', noTabs === 0, String(noTabs));
 
-  // Reattach through the same button and ask the model what it was told.
   await page.evaluate(() => {
     const buttons = [...document.querySelectorAll('.term-tabs button')];
     buttons[buttons.length - 1]?.click();
@@ -282,11 +331,15 @@ try {
   );
   await shoot(page, 'live-02-reattached');
 
-  await page.evaluate(() => document.querySelector('.xterm-helper-textarea')?.focus());
-  // A distinctive wrapper rather than a bare repeat: xterm's innerText only
-  // covers the viewport, so counting occurrences would depend on what has
-  // scrolled off screen.
-  await page.keyboard.type('What codeword did I give you? Reply with only CODEWORD=<the codeword>.', { delay: 12 });
+  await focusTerminal(page);
+  const question = 'What codeword did I give you? Reply with only CODEWORD=<the codeword>.';
+  await page.keyboard.type(question, { delay: 12 });
+  const questionEchoed = await waitForTerminal(page, (text) => text.includes('CODEWORD='), 15000);
+  check(
+    'the recall question reached the reattached terminal',
+    questionEchoed.matched,
+    questionEchoed.text.replace(/\s+/gu, ' ').slice(-200),
+  );
   await page.keyboard.press('Enter');
 
   const recalled = await waitForTerminal(page, (text) => text.includes(`CODEWORD=${secret}`), 360000);

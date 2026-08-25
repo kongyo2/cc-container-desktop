@@ -1,11 +1,3 @@
-/**
- * Terminal tabs, plus the tmux session list that makes reattaching explicit.
- *
- * This panel stays mounted for the life of the app (see `App.tsx`): unmounting
- * it would close every `docker exec`, and while tmux would keep the processes
- * alive, the scrollback would not survive a trip to the Files tab.
- */
-
 import { Link2, Plus, RefreshCw, Sparkles, SquareTerminal, X } from 'lucide-react';
 import type { JSX } from 'react';
 import { useCallback, useEffect, useState } from 'react';
@@ -39,7 +31,6 @@ export function TerminalPanel(): JSX.Element {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [sessions, setSessions] = useState<readonly TmuxSession[]>([]);
 
-  /** Event-driven refresh. The timer below covers changes made outside the app. */
   const refreshSessions = async (): Promise<void> => {
     const result = await window.cc.tmuxList();
     if (result.ok) setSessions(result.value);
@@ -52,11 +43,6 @@ export function TerminalPanel(): JSX.Element {
     setActiveKey(key);
   }, []);
 
-  /**
-   * Requests parked by the Connect tab arrive through the store rather than as
-   * props, and are consumed in a store subscription: this panel is always
-   * mounted, so the subscription is live before any request can be made.
-   */
   useEffect(
     () =>
       useApp.subscribe((state, previous) => {
@@ -71,6 +57,16 @@ export function TerminalPanel(): JSX.Element {
         openTab(pending.kind, state.snapshot.config.tmuxSession);
       }),
     [openTab, setError, setTab, t],
+  );
+
+  useEffect(
+    () =>
+      window.cc.onTerminalsReset(() => {
+        setTabs([]);
+        setActiveKey(null);
+        setSessions([]);
+      }),
+    [],
   );
 
   useEffect(() => {
@@ -200,8 +196,11 @@ export function TerminalPanel(): JSX.Element {
           </span>
         ) : (
           visibleSessions.map((session) => (
-            <span key={session.name} className={`pill ${session.attached ? 'ok' : ''}`}>
-              <span className="dot" />
+            <span key={session.name} className="session">
+              <span
+                className={`lamp ${session.attached ? '' : 'off'}`}
+                style={session.attached ? { background: 'var(--live)' } : undefined}
+              />
               {session.name}
               <span className="tag">{`${session.windows}w`}</span>
               <button className="btn ghost sm" onClick={() => openTab('attach', session.name)} type="button">

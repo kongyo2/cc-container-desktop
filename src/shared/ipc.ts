@@ -1,12 +1,3 @@
-/**
- * The IPC contract.
- *
- * `Api` is the single source of truth: the preload script builds an object of
- * this shape out of `ipcRenderer.invoke` calls, and the main process registers
- * one `ipcMain.handle` per channel. Channel names are derived from the same
- * literal union, so a typo fails to compile instead of failing at runtime.
- */
-
 import type {
   AppConfig,
   ExecResult,
@@ -16,7 +7,10 @@ import type {
   LogLine,
   OpenTerminalRequest,
   OpenTerminalResult,
+  Extensions,
+  McpServerStatus,
   Profile,
+  ResetSummary,
   Result,
   Snapshot,
   TerminalData,
@@ -24,7 +18,6 @@ import type {
   TmuxSession,
 } from './types.ts';
 
-/** Channels the renderer invokes. */
 export const CHANNELS = {
   snapshot: 'app:snapshot',
   setLanguage: 'app:setLanguage',
@@ -52,6 +45,10 @@ export const CHANNELS = {
   containerExec: 'container:exec',
   containerProvision: 'container:provision',
   containerVscode: 'container:vscode',
+  containerReset: 'container:reset',
+
+  extensionsSave: 'ext:save',
+  mcpStatus: 'ext:mcpStatus',
 
   tmuxList: 'tmux:list',
   tmuxKill: 'tmux:kill',
@@ -70,41 +67,39 @@ export const CHANNELS = {
   devcontainerWrite: 'devcontainer:write',
 } as const;
 
-/** Events pushed from main to renderer. */
 export const EVENTS = {
   log: 'evt:log',
   termData: 'evt:term:data',
   termExit: 'evt:term:exit',
   stateChanged: 'evt:state',
+  terminalsReset: 'evt:term:reset',
 } as const;
 
-/** Payload for {@link Api.fsWrite}. */
 export interface WriteFileRequest {
   readonly path: string;
   readonly content: string;
 }
 
-/** Payload for {@link Api.containerExec}. */
 export interface ExecRequest {
   readonly command: readonly string[];
-  /** Runs as root when true; as the `claude` user otherwise. */
   readonly asRoot: boolean;
 }
 
-/** Payload for {@link Api.imageBuild}. */
 export interface BuildRequest {
   readonly noCache: boolean;
 }
 
-/** What the renderer gets back from a VS Code attach request. */
+export interface ResetRequest {
+  readonly exportFirst: boolean;
+  readonly rebuildImage: boolean;
+}
+
 export interface VscodeAttachResult {
   readonly launched: boolean;
-  /** The `vscode-remote://attached-container+<hex>` URI, always returned so it can be copied manually. */
   readonly uri: string;
   readonly hint: string;
 }
 
-/** The full renderer-facing API surface exposed on `window.cc`. */
 export interface Api {
   snapshot(): Promise<Result<Snapshot>>;
   setLanguage(language: Language): Promise<Result<AppConfig>>;
@@ -121,7 +116,9 @@ export interface Api {
   dockerProbe(): Promise<Result<Snapshot>>;
   imageBuild(request: BuildRequest): Promise<Result<null>>;
   imageSourcesGet(): Promise<Result<ImageSources>>;
-  imageSourcesSave(sources: Pick<ImageSources, 'dockerfile' | 'postCreate'>): Promise<Result<ImageSources>>;
+  imageSourcesSave(
+    sources: Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>,
+  ): Promise<Result<ImageSources>>;
   imageSourcesReset(): Promise<Result<ImageSources>>;
 
   containerUp(): Promise<Result<Snapshot>>;
@@ -130,9 +127,12 @@ export interface Api {
   containerRemove(removeVolume: boolean): Promise<Result<Snapshot>>;
   containerState(): Promise<Result<Snapshot>>;
   containerExec(request: ExecRequest): Promise<Result<ExecResult>>;
-  /** Writes onboarding flags + `~/.claude/settings.json` from the active profile. */
   containerProvision(): Promise<Result<string>>;
   containerVscode(): Promise<Result<VscodeAttachResult>>;
+  containerReset(request: ResetRequest): Promise<Result<ResetSummary>>;
+
+  extensionsSave(extensions: Extensions): Promise<Result<AppConfig>>;
+  mcpStatus(): Promise<Result<readonly McpServerStatus[]>>;
 
   tmuxList(): Promise<Result<readonly TmuxSession[]>>;
   tmuxKill(name: string): Promise<Result<null>>;
@@ -154,4 +154,5 @@ export interface Api {
   onTerminalData(listener: (data: TerminalData) => void): () => void;
   onTerminalExit(listener: (exit: TerminalExit) => void): () => void;
   onStateChanged(listener: () => void): () => void;
+  onTerminalsReset(listener: () => void): () => void;
 }

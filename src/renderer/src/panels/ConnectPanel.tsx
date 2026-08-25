@@ -1,5 +1,3 @@
-/** The dashboard: Docker → image → container → Claude Code, in the order you need them. */
-
 import {
   Boxes,
   CircleStop,
@@ -7,6 +5,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Sparkles,
   Terminal as TerminalIcon,
   Trash2,
   Upload,
@@ -14,7 +13,7 @@ import {
 import type { JSX } from 'react';
 import { useState } from 'react';
 
-import { formatBytes, formatTime, Pill, Section } from '../components/ui.tsx';
+import { Check, formatBytes, formatTime, Section } from '../components/ui.tsx';
 import { LogPane } from '../components/LogPane.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
@@ -29,6 +28,8 @@ export function ConnectPanel(): JSX.Element {
   const clearLogs = useApp((state) => state.clearLogs);
   const requestTerminal = useApp((state) => state.requestTerminal);
   const [confirmRemove, setConfirmRemove] = useState<'none' | 'container' | 'volume'>('none');
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [rebuildOnReset, setRebuildOnReset] = useState(false);
 
   if (snapshot === null) {
     return <p className="hint">{t('commonRunning')}</p>;
@@ -53,13 +54,14 @@ export function ConnectPanel(): JSX.Element {
           </button>
         }
       >
-        <div className="row" style={{ marginBottom: 10 }}>
-          <Pill tone={docker.available ? 'ok' : 'err'}>
-            {docker.available ? t('statusDockerOk') : t('statusDockerNg')}
-          </Pill>
-          {docker.version === null ? null : <span className="tag">{`${t('dockerVersion')} ${docker.version}`}</span>}
-          {docker.apiVersion === null ? null : <span className="tag">{`${t('dockerApi')} ${docker.apiVersion}`}</span>}
-        </div>
+        <dl className="kv">
+          <dt>{t('dockerVersion')}</dt>
+          <dd>{docker.version ?? t('commonNone')}</dd>
+          <dt>{t('dockerApi')}</dt>
+          <dd>{docker.apiVersion ?? t('commonNone')}</dd>
+          <dt>OS</dt>
+          <dd>{docker.os ?? t('commonNone')}</dd>
+        </dl>
         {docker.available ? null : (
           <p className="hint warn">
             {t('dockerHint')}
@@ -99,15 +101,6 @@ export function ConnectPanel(): JSX.Element {
       </Section>
 
       <Section title={t('sectionContainer')}>
-        <div className="row" style={{ marginBottom: 10 }}>
-          <Pill tone={container.running ? 'ok' : container.exists ? 'warn' : 'idle'}>
-            {container.running
-              ? t('statusContainerRunning')
-              : container.exists
-                ? t('statusContainerStopped')
-                : t('statusContainerMissing')}
-          </Pill>
-        </div>
         <dl className="kv">
           <dt>{t('containerName')}</dt>
           <dd>{container.name}</dd>
@@ -248,6 +241,65 @@ export function ConnectPanel(): JSX.Element {
         <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
           {t('provisionHint')}
         </p>
+      </Section>
+
+      <Section title={t('sectionSession')}>
+        <p className="hint">{t('resetHint')}</p>
+        <p className="hint">{t('resetKeepsHint')}</p>
+
+        <Check
+          label={t('resetExportFirst')}
+          checked={config.exportBeforeReset}
+          onChange={(checked) => void run('config', () => window.cc.configSave({ exportBeforeReset: checked }))}
+        />
+        <Check label={t('resetRebuildImage')} checked={rebuildOnReset} onChange={setRebuildOnReset} />
+
+        <div className="row">
+          <button
+            className="btn primary"
+            disabled={working || !docker.available || !image.exists}
+            onClick={() => setConfirmReset(true)}
+            type="button"
+          >
+            <Sparkles size={14} /> {t('resetButton')}
+          </button>
+        </div>
+
+        {confirmReset ? (
+          <div className="banner error" style={{ marginTop: 12 }}>
+            <span>
+              {t('resetConfirm')}
+              {config.exportBeforeReset ? '' : ` ${t('resetWarnNoExport')}`}
+            </span>
+            <span className="spacer" />
+            <button
+              className="btn danger sm"
+              onClick={() => {
+                setConfirmReset(false);
+                void (async () => {
+                  const summary = await run('reset', () =>
+                    window.cc.containerReset({
+                      exportFirst: config.exportBeforeReset,
+                      rebuildImage: rebuildOnReset,
+                    }),
+                  );
+                  if (summary === null) return;
+                  setToast(
+                    summary.exportedTo === null
+                      ? t('resetDone')
+                      : `${t('resetDone')} — ${t('resetExported')}: ${summary.exportedTo}`,
+                  );
+                })();
+              }}
+              type="button"
+            >
+              {t('commonYes')}
+            </button>
+            <button className="btn sm" onClick={() => setConfirmReset(false)} type="button">
+              {t('commonCancel')}
+            </button>
+          </div>
+        ) : null}
       </Section>
 
       <Section

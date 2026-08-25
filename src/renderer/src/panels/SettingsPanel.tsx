@@ -1,5 +1,3 @@
-/** App-level settings: language, naming, launch behaviour, VS Code interop. */
-
 import { Code2, Copy, FileCode2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';

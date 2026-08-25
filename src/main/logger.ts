@@ -1,5 +1,3 @@
-/** Log fan-out: every line goes to stdout and, when a window exists, to the renderer's log pane. */
-
 import type { BrowserWindow } from 'electron';
 
 import { EVENTS } from '../shared/ipc.ts';
@@ -7,7 +5,6 @@ import type { LogLine } from '../shared/types.ts';
 
 let target: BrowserWindow | null = null;
 
-/** The most recent lines, replayed into a window that opens after logging started. */
 const backlog: LogLine[] = [];
 const BACKLOG_LIMIT = 500;
 
@@ -46,14 +43,12 @@ export function logError(stream: LogLine['stream'], text: string): void {
   log(stream, 'error', text);
 }
 
-/** Tell the renderer that container/image/config state moved, so it can re-fetch a snapshot. */
 export function notifyStateChanged(): void {
   if (target !== null && !target.isDestroyed()) {
     target.webContents.send(EVENTS.stateChanged);
   }
 }
 
-/** Normalizes anything thrown into a message safe to show in the UI. */
 export function describeError(error: unknown): string {
   if (error instanceof Error) {
     const cause = error.cause;

@@ -1,15 +1,3 @@
-/**
- * Endpoint profiles.
- *
- * A profile is the whole answer to "what am I pointing Claude Code at today":
- * base URL, credential, and the model each alias resolves to. Saving writes the
- * profile; Apply also pushes it into a running container.
- *
- * The editor keeps only *edits* in local state, each tagged with the profile id
- * it belongs to. Everything else is derived from the snapshot during render, so
- * switching profiles needs no effect and cannot leave a stale draft on screen.
- */
-
 import { Copy, ExternalLink, Eye, EyeOff, Plus, Save, Trash2, Upload } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -20,7 +8,6 @@ import { Check, DeferredTextField, Field, Section, TextField } from '../componen
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
-/** Stable empty array so `useApp` selectors do not hand back a new reference each render. */
 const NO_PROFILES: readonly Profile[] = [];
 
 function newProfileId(): string {
@@ -64,7 +51,6 @@ function textToEnv(text: string): Record<string, string> {
   return env;
 }
 
-/** An edit buffer, tagged so it is discarded the moment a different profile is selected. */
 interface Tagged<T> {
   readonly id: string;
   readonly value: T;
@@ -97,8 +83,6 @@ export function ProfilesPanel(): JSX.Element {
     envEdit !== null && envEdit.id === effectiveId ? envEdit.value : source === null ? '' : envToText(source.extraEnv);
   const secret = secretEdit !== null && secretEdit.id === effectiveId ? secretEdit.value : '';
 
-  // The only thing that genuinely needs an effect: the credential lives in the
-  // main process's encrypted store, not in the snapshot.
   useEffect(() => {
     if (effectiveId === null) return undefined;
     let cancelled = false;

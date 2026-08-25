@@ -1,82 +1,42 @@
-/**
- * Types shared by the main process, the preload bridge and the renderer.
- *
- * Everything here must stay structurally cloneable: these values cross the
- * `contextBridge` / `ipcRenderer` boundary, which uses the structured clone
- * algorithm and silently rejects class instances, functions and symbols.
- */
-
 export type Language = 'ja' | 'en';
 
-/**
- * Which HTTP header carries the credential.
- *
- * - `authToken` -> `ANTHROPIC_AUTH_TOKEN`, sent as `Authorization: Bearer <token>`.
- *   Claude Code never shows an approval prompt for this one, so it is the default.
- * - `apiKey` -> `ANTHROPIC_API_KEY`, sent as `X-Api-Key`. Interactive sessions ask
- *   you to approve the key once; {@link AppConfig.autoApproveApiKey} pre-answers that.
- */
 export type AuthMode = 'authToken' | 'apiKey';
 
-/** One endpoint + model + credential combination. The credential itself lives in the secret store. */
 export interface Profile {
   readonly id: string;
   readonly name: string;
-  /** `ANTHROPIC_BASE_URL`. No trailing slash. */
   readonly baseUrl: string;
   readonly authMode: AuthMode;
-  /** `ANTHROPIC_MODEL` — the model new sessions start on. */
   readonly model: string;
-  /** `ANTHROPIC_DEFAULT_SONNET_MODEL`. Empty string means "do not set". */
   readonly sonnetModel: string;
-  /** `ANTHROPIC_DEFAULT_OPUS_MODEL`. Empty string means "do not set". */
   readonly opusModel: string;
-  /** `ANTHROPIC_DEFAULT_HAIKU_MODEL` — also used for background tasks. */
   readonly haikuModel: string;
-  /** `API_TIMEOUT_MS`. `null` leaves Claude Code's own default in place. */
   readonly apiTimeoutMs: number | null;
-  /**
-   * `CLAUDE_CODE_MAX_CONTEXT_TOKENS` — the real context window of a model ID
-   * Claude Code does not recognize. Without it, auto-compaction runs against the
-   * 200k window Claude Code assumes for unknown IDs, throwing away context a
-   * 1M-token model could still hold. `null` leaves the assumption in place.
-   */
   readonly contextTokens: number | null;
-  /** `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` — blocks auto-update, telemetry, availability probes. */
   readonly disableNonEssentialTraffic: boolean;
-  /** `DISABLE_TELEMETRY`. */
   readonly disableTelemetry: boolean;
-  /** Extra `env` entries merged into `~/.claude/settings.json` last, so they win. */
   readonly extraEnv: Readonly<Record<string, string>>;
-  /** Free-form note shown in the profile list. */
   readonly note: string;
 }
 
-/** Persisted application configuration (`config.json` in Electron's `userData`). */
 export interface AppConfig {
   readonly version: 1;
   readonly language: Language;
   readonly activeProfileId: string | null;
   readonly profiles: readonly Profile[];
-  /** Docker container name. A single long-lived container is reused across profiles. */
   readonly containerName: string;
-  /** Tag of the locally built image. */
   readonly imageTag: string;
-  /** Named Docker volume mounted at `/home/claude`; survives container recreation. */
   readonly volumeName: string;
-  /** Re-assert `hasCompletedOnboarding: true` in `~/.claude.json` on every launch. */
   readonly autoOnboarding: boolean;
-  /** Pre-approve `ANTHROPIC_API_KEY` in `~/.claude.json` so interactive mode does not ask. */
   readonly autoApproveApiKey: boolean;
-  /** Pass `--dangerously-skip-permissions` when launching Claude Code. */
   readonly skipPermissions: boolean;
-  /** tmux session name used for the resumable Claude Code session. */
   readonly tmuxSession: string;
-  /** Last directory picked in the export dialog. */
   readonly lastExportDir: string | null;
+  readonly exportBeforeReset: boolean;
+  readonly extensions: Extensions;
+  readonly managed: ManagedNames;
 }
 
-/** Result of probing the Docker Engine. */
 export interface DockerStatus {
   readonly available: boolean;
   readonly version: string | null;
@@ -85,7 +45,6 @@ export interface DockerStatus {
   readonly error: string | null;
 }
 
-/** Whether the locally built image exists. */
 export interface ImageStatus {
   readonly tag: string;
   readonly exists: boolean;
@@ -94,19 +53,16 @@ export interface ImageStatus {
   readonly sizeBytes: number | null;
 }
 
-/** Lifecycle state of the workbench container. */
 export interface ContainerState {
   readonly name: string;
   readonly exists: boolean;
   readonly running: boolean;
-  /** Docker's own status string, e.g. `running`, `exited`, `created`. */
   readonly status: string;
   readonly id: string | null;
   readonly image: string | null;
   readonly startedAt: string | null;
 }
 
-/** A tmux session living inside the container. Attaching to one is how "reconnect" works. */
 export interface TmuxSession {
   readonly name: string;
   readonly windows: number;
@@ -116,7 +72,6 @@ export interface TmuxSession {
 
 export type FileKind = 'file' | 'dir' | 'link' | 'other';
 
-/** One entry in the in-container file browser. */
 export interface FileEntry {
   readonly name: string;
   readonly path: string;
@@ -126,14 +81,12 @@ export interface FileEntry {
   readonly modifiedAt: string;
 }
 
-/** Result of a non-interactive `docker exec`. */
 export interface ExecResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
 }
 
-/** Everything the renderer needs to paint the dashboard in one round trip. */
 export interface Snapshot {
   readonly config: AppConfig;
   readonly docker: DockerStatus;
@@ -144,7 +97,6 @@ export interface Snapshot {
   readonly platform: string;
 }
 
-/** A line of build / provisioning output streamed to the renderer. */
 export interface LogLine {
   readonly stream: 'build' | 'app' | 'provision';
   readonly level: 'info' | 'warn' | 'error';
@@ -152,7 +104,6 @@ export interface LogLine {
   readonly at: number;
 }
 
-/** Terminal payloads pushed from main to renderer. */
 export interface TerminalData {
   readonly id: string;
   readonly data: string;
@@ -163,12 +114,10 @@ export interface TerminalExit {
   readonly exitCode: number | null;
 }
 
-/** How a terminal tab was opened, so the UI can label and restart it. */
 export type TerminalKind = 'claude' | 'shell' | 'attach';
 
 export interface OpenTerminalRequest {
   readonly kind: TerminalKind;
-  /** For `attach`, the tmux session to attach to. Ignored otherwise. */
   readonly sessionName: string;
   readonly cols: number;
   readonly rows: number;
@@ -179,12 +128,85 @@ export interface OpenTerminalResult {
   readonly sessionName: string;
 }
 
-/** Uniform result wrapper so IPC never rejects across the bridge. */
 export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 
-/** Editable container-image sources, materialized into `userData/docker` on first run. */
 export interface ImageSources {
   readonly dockerfile: string;
+  readonly setup: string;
   readonly postCreate: string;
   readonly dir: string;
+}
+
+export interface ResetSummary {
+  readonly exportedTo: string | null;
+  readonly rebuiltImage: boolean;
+  readonly containerName: string;
+}
+
+export type McpTransport = 'stdio' | 'http' | 'sse';
+
+export interface McpServerConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly transport: McpTransport;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly timeoutMs: number | null;
+  readonly note: string;
+}
+
+export type MarketplaceSourceKind = 'github' | 'git';
+
+export interface MarketplaceConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: boolean;
+  readonly sourceKind: MarketplaceSourceKind;
+  readonly repo: string;
+  readonly url: string;
+  readonly autoUpdate: boolean;
+}
+
+export interface PluginConfig {
+  readonly id: string;
+  readonly plugin: string;
+  readonly marketplace: string;
+  readonly enabled: boolean;
+}
+
+export interface SkillConfig {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly body: string;
+  readonly files: readonly SkillFileConfig[];
+}
+
+export interface SkillFileConfig {
+  readonly path: string;
+  readonly content: string;
+}
+
+export interface Extensions {
+  readonly mcpServers: readonly McpServerConfig[];
+  readonly marketplaces: readonly MarketplaceConfig[];
+  readonly plugins: readonly PluginConfig[];
+  readonly skills: readonly SkillConfig[];
+}
+
+export interface ManagedNames {
+  readonly mcpServers: readonly string[];
+  readonly marketplaces: readonly string[];
+  readonly plugins: readonly string[];
+  readonly skills: readonly string[];
+}
+
+export interface McpServerStatus {
+  readonly name: string;
+  readonly status: string;
+  readonly healthy: boolean;
+  readonly detail: string;
 }

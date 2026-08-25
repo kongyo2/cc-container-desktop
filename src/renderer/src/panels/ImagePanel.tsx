@@ -1,5 +1,3 @@
-/** Editing the Dockerfile and the post-create script that define the container. */
-
 import { FolderOpen, Hammer, RotateCcw, Save } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
@@ -19,6 +17,7 @@ export function ImagePanel(): JSX.Element {
   const dockerAvailable = useApp((state) => state.snapshot?.docker.available === true);
 
   const [dockerfile, setDockerfile] = useState('');
+  const [setup, setSetup] = useState('');
   const [postCreate, setPostCreate] = useState('');
   const [dir, setDir] = useState('');
   const [dirty, setDirty] = useState(false);
@@ -32,14 +31,17 @@ export function ImagePanel(): JSX.Element {
         return;
       }
       setDockerfile(result.value.dockerfile);
+      setSetup(result.value.setup);
       setPostCreate(result.value.postCreate);
       setDir(result.value.dir);
       setDirty(false);
     })();
   }, [setError]);
 
+  const setupWired = dockerfile.includes('setup.sh');
+
   const save = async (): Promise<boolean> => {
-    const result = await window.cc.imageSourcesSave({ dockerfile, postCreate });
+    const result = await window.cc.imageSourcesSave({ dockerfile, setup, postCreate });
     if (!result.ok) {
       setError(result.error);
       return false;
@@ -83,6 +85,7 @@ export function ImagePanel(): JSX.Element {
                     return;
                   }
                   setDockerfile(result.value.dockerfile);
+                  setSetup(result.value.setup);
                   setPostCreate(result.value.postCreate);
                   setDirty(false);
                 })();
@@ -140,6 +143,21 @@ export function ImagePanel(): JSX.Element {
             language="plain"
             onChange={(value) => {
               setDockerfile(value);
+              setDirty(true);
+            }}
+          />
+        </div>
+      </Section>
+
+      <Section title={t('imageSetup')}>
+        <p className="hint">{t('imageSetupHint')}</p>
+        {setupWired ? null : <p className="hint warn">{t('imageSetupMissing')}</p>}
+        <div className="cm-fixed">
+          <CodeEditor
+            value={setup}
+            language="shell"
+            onChange={(value) => {
+              setSetup(value);
               setDirty(true);
             }}
           />

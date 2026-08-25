@@ -1,13 +1,3 @@
-/**
- * Reading and writing files inside the container.
- *
- * Directory listings come from a small Node program executed in the container —
- * `node` is guaranteed by the image, and JSON is the only listing format that
- * survives filenames with spaces, tabs or newlines in them. File contents move
- * through Docker's archive endpoints instead of `cat`, which keeps binary data
- * intact and lets the app set ownership explicitly.
- */
-
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -20,12 +10,6 @@ import type { FileEntry, FileKind } from '../../shared/types.ts';
 import { logInfo } from '../logger.ts';
 import { containerHandle, execCapture } from './container.ts';
 
-/**
- * Emits one JSON array describing a directory.
- *
- * Kept as a single line so it can be passed through `node -e` without a heredoc,
- * and written in CommonJS because the image's `node -e` has no ESM context.
- */
 const LIST_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
@@ -62,7 +46,6 @@ for (const name of names) {
 process.stdout.write(JSON.stringify(out));
 `;
 
-/** Turns the errno the listing script prints into something worth showing a user. */
 function describeListFailure(path: string, code: string): string {
   switch (code) {
     case 'ENOENT':
@@ -113,7 +96,6 @@ export async function listDirectory(path: string): Promise<readonly FileEntry[]>
   });
 }
 
-/** Reads a file out of the container as raw bytes via Docker's archive endpoint. */
 export async function readFileRaw(path: string): Promise<Buffer> {
   const archive = await containerHandle().getArchive({ path });
   const extract = tarStream.extract();
@@ -140,7 +122,6 @@ export async function readFileRaw(path: string): Promise<Buffer> {
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 
-/** Reads a file as text. Throws a translatable marker for binary or oversized content. */
 export async function readFileText(path: string): Promise<string> {
   const raw = await readFileRaw(path);
   if (raw.length > MAX_TEXT_BYTES) throw new Error('FILE_TOO_LARGE');
@@ -148,7 +129,6 @@ export async function readFileText(path: string): Promise<string> {
   return raw.toString('utf8');
 }
 
-/** Reads an existing file's permission bits, or `null` when there is no such file. */
 async function currentMode(path: string): Promise<number | null> {
   const result = await execCapture(['stat', '-c', '%a', path], { workdir: '/' });
   if (result.exitCode !== 0) return null;
@@ -156,13 +136,6 @@ async function currentMode(path: string): Promise<number | null> {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * Writes a file into the container, owned by the `claude` user.
- *
- * Omit `mode` to keep whatever the file already had — a `putArchive` entry sets
- * the mode outright, so a fixed default would silently strip the executable bit
- * off every script edited through the Files tab. New files get 0644.
- */
 export async function writeFileText(path: string, content: string, mode?: number): Promise<void> {
   const slash = path.lastIndexOf('/');
   const dir = slash <= 0 ? '/' : path.slice(0, slash);
@@ -192,12 +165,6 @@ function timestamp(): string {
   );
 }
 
-/**
- * Copies `/home/claude/workspace` out to the host.
- *
- * Extraction goes to a scratch directory first: a half-written export that shares
- * its name with a finished one is worse than no export at all.
- */
 export async function exportWorkspace(destinationRoot: string): Promise<string> {
   if (!existsSync(destinationRoot)) mkdirSync(destinationRoot, { recursive: true });
 
@@ -208,7 +175,6 @@ export async function exportWorkspace(destinationRoot: string): Promise<string> 
 
   const archive = await containerHandle().getArchive({ path: CONTAINER_WORKSPACE });
   try {
-    // `strip: 1` drops the leading `workspace/` component Docker puts in the tar.
     await pipeline(archive, tarFs.extract(scratchDir, { strip: 1 }));
     renameSync(scratchDir, finalDir);
   } catch (error) {
@@ -220,7 +186,6 @@ export async function exportWorkspace(destinationRoot: string): Promise<string> 
   return finalDir;
 }
 
-/** Saves a single container file to a host path — used by the Files tab's download action. */
 export async function downloadFile(containerPath: string, hostPath: string): Promise<void> {
   const raw = await readFileRaw(containerPath);
   const out = createWriteStream(hostPath);

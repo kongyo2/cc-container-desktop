@@ -1,5 +1,3 @@
-/** Scrollback for build and provisioning output, pinned to the bottom while the user is there. */
-
 import type { JSX } from 'react';
 import { useEffect, useRef } from 'react';
 
@@ -29,7 +27,6 @@ export function LogPane(): JSX.Element {
       ref={ref}
       onScroll={(event) => {
         const node = event.currentTarget;
-        // Re-pin only when the user scrolls back to within a line of the bottom.
         pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
       }}
     >

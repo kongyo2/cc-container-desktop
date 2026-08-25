@@ -1,13 +1,3 @@
-/**
- * Lifecycle of the single long-lived workbench container.
- *
- * One container is reused across every profile: switching profiles rewrites
- * `~/.claude/settings.json` inside it rather than spinning up a second box. The
- * container itself only idles (`sleep infinity`); all real work happens in
- * `docker exec` sessions, which is what makes reattaching to a running Claude
- * Code possible.
- */
-
 import type { Container } from 'dockerode';
 import { PassThrough } from 'node:stream';
 
@@ -17,7 +7,6 @@ import { getConfig } from '../config/store.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
 import { docker, isNotFound } from './engine.ts';
 
-/** Marks containers and volumes this app created, so cleanup can tell them apart. */
 const MANAGED_LABEL = 'com.cc-container-desktop.managed';
 
 export function containerHandle(): Container {
@@ -43,7 +32,6 @@ export async function inspectContainer(): Promise<ContainerState> {
       status: raw.State?.Status ?? 'unknown',
       id: raw.Id ?? null,
       image: raw.Config?.Image ?? raw.Image ?? null,
-      // Docker reports a zero timestamp for a container that has never started.
       startedAt: running ? (raw.State?.StartedAt ?? null) : null,
     };
   } catch (error) {
@@ -88,13 +76,10 @@ async function createContainer(): Promise<void> {
   });
 }
 
-/** Creates the container if needed, then starts it. Safe to call when already running. */
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
 
   if (state.exists && state.image !== null && state.image !== getConfig().imageTag) {
-    // The image tag changed under a container that still points at the old one;
-    // recreate rather than silently keeping the stale image.
     logInfo(
       'app',
       `イメージが変わったのでコンテナを作り直します / recreating container for image ${getConfig().imageTag}`,
@@ -156,13 +141,6 @@ export interface ExecOptions {
   readonly stdin?: string;
 }
 
-/**
- * Runs a command to completion and captures its output.
- *
- * Deliberately not a TTY: with `Tty: true` Docker merges stdout and stderr into
- * one stream and injects carriage returns, which is exactly wrong for anything
- * the app has to parse.
- */
 export async function execCapture(command: readonly string[], options: ExecOptions = {}): Promise<ExecResult> {
   const container = containerHandle();
   const wantsStdin = options.stdin !== undefined;
@@ -198,9 +176,6 @@ export async function execCapture(command: readonly string[], options: ExecOptio
     stream.on('error', reject);
   });
 
-  // The demuxed halves are separate streams: the source ending does not mean
-  // their `data` events have all fired yet. Wait for each to drain, or the last
-  // few bytes of output go missing at random.
   const drained = (channel: PassThrough): Promise<void> =>
     new Promise<void>((resolve) => {
       if (channel.writableEnded) {
@@ -219,7 +194,6 @@ export async function execCapture(command: readonly string[], options: ExecOptio
   };
 }
 
-/** Like {@link execCapture} but throws when the command fails, with stderr in the message. */
 export async function execChecked(command: readonly string[], options: ExecOptions = {}): Promise<string> {
   const result = await execCapture(command, options);
   if (result.exitCode !== 0) {
@@ -229,14 +203,6 @@ export async function execChecked(command: readonly string[], options: ExecOptio
   return result.stdout;
 }
 
-/* ----------------------------------- tmux ---------------------------------- */
-
-/**
- * Lists tmux sessions inside the container.
- *
- * `tmux list-sessions` exits 1 with "no server running" when nothing is up,
- * which is a normal state here rather than an error worth surfacing.
- */
 export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
   const state = await inspectContainer();
   if (!state.running) return [];
@@ -268,17 +234,9 @@ export async function killTmuxSession(name: string): Promise<void> {
   }
 }
 
-/** The one message the UI should show for "you need to start the container first". */
 export const NOT_RUNNING_MESSAGE =
   'コンテナが起動していません。「接続」タブから起動してください。 / The container is not running — start it from the Connect tab.';
 
-/**
- * Fails with a sentence the user can act on, instead of Docker's
- * `(HTTP code 404) no such container`.
- *
- * Checking first still races a container that stops mid-call, so
- * {@link translateContainerError} rewrites the 404 as well.
- */
 export async function requireRunning(): Promise<void> {
   let state: ContainerState;
   try {
@@ -289,7 +247,6 @@ export async function requireRunning(): Promise<void> {
   if (!state.running) throw new Error(NOT_RUNNING_MESSAGE);
 }
 
-/** Rewrites a "no such container" failure; anything else is passed through untouched. */
 export function translateContainerError(error: unknown): unknown {
   if (!isNotFound(error)) return error;
   const message = describeError(error);
@@ -297,7 +254,6 @@ export function translateContainerError(error: unknown): unknown {
   return new Error(NOT_RUNNING_MESSAGE, { cause: error });
 }
 
-/** Runs `action`, converting a missing-container failure into {@link NOT_RUNNING_MESSAGE}. */
 export async function withRunningContainer<T>(action: () => Promise<T>): Promise<T> {
   await requireRunning();
   try {

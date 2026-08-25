@@ -1,22 +1,3 @@
-/**
- * End-to-end check against a real Docker daemon and a real endpoint.
- *
- * Launches the built Electron app, drives it through its own IPC surface, and
- * asserts the whole chain: build → container → provision → Claude Code answers
- * over the configured endpoint.
- *
- * Usage:
- *   CC_E2E_API_KEY=sk-... \
- *   CC_E2E_BASE_URL=https://openrouter.ai/api \
- *   CC_E2E_MODEL=stealth/ox-alpha \
- *   xvfb-run -a node tests/e2e/workbench.mjs
- *
- * Set CC_E2E_SCREENSHOT_DIR to collect screenshots of each tab.
- *
- * Plain JavaScript on purpose: this harness runs straight from `node` with no
- * build step, so it can be used to check a packaged build as well as a local one.
- */
-
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
@@ -52,17 +33,19 @@ function check(label, condition, detail = '') {
   return condition;
 }
 
-/** Runs one `window.cc.*` call in the renderer and unwraps the Result. */
 async function call(page, method, args = []) {
-  const result = await page.evaluate(
-    ([name, callArgs]) => window.cc[name](...callArgs),
-    /** @type {[string, unknown[]]} */ ([method, args]),
-  );
+  const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
   if (result === null || typeof result !== 'object' || !('ok' in result)) {
     throw new Error(`${method}: unexpected reply ${JSON.stringify(result)}`);
   }
   if (!result.ok) throw new Error(`${method}: ${result.error}`);
   return result.value;
+}
+
+function isTransient(text) {
+  return /rate.?limit|429|50[234]|overloaded|temporarily|empty or malformed response|Provider returned error/iu.test(
+    text,
+  );
 }
 
 async function shoot(page, name) {
@@ -164,16 +147,24 @@ try {
 
   console.log('\n[6] Claude Code answers over the endpoint');
   const marker = `E2E-${Date.now().toString(36).toUpperCase()}`;
-  const probe = await call(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        `node /opt/cc/onboard.cjs && claude --dangerously-skip-permissions -p 'Reply with exactly this token and nothing else: ${marker}'`,
-      ],
-      asRoot: false,
-    },
-  ]);
+  let probe = { exitCode: -1, stdout: '', stderr: '' };
+  /* oxlint-disable no-await-in-loop */
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    probe = await call(page, 'containerExec', [
+      {
+        command: [
+          'bash',
+          '-lc',
+          `node /opt/cc/onboard.cjs && claude --dangerously-skip-permissions -p 'Reply with exactly this token and nothing else: ${marker}'`,
+        ],
+        asRoot: false,
+      },
+    ]);
+    if (probe.exitCode === 0 || !isTransient(`${probe.stdout}${probe.stderr}`)) break;
+    console.log(`    … upstream busy, retrying (${attempt}/4)`);
+    await page.waitForTimeout(6000 * attempt);
+  }
+  /* oxlint-enable no-await-in-loop */
   const transcript = `${probe.stdout}${probe.stderr}`.trim();
   check('claude -p exited 0', probe.exitCode === 0, `exit ${probe.exitCode}: ${transcript.slice(0, 400)}`);
   check('model echoed the marker', transcript.includes(marker), transcript.slice(0, 400));
@@ -203,20 +194,19 @@ try {
   await call(page, 'termClose', [reattach.id]);
 
   console.log('\n[8] UI renders every tab');
-  // Walking the tabs is inherently sequential — click, settle, screenshot, next —
-  // so the usual "await in a loop" advice does not apply here.
   /* oxlint-disable no-await-in-loop */
   for (const [tab, label] of [
     ['terminal', '02-terminal'],
     ['files', '03-files'],
     ['profiles', '04-profiles'],
+    ['extensions', '04b-extensions'],
     ['image', '05-image'],
     ['settings', '06-settings'],
     ['connect', '07-connect'],
   ]) {
     await page.evaluate((id) => {
       const buttons = [...document.querySelectorAll('.sidebar button')];
-      const order = ['connect', 'terminal', 'files', 'profiles', 'image', 'settings'];
+      const order = ['connect', 'terminal', 'files', 'profiles', 'extensions', 'image', 'settings'];
       buttons[order.indexOf(id)]?.click();
     }, tab);
     await page.waitForTimeout(900);

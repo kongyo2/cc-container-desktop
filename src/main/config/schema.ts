@@ -1,11 +1,3 @@
-/**
- * Zod schemas for the on-disk configuration.
- *
- * The config file is hand-editable and survives app upgrades, so it is parsed
- * defensively: a malformed or partial file falls back to defaults per field
- * rather than taking the app down.
- */
-
 import { z } from 'zod';
 
 import {
@@ -15,11 +7,8 @@ import {
   DEFAULT_VOLUME_NAME,
   ENDPOINT_PRESETS,
 } from '../../shared/presets.ts';
-import type { AppConfig, Profile } from '../../shared/types.ts';
+import type { AppConfig, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
 
-// Both schemas stay module-local: their inferred zod types are enormous, and
-// `isolatedDeclarations` would demand they be written out by hand for no gain.
-// `parseConfig` is the only thing outside this file needs.
 const profileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -37,6 +26,64 @@ const profileSchema = z.object({
   note: z.string().default(''),
 });
 
+const mcpNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/u);
+
+const mcpServerSchema = z.object({
+  id: z.string().min(1),
+  name: mcpNameSchema,
+  enabled: z.boolean().default(true),
+  transport: z.enum(['stdio', 'http', 'sse']).default('http'),
+  command: z.string().default(''),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string(), z.string()).default({}),
+  url: z.string().default(''),
+  headers: z.record(z.string(), z.string()).default({}),
+  timeoutMs: z.number().int().positive().nullable().default(null),
+  note: z.string().default(''),
+});
+
+const marketplaceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  enabled: z.boolean().default(true),
+  sourceKind: z.enum(['github', 'git']).default('github'),
+  repo: z.string().default(''),
+  url: z.string().default(''),
+  autoUpdate: z.boolean().default(false),
+});
+
+const pluginSchema = z.object({
+  id: z.string().min(1),
+  plugin: z.string().min(1),
+  marketplace: z.string().min(1),
+  enabled: z.boolean().default(true),
+});
+
+const skillSchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().default(true),
+  body: z.string().default(''),
+  files: z.array(z.object({ path: z.string().min(1), content: z.string().default('') })).default([]),
+});
+
+const extensionsSchema = z.object({
+  mcpServers: z.array(mcpServerSchema).default([]),
+  marketplaces: z.array(marketplaceSchema).default([]),
+  plugins: z.array(pluginSchema).default([]),
+  skills: z.array(skillSchema).default([]),
+});
+
+const managedSchema = z.object({
+  mcpServers: z.array(z.string()).default([]),
+  marketplaces: z.array(z.string()).default([]),
+  plugins: z.array(z.string()).default([]),
+  skills: z.array(z.string()).default([]),
+});
+
 const appConfigSchema = z.object({
   version: z.literal(1).default(1),
   language: z.enum(['ja', 'en']).default('ja'),
@@ -50,9 +97,11 @@ const appConfigSchema = z.object({
   skipPermissions: z.boolean().default(true),
   tmuxSession: z.string().min(1).default(DEFAULT_TMUX_SESSION),
   lastExportDir: z.string().nullable().default(null),
+  exportBeforeReset: z.boolean().default(true),
+  extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skills: [] }),
+  managed: managedSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skills: [] }),
 });
 
-/** A ready-to-use OpenRouter profile, so a fresh install has something to point at. */
 export function starterProfile(): Profile {
   const openrouter = ENDPOINT_PRESETS.find((preset) => preset.id === 'openrouter');
   return {
@@ -73,6 +122,14 @@ export function starterProfile(): Profile {
   };
 }
 
+export function emptyExtensions(): Extensions {
+  return { mcpServers: [], marketplaces: [], plugins: [], skills: [] };
+}
+
+export function emptyManagedNames(): ManagedNames {
+  return { mcpServers: [], marketplaces: [], plugins: [], skills: [] };
+}
+
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
   return {
@@ -88,10 +145,12 @@ export function defaultConfig(): AppConfig {
     skipPermissions: true,
     tmuxSession: DEFAULT_TMUX_SESSION,
     lastExportDir: null,
+    exportBeforeReset: true,
+    extensions: emptyExtensions(),
+    managed: emptyManagedNames(),
   };
 }
 
-/** Parses whatever was on disk, filling in defaults field by field. */
 export function parseConfig(raw: unknown): AppConfig {
   const parsed = appConfigSchema.safeParse(raw);
   if (!parsed.success) return defaultConfig();
@@ -109,5 +168,8 @@ export function parseConfig(raw: unknown): AppConfig {
     skipPermissions: value.skipPermissions,
     tmuxSession: value.tmuxSession,
     lastExportDir: value.lastExportDir,
+    exportBeforeReset: value.exportBeforeReset,
+    extensions: value.extensions,
+    managed: value.managed,
   };
 }

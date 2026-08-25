@@ -1,29 +1,16 @@
-/**
- * Pushing the active profile into the container.
- *
- * Three files matter:
- *
- *  - `~/.claude.json` — carries `hasCompletedOnboarding`. Merged, never replaced,
- *    so session history and per-project state survive.
- *  - `~/.claude/settings.json` — carries the `env` block that points Claude Code
- *    at the endpoint. Only `env` is replaced; anything else you add by hand
- *    (hooks, permissions, statusLine) is preserved.
- *  - `/opt/cc/onboard.cjs` + `/opt/cc/launch.sh` — regenerated each time, so the
- *    onboarding flags get re-asserted at the moment Claude Code actually starts,
- *    not just when the app last provisioned.
- */
-
 import { readFileSync } from 'node:fs';
 
 import { CONTAINER_HOME, CONTAINER_SCRIPT_DIR, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import type { AppConfig, Profile } from '../../shared/types.ts';
-import { getActiveProfile, getConfig, getSecret } from '../config/store.ts';
+import { getActiveProfile, getConfig, getSecret, patchConfig } from '../config/store.ts';
 import { execCapture, execChecked } from '../docker/container.ts';
 import { readFileRaw, writeFileText } from '../docker/files.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
 import { ensureImageSources } from '../docker/image.ts';
+import { planExtensions, writeSkills } from './extensions.ts';
 import { postCreatePath } from '../paths.ts';
 
+const CLAUDE_JSON = `${CONTAINER_HOME}/.claude.json`;
 const CLAUDE_DIR = `${CONTAINER_HOME}/.claude`;
 const SETTINGS_JSON = `${CLAUDE_DIR}/settings.json`;
 const TMUX_CONF = `${CONTAINER_HOME}/.tmux.conf`;
@@ -32,21 +19,12 @@ const ONBOARD_SCRIPT = `${CONTAINER_SCRIPT_DIR}/onboard.cjs`;
 const LAUNCH_SCRIPT = `${CONTAINER_SCRIPT_DIR}/launch.sh`;
 const POST_CREATE_SCRIPT = `${CONTAINER_SCRIPT_DIR}/post-create.sh`;
 
-/**
- * Builds the `env` block Claude Code reads at startup.
- *
- * Only non-empty values are emitted: an empty string means "unset" to Claude
- * Code's provider selection, and writing one would actively cancel a value the
- * user exported in the container's shell.
- */
 export function buildEnvBlock(profile: Profile, secret: string): Record<string, string> {
   const env: Record<string, string> = {};
 
   if (profile.baseUrl !== '') env['ANTHROPIC_BASE_URL'] = profile.baseUrl;
 
   if (secret !== '') {
-    // Exactly one of these: leaving the other set would make Claude Code send
-    // both headers, and gateways differ on which one wins.
     if (profile.authMode === 'authToken') env['ANTHROPIC_AUTH_TOKEN'] = secret;
     else env['ANTHROPIC_API_KEY'] = secret;
   }
@@ -58,19 +36,13 @@ export function buildEnvBlock(profile: Profile, secret: string): Record<string, 
 
   if (profile.apiTimeoutMs !== null) env['API_TIMEOUT_MS'] = String(profile.apiTimeoutMs);
 
-  // Claude Code assumes a 200k window for a model ID it does not recognize, and
-  // proactively compacts against that. Declaring the real window keeps a
-  // large-context third-party model from being compacted away at 200k.
   if (profile.contextTokens !== null) env['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] = String(profile.contextTokens);
 
   if (profile.disableTelemetry) env['DISABLE_TELEMETRY'] = '1';
   if (profile.disableNonEssentialTraffic) env['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'] = '1';
 
-  // The image owns the Claude Code version; an in-place update would only land
-  // in the container's throwaway layer and vanish on the next rebuild.
   env['DISABLE_AUTOUPDATER'] = '1';
 
-  // User-supplied entries go last so they can override anything above.
   for (const [key, value] of Object.entries(profile.extraEnv)) {
     if (key.trim() === '') continue;
     env[key.trim()] = value;
@@ -79,7 +51,6 @@ export function buildEnvBlock(profile: Profile, secret: string): Record<string, 
   return env;
 }
 
-/** The patch merged into `~/.claude.json` on every launch. */
 function onboardingPatch(config: AppConfig, profile: Profile | null, secret: string): Record<string, unknown> {
   const patch: Record<string, unknown> = {
     hasCompletedOnboarding: true,
@@ -92,9 +63,6 @@ function onboardingPatch(config: AppConfig, profile: Profile | null, secret: str
     },
   };
 
-  // Claude Code asks for one-time approval before an ANTHROPIC_API_KEY overrides
-  // a subscription. It records the decision against a truncated form of the key,
-  // so both forms go in — a wrong guess is inert, a missing one costs a prompt.
   if (config.autoApproveApiKey && profile?.authMode === 'apiKey' && secret !== '') {
     patch['customApiKeyResponses'] = { approved: [secret.slice(-20), secret], rejected: [] };
   }
@@ -102,8 +70,7 @@ function onboardingPatch(config: AppConfig, profile: Profile | null, secret: str
   return patch;
 }
 
-/** A CommonJS one-file merger, run inside the container as the `claude` user. */
-function onboardScriptSource(patch: Record<string, unknown>): string {
+function onboardScriptSource(patch: Record<string, unknown>, replaceKeys: readonly string[]): string {
   return `#!/usr/bin/env node
 // Generated by cc-container-desktop. Re-asserts Claude Code's onboarding flags.
 // Regenerated on every provision; edits here are lost.
@@ -114,15 +81,17 @@ const path = require('path');
 
 const target = path.join(process.env.HOME || os.homedir(), '.claude.json');
 const patch = ${JSON.stringify(patch, null, 2)};
+const replaceKeys = new Set(${JSON.stringify(replaceKeys)});
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function merge(base, extra) {
+function merge(base, extra, top) {
   const out = isPlainObject(base) ? { ...base } : {};
   for (const [key, value] of Object.entries(extra)) {
-    out[key] = isPlainObject(value) ? merge(out[key], value) : value;
+    if (top && replaceKeys.has(key)) out[key] = value;
+    else out[key] = isPlainObject(value) ? merge(out[key], value, false) : value;
   }
   return out;
 }
@@ -135,14 +104,13 @@ try {
 }
 if (!isPlainObject(current)) current = {};
 
-const next = merge(current, patch);
+const next = merge(current, patch, true);
 const tmp = target + '.tmp';
 fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\\n');
 fs.renameSync(tmp, target);
 `;
 }
 
-/** The wrapper tmux runs. Re-onboards, then hands the terminal to Claude Code. */
 function launchScriptSource(config: AppConfig): string {
   const flags = config.skipPermissions ? ' --dangerously-skip-permissions' : '';
   return `#!/usr/bin/env bash
@@ -178,7 +146,6 @@ async function fileExists(path: string): Promise<boolean> {
   return result.exitCode === 0;
 }
 
-/** Reads a JSON file from the container, tolerating absence and corruption. */
 async function readJsonFromContainer(path: string): Promise<Record<string, unknown>> {
   if (!(await fileExists(path))) return {};
   try {
@@ -196,11 +163,6 @@ async function readJsonFromContainer(path: string): Promise<Record<string, unkno
   }
 }
 
-/**
- * Writes the profile into the container and returns a human-readable summary.
- *
- * Safe to call repeatedly; every step is idempotent.
- */
 export async function provisionContainer(): Promise<string> {
   const config = getConfig();
   const profile = getActiveProfile();
@@ -209,18 +171,20 @@ export async function provisionContainer(): Promise<string> {
   await execChecked(['mkdir', '-p', CLAUDE_DIR, CONTAINER_WORKSPACE], { workdir: '/' });
   await execChecked(['mkdir', '-p', CONTAINER_SCRIPT_DIR], { workdir: '/', asRoot: true });
 
-  // 1. Onboarding flags. The generated script is the single implementation, so
-  //    the app and the launch wrapper cannot drift apart.
-  const patch = onboardingPatch(config, profile, secret);
-  await writeFileText(ONBOARD_SCRIPT, onboardScriptSource(patch), 0o755);
+  const existingClaudeJson = await readJsonFromContainer(CLAUDE_JSON);
+  const existingSettings = await readJsonFromContainer(SETTINGS_JSON);
+  const plan = planExtensions(config.extensions, config.managed, existingClaudeJson, existingSettings);
+  for (const warning of plan.warnings) logWarn('provision', warning);
+
+  const patch = { ...onboardingPatch(config, profile, secret), ...plan.claudeJson };
+  const replaceKeys = Object.keys(plan.claudeJson);
+  await writeFileText(ONBOARD_SCRIPT, onboardScriptSource(patch, replaceKeys), 0o755);
   await writeFileText(LAUNCH_SCRIPT, launchScriptSource(config), 0o755);
   if (config.autoOnboarding) {
     await execChecked(['node', ONBOARD_SCRIPT], { workdir: CONTAINER_HOME });
   }
 
-  // 2. settings.json — replace `env`, keep every other key the user added.
-  const existing = await readJsonFromContainer(SETTINGS_JSON);
-  const settings: Record<string, unknown> = { ...existing };
+  const settings: Record<string, unknown> = { ...existingSettings, ...plan.settings };
   if (profile === null) {
     delete settings['env'];
   } else {
@@ -228,12 +192,13 @@ export async function provisionContainer(): Promise<string> {
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  // 3. tmux defaults, only when the user has not written their own.
+  await writeSkills(plan);
+  patchConfig({ managed: plan.managed });
+
   if (!(await fileExists(TMUX_CONF))) {
     await writeFileText(TMUX_CONF, TMUX_CONF_SOURCE, 0o644);
   }
 
-  // 4. The editable post-create hook, pushed in fresh and run.
   ensureImageSources();
   const postCreate = readFileSync(postCreatePath(), 'utf8').replaceAll('\r\n', '\n');
   await writeFileText(POST_CREATE_SCRIPT, postCreate, 0o755);
@@ -248,18 +213,21 @@ export async function provisionContainer(): Promise<string> {
     );
   }
 
+  const extras: string[] = [];
+  if (plan.managed.mcpServers.length > 0) extras.push(`MCP ${plan.managed.mcpServers.length}`);
+  if (plan.managed.plugins.length > 0) extras.push(`plugins ${plan.managed.plugins.length}`);
+  if (plan.skills.length > 0) extras.push(`skills ${plan.skills.length}`);
+
   const summary =
-    profile === null
+    (profile === null
       ? 'プロファイル未選択のまま設定を書き込みました / provisioned without a profile'
       : `${profile.name} → ${profile.baseUrl || '(base URL 未設定)'} / ${profile.model || '(model 未設定)'}` +
-        `${secret === '' ? ' — API キー未設定 / no API key' : ''}`;
+        `${secret === '' ? ' — API キー未設定 / no API key' : ''}`) +
+    (extras.length === 0 ? '' : ` — ${extras.join(', ')}`);
   logInfo('provision', `設定を書き込みました / provisioned: ${summary}`);
   return summary;
 }
 
-/** The command tmux should run for a Claude Code session. */
 export function claudeLaunchCommand(): string {
-  // Falling back to a login shell keeps the tmux session alive after Claude Code
-  // exits, so "reattach" lands somewhere useful instead of a dead session.
   return `${LAUNCH_SCRIPT}; exec bash -l`;
 }

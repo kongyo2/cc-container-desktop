@@ -1,11 +1,3 @@
-/**
- * Docker Engine access.
- *
- * One lazily-created `Dockerode` instance for the whole process. Connection
- * details come from `DOCKER_HOST` when set, and otherwise from the platform
- * default — the named pipe on Windows, the unix socket elsewhere.
- */
-
 import Docker from 'dockerode';
 
 import type { DockerStatus, ImageStatus } from '../../shared/types.ts';
@@ -18,7 +10,6 @@ export function docker(): Docker {
 
   const host = process.env['DOCKER_HOST'];
   if (host !== undefined && host !== '') {
-    // dockerode parses `tcp://`, `npipe://` and `unix://` forms out of the URL.
     client = new Docker();
   } else if (process.platform === 'win32') {
     client = new Docker({ socketPath: '//./pipe/docker_engine' });
@@ -76,7 +67,6 @@ export async function inspectImage(tag: string): Promise<ImageStatus> {
   }
 }
 
-/** True when the error carries Docker's 404, i.e. "no such container/volume/image". */
 export function isNotFound(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const status = (error as { statusCode?: unknown }).statusCode;

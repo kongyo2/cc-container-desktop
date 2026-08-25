@@ -1,16 +1,3 @@
-/**
- * VS Code interop.
- *
- * Two independent things live here:
- *
- *  - Attaching VS Code to the *running* container, which is what the Dev
- *    Containers extension's "Attach to Running Container" does. The URI it uses
- *    is `vscode-remote://attached-container+<hex>/<path>`, where `<hex>` is the
- *    hex-encoded JSON `{"containerName":"/<name>"}`.
- *  - Writing a `.devcontainer/` folder, for driving the same image from VS Code
- *    without this app in the loop.
- */
-
 import { spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,21 +14,12 @@ export function attachedContainerUri(containerName: string, path: string): strin
   return `vscode-remote://attached-container+${Buffer.from(payload, 'utf8').toString('hex')}${path}`;
 }
 
-/**
- * Opens the container in VS Code.
- *
- * The URI is returned whether or not the spawn worked: on a machine where `code`
- * is not on PATH the user can still paste it into VS Code's "Open Folder from
- * URI", and a silent failure would leave them with nothing.
- */
 export async function openInVscode(): Promise<VscodeAttachResult> {
   const config = getConfig();
   const uri = attachedContainerUri(config.containerName, CONTAINER_WORKSPACE);
 
   const launched = await new Promise<boolean>((resolve) => {
     try {
-      // `shell: true` is what makes this work on Windows, where `code` is a .cmd
-      // shim that CreateProcess cannot execute directly.
       const child = spawn('code', ['--folder-uri', uri], {
         shell: true,
         detached: true,
@@ -79,8 +57,6 @@ function devcontainerJson(): string {
     name: 'cc-workbench',
     build: { dockerfile: 'Dockerfile' },
     remoteUser: CONTAINER_USER,
-    // Replace the default host bind with the same named volume the app uses, so
-    // both entry points see one workspace.
     workspaceMount: `source=${config.volumeName},target=/home/claude,type=volume`,
     workspaceFolder: CONTAINER_WORKSPACE,
     postCreateCommand: 'bash .devcontainer/post-create.sh',
@@ -95,7 +71,6 @@ function devcontainerJson(): string {
   return `${JSON.stringify(definition, null, 2)}\n`;
 }
 
-/** Writes `.devcontainer/{devcontainer.json,Dockerfile,post-create.sh}` under `hostDir`. */
 export function writeDevcontainer(hostDir: string): string {
   ensureImageSources();
   const dir = join(hostDir, '.devcontainer');

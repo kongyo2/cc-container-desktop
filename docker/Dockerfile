@@ -75,6 +75,15 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
 # Scratch space for scripts the app pushes in at container start.
 RUN mkdir -p /opt/cc && chmod 0755 /opt/cc
 
+# Your setup script, baked into the image.
+#
+# This layer is what makes "New session" cheap: the image is the snapshot every
+# fresh container starts from, so whatever `setup.sh` installs survives a reset
+# without being reinstalled. Keep it last so editing it does not invalidate the
+# expensive layers above.
+COPY setup.sh /opt/cc/setup.sh
+RUN chmod 0755 /opt/cc/setup.sh && bash /opt/cc/setup.sh
+
 RUN mkdir -p /home/claude/workspace && chown -R 1000:1000 /home/claude
 
 USER claude

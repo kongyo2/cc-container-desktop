@@ -1,30 +1,25 @@
-/**
- * IPC handlers.
- *
- * Every handler resolves to a {@link Result} instead of rejecting: a rejected
- * `invoke` reaches the renderer as an opaque `Error: Error invoking remote
- * method`, which is useless to show a user. Failures come back as data with a
- * message the UI can render as-is.
- */
-
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 
 import { CHANNELS } from '../shared/ipc.ts';
-import type { BuildRequest, ExecRequest, VscodeAttachResult, WriteFileRequest } from '../shared/ipc.ts';
+import type { BuildRequest, ExecRequest, ResetRequest, VscodeAttachResult, WriteFileRequest } from '../shared/ipc.ts';
 import { CONTAINER_WORKSPACE } from '../shared/presets.ts';
 import type {
   AppConfig,
   ExecResult,
+  Extensions,
   FileEntry,
   ImageSources,
   Language,
+  McpServerStatus,
   OpenTerminalRequest,
   OpenTerminalResult,
   Profile,
+  ResetSummary,
   Result,
   Snapshot,
   TmuxSession,
 } from '../shared/types.ts';
+import { readMcpStatus } from './claude/extensions.ts';
 import { provisionContainer } from './claude/provision.ts';
 import {
   activateProfile,
@@ -54,8 +49,8 @@ import { buildImage, readImageSources, resetImageSources, writeImageSources } fr
 import { closeTerminal, openTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
 import { openInVscode, writeDevcontainer } from './integrations/vscode.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
+import { resetContainer } from './reset.ts';
 
-/** Filled in by {@link registerIpc}; read by `snapshot()` below. */
 let appVersion = '0.0.0';
 
 function handle<A extends readonly unknown[], T>(channel: string, fn: (...args: A) => Promise<T> | T): void {
@@ -122,7 +117,6 @@ async function pickDirectory(defaultPath: string | null): Promise<string | null>
 export function registerIpc(version: string): void {
   appVersion = version;
 
-  /* ---------------------------------- app --------------------------------- */
   handle<[], Snapshot>(CHANNELS.snapshot, snapshot);
   handle<[Language], AppConfig>(CHANNELS.setLanguage, (language) => {
     const next = patchConfig({ language });
@@ -138,7 +132,6 @@ export function registerIpc(version: string): void {
     return null;
   });
 
-  /* -------------------------------- config -------------------------------- */
   handle<[Partial<AppConfig>], AppConfig>(CHANNELS.configSave, (patch) => {
     const next = patchConfig(patch);
     notifyStateChanged();
@@ -165,7 +158,6 @@ export function registerIpc(version: string): void {
     return null;
   });
 
-  /* -------------------------------- docker -------------------------------- */
   handle<[], Snapshot>(CHANNELS.dockerProbe, snapshot);
   handle<[BuildRequest], null>(CHANNELS.imageBuild, async (request) => {
     await buildImage(getConfig().imageTag, request.noCache);
@@ -173,12 +165,12 @@ export function registerIpc(version: string): void {
     return null;
   });
   handle<[], ImageSources>(CHANNELS.imageSourcesGet, readImageSources);
-  handle<[Pick<ImageSources, 'dockerfile' | 'postCreate'>], ImageSources>(CHANNELS.imageSourcesSave, (sources) =>
-    writeImageSources(sources),
+  handle<[Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>], ImageSources>(
+    CHANNELS.imageSourcesSave,
+    (sources) => writeImageSources(sources),
   );
   handle<[], ImageSources>(CHANNELS.imageSourcesReset, resetImageSources);
 
-  /* ------------------------------- container ------------------------------ */
   handle<[], Snapshot>(CHANNELS.containerUp, async () => {
     await startContainer();
     await provisionContainer();
@@ -211,15 +203,30 @@ export function registerIpc(version: string): void {
     return summary;
   });
   handle<[], VscodeAttachResult>(CHANNELS.containerVscode, openInVscode);
+  handle<[Extensions], AppConfig>(CHANNELS.extensionsSave, (extensions) => {
+    const next = patchConfig({ extensions });
+    notifyStateChanged();
+    return next;
+  });
+  handle<[], readonly McpServerStatus[]>(CHANNELS.mcpStatus, () => withRunningContainer(readMcpStatus));
 
-  /* --------------------------------- tmux --------------------------------- */
+  handle<[ResetRequest], ResetSummary>(CHANNELS.containerReset, async (request) => {
+    let destination: string | null = null;
+    if (request.exportFirst) {
+      destination = getConfig().lastExportDir ?? (await pickDirectory(null));
+      if (destination === null) throw new Error('取り出し先が選ばれませんでした / no export directory chosen');
+    }
+    const summary = await resetContainer(request, destination);
+    notifyStateChanged();
+    return summary;
+  });
+
   handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
   handle<[string], null>(CHANNELS.tmuxKill, async (name) => {
     await withRunningContainer(() => killTmuxSession(name));
     return null;
   });
 
-  /* ------------------------------- terminals ------------------------------ */
   handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, (request) =>
     withRunningContainer(async () => {
       if (request.kind === 'claude') await provisionContainer();
@@ -239,7 +246,6 @@ export function registerIpc(version: string): void {
     return null;
   });
 
-  /* ------------------------------ file access ----------------------------- */
   handle<[string], readonly FileEntry[]>(CHANNELS.fsList, (path) => withRunningContainer(() => listDirectory(path)));
   handle<[string], string>(CHANNELS.fsRead, (path) => withRunningContainer(() => readFileText(path)));
   handle<[WriteFileRequest], null>(CHANNELS.fsWrite, async (request) => {
@@ -251,7 +257,6 @@ export function registerIpc(version: string): void {
     return null;
   });
 
-  /* -------------------------------- export -------------------------------- */
   handle<[], string | null>(CHANNELS.workspaceExport, async () => {
     const destination = await pickDirectory(getConfig().lastExportDir);
     if (destination === null) return null;
@@ -265,5 +270,4 @@ export function registerIpc(version: string): void {
   });
 }
 
-/** Exposed so the workspace path is not duplicated in the renderer's default state. */
 export const DEFAULT_BROWSE_PATH: string = CONTAINER_WORKSPACE;

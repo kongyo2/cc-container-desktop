@@ -1,12 +1,3 @@
-/**
- * Routes terminal output to whichever view owns that session id.
- *
- * The main process starts streaming as soon as the exec attaches, which can be
- * before `termOpen` has even resolved in the renderer — so a view cannot simply
- * subscribe once it knows its id without losing the first frames. This module
- * subscribes once at startup and buffers per id until a handler shows up.
- */
-
 import type { TerminalExit } from '../../shared/types.ts';
 
 type DataHandler = (data: string) => void;
@@ -41,7 +32,6 @@ export function startTerminalBus(): void {
   });
 }
 
-/** Attaches handlers for `id` and replays anything that arrived first. */
 export function attachTerminal(id: string, onData: DataHandler, onExit: ExitHandler): () => void {
   dataHandlers.set(id, onData);
   exitHandlers.set(id, onExit);

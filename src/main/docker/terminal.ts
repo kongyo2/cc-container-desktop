@@ -1,12 +1,3 @@
-/**
- * Interactive `docker exec` sessions bridged to xterm.js in the renderer.
- *
- * Claude Code always runs inside tmux. That is the whole reason reattaching
- * works: closing a terminal tab tears down the *exec* (the tmux client), while
- * the tmux server — and the Claude Code process inside it — keeps running in the
- * container. `tmux new-session -A` then attaches to what is already there.
- */
-
 import type { Exec } from 'dockerode';
 import { randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
@@ -36,12 +27,10 @@ function send(channel: string, payload: unknown): void {
   if (target !== null && !target.isDestroyed()) target.webContents.send(channel, payload);
 }
 
-/** Wraps a string for safe use inside single quotes in a `bash -lc` command. */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-/** tmux session names cannot contain `.` or `:`; anything else is fair game. */
 function sanitizeSessionName(name: string): string {
   const cleaned = name.replaceAll(/[.:\s]/gu, '-').trim();
   return cleaned === '' ? 'cc' : cleaned;
@@ -50,8 +39,6 @@ function sanitizeSessionName(name: string): string {
 function commandFor(request: OpenTerminalRequest, sessionName: string): readonly string[] {
   switch (request.kind) {
     case 'claude': {
-      // `-A` means "attach if it exists, otherwise create" — one button for both
-      // "start" and "reconnect".
       const inner = `tmux new-session -A -s ${shellQuote(sessionName)} -c ${shellQuote(CONTAINER_WORKSPACE)} ${shellQuote(claudeLaunchCommand())}`;
       return ['bash', '-lc', inner];
     }
@@ -80,8 +67,6 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   const id = randomUUID();
   sessions.set(id, { id, stream, exec });
 
-  // With Tty: true Docker hands back a single un-multiplexed stream, so the bytes
-  // can go straight to xterm without demuxing.
   stream.on('data', (chunk: Buffer) => {
     send(EVENTS.termData, { id, data: chunk.toString('utf8') });
   });
@@ -94,8 +79,6 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
         const info = (await exec.inspect()) as { ExitCode?: number | null };
         send(EVENTS.termExit, { id, exitCode: info.ExitCode ?? null });
       } catch {
-        // The exec record is gone once the container stops; an unknown exit code
-        // is still worth reporting so the tab can mark itself finished.
         send(EVENTS.termExit, { id, exitCode: null });
       }
     })();
@@ -125,7 +108,6 @@ export async function resizeTerminal(id: string, cols: number, rows: number): Pr
   try {
     await session.exec.resize({ w: cols, h: rows });
   } catch (error) {
-    // Racing a resize against a process that just exited is normal, not a fault.
     logWarn('app', `リサイズできませんでした / resize failed: ${describeError(error)}`);
   }
 }
@@ -135,14 +117,12 @@ export function closeTerminal(id: string): void {
   if (session === undefined) return;
   sessions.delete(id);
 
-  // Ending stdin drops the tmux *client*; the tmux server and everything running
-  // inside it stay alive, which is exactly what reattaching depends on.
-  // Destroying in the same tick would cut the connection before the half-close
-  // reaches the daemon, so give it one turn of the loop first.
   session.stream.end();
   setTimeout(() => session.stream.destroy(), 0);
 }
 
 export function closeAllTerminals(): void {
+  const had = sessions.size;
   for (const id of [...sessions.keys()]) closeTerminal(id);
+  if (had > 0) send(EVENTS.terminalsReset, null);
 }

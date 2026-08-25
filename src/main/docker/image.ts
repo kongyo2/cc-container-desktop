@@ -1,22 +1,13 @@
-/**
- * Building the workbench image from user-editable sources.
- *
- * The `Dockerfile` and `post-create.sh` shipped with the app are copied into
- * `userData/docker` on first run and never touched again, so edits survive an
- * app upgrade. "Restore defaults" is the one path that copies over them.
- */
-
 import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { ImageSources } from '../../shared/types.ts';
 import { describeError, logError, logInfo } from '../logger.ts';
-import { bundledDockerDir, dockerfilePath, postCreatePath, userDockerDir } from '../paths.ts';
+import { bundledDockerDir, dockerfilePath, postCreatePath, setupPath, userDockerDir } from '../paths.ts';
 import { docker } from './engine.ts';
 
-const SOURCE_FILES = ['Dockerfile', 'post-create.sh'] as const;
+const SOURCE_FILES = ['Dockerfile', 'setup.sh', 'post-create.sh'] as const;
 
-/** Copies the bundled sources into `userData/docker` for any file that is missing. */
 export function ensureImageSources(force = false): void {
   const from = bundledDockerDir();
   const to = userDockerDir();
@@ -36,18 +27,23 @@ export function readImageSources(): ImageSources {
   ensureImageSources();
   return {
     dockerfile: existsSync(dockerfilePath()) ? readFileSync(dockerfilePath(), 'utf8') : '',
+    setup: existsSync(setupPath()) ? readFileSync(setupPath(), 'utf8') : '',
     postCreate: existsSync(postCreatePath()) ? readFileSync(postCreatePath(), 'utf8') : '',
     dir: userDockerDir(),
   };
 }
 
-export function writeImageSources(sources: Pick<ImageSources, 'dockerfile' | 'postCreate'>): ImageSources {
-  // Both files are consumed by Linux tooling: CRLF makes bash choke on a `\r`
-  // at the end of every line, and breaks `RUN` line continuations in a
-  // Dockerfile. A Windows editor is the likely author, so normalize on the way
-  // out rather than hoping.
-  writeFileSync(dockerfilePath(), sources.dockerfile.replaceAll('\r\n', '\n'), 'utf8');
-  writeFileSync(postCreatePath(), sources.postCreate.replaceAll('\r\n', '\n'), 'utf8');
+export function writeImageSources(
+  sources: Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>,
+): ImageSources {
+  const current = readImageSources();
+
+  const normalize = (next: string | undefined, fallback: string): string =>
+    (typeof next === 'string' ? next : fallback).replaceAll('\r\n', '\n');
+
+  writeFileSync(dockerfilePath(), normalize(sources.dockerfile, current.dockerfile), 'utf8');
+  writeFileSync(setupPath(), normalize(sources.setup, current.setup), 'utf8');
+  writeFileSync(postCreatePath(), normalize(sources.postCreate, current.postCreate), 'utf8');
   return readImageSources();
 }
 
@@ -72,15 +68,6 @@ function progressText(event: BuildProgress): string | null {
   return null;
 }
 
-/**
- * Builds `tag` from the user's sources, streaming Docker's output into the log pane.
- *
- * The whole `userData/docker` directory is the build context, not just the two
- * files the app ships. The Image tab hands out that folder and invites edits, so
- * a `COPY my-thing /` added to the Dockerfile has to be able to find
- * `my-thing` — with a fixed file list it would fail with "not found in build
- * context" on a Dockerfile that looks perfectly correct.
- */
 export async function buildImage(tag: string, noCache: boolean): Promise<void> {
   ensureImageSources();
   const context = userDockerDir();
@@ -103,8 +90,6 @@ export async function buildImage(tag: string, noCache: boolean): Promise<void> {
           reject(new Error(describeError(error)));
           return;
         }
-        // followProgress reports transport errors only; a failed build step shows
-        // up as an `error` field on one of the events instead.
         for (const raw of output) {
           const event = raw as BuildProgress;
           if (event.error !== undefined) {

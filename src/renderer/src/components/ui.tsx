@@ -1,14 +1,13 @@
-/** Small presentational primitives shared by every panel. */
-
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'idle';
 
 export function Pill({ tone, children }: { tone: Tone; children: ReactNode }): JSX.Element {
+  const lamp = tone === 'ok' ? 'live' : tone === 'warn' ? 'hold' : tone === 'err' ? 'fault' : 'off';
   return (
-    <span className={`pill ${tone === 'idle' ? '' : tone}`}>
-      <span className="dot" />
+    <span className={`session lamp-${lamp}`}>
+      <span className="lamp" />
       {children}
     </span>
   );
@@ -75,19 +74,6 @@ export function TextField({
   );
 }
 
-/**
- * A text field that reports its value when you leave it, not on every keystroke.
- *
- * Use this wherever a change costs an IPC round trip or gets rewritten on the
- * way in. `TextField` writes straight through, so a handler that persists and
- * then re-reads the value races the typist and eats characters, and a
- * `normalize` that trims trailing separators would delete each `/` as it is
- * typed. Here the draft is local until blur or Enter.
- *
- * The draft is tagged with the prop value it was forked from: when that prop
- * changes underneath (another pane saved, a profile was switched), the tag stops
- * matching and the field shows the new truth instead of a stale edit.
- */
 export function DeferredTextField({
   label,
   value,

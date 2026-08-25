@@ -1,10 +1,3 @@
-/**
- * In-container file browser and editor.
- *
- * This is the "poke at the internals like Dev Containers" surface: the same
- * files Claude Code reads, editable in place, without leaving the app.
- */
-
 import {
   ArrowUp,
   File as FileIcon,
@@ -64,7 +57,6 @@ export function FilesPanel(): JSX.Element {
   const [dirty, setDirty] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  /** Navigation is a state change; the effect below is what actually lists the directory. */
   const navigate = (path: string): void => {
     setDir(path);
     setPathInput(path);

@@ -1,15 +1,3 @@
-/**
- * Adversarial end-to-end checks.
- *
- * `workbench.mjs` walks the happy path. This one goes after the places where a
- * desktop app that talks to Docker usually breaks: typing into controlled
- * inputs, file modes and odd filenames, lifecycle transitions, and what the UI
- * does when the container is not there.
- *
- * Usage:
- *   CC_E2E_API_KEY=sk-... xvfb-run -a node tests/e2e/deep.mjs
- */
-
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,10 +23,7 @@ function check(label, condition, detail = '') {
 }
 
 async function call(page, method, args = []) {
-  const result = await page.evaluate(
-    ([name, callArgs]) => window.cc[name](...callArgs),
-    /** @type {[string, unknown[]]} */ ([method, args]),
-  );
+  const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
   if (result === null || typeof result !== 'object' || !('ok' in result)) {
     throw new Error(`${method}: unexpected reply ${JSON.stringify(result)}`);
   }
@@ -51,16 +36,14 @@ async function ok(page, method, args = []) {
   return result.value;
 }
 
-/** Clicks a sidebar tab by its index in the nav order. */
 async function goTab(page, id) {
   await page.evaluate((tab) => {
-    const order = ['connect', 'terminal', 'files', 'profiles', 'image', 'settings'];
+    const order = ['connect', 'terminal', 'files', 'profiles', 'extensions', 'image', 'settings'];
     document.querySelectorAll('.sidebar button')[order.indexOf(tab)]?.click();
   }, id);
   await page.waitForTimeout(400);
 }
 
-/** Finds a text input by the label text of its `.field` wrapper. */
 async function fieldInput(page, labelText) {
   const handle = await page.evaluateHandle((label) => {
     for (const field of document.querySelectorAll('.field')) {
@@ -89,7 +72,6 @@ try {
   const boot = await ok(page, 'snapshot');
   if (!boot.docker.available) throw new Error('docker is not available');
 
-  // Mirror the log stream into the page so the build assertions can read it.
   await page.evaluate(() => {
     window.__ccBuildLogs = [];
     window.cc.onLog((line) => {
@@ -97,9 +79,7 @@ try {
     });
   });
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[A] typing into controlled inputs');
-  /* ------------------------------------------------------------------ */
 
   await goTab(page, 'settings');
   const sessionInput = await fieldInput(page, 'tmux セッション名');
@@ -114,7 +94,6 @@ try {
     `got ${JSON.stringify(typedSession)}`,
   );
 
-  // The field commits on blur, so nothing should have been written yet.
   const beforeBlur = (await ok(page, 'snapshot')).config.tmuxSession;
   check(
     'settings text field does not persist mid-edit',
@@ -135,7 +114,6 @@ try {
     (await sessionInput.inputValue()) === typedSession,
   );
 
-  // Put it back so later steps use the default session name.
   await ok(page, 'configSave', [{ tmuxSession: 'cc' }]);
 
   await goTab(page, 'profiles');
@@ -160,9 +138,7 @@ try {
     `got ${JSON.stringify(blurredUrl)}`,
   );
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[B] container down: clear errors, no crashes');
-  /* ------------------------------------------------------------------ */
 
   await ok(page, 'containerRemove', [true]);
   const downSnapshot = await ok(page, 'snapshot');
@@ -195,18 +171,15 @@ try {
     tmuxDown.ok === true && tmuxDown.value.length === 0,
   );
 
-  // Walking tabs is inherently sequential: click, settle, assert, next.
   /* oxlint-disable no-await-in-loop */
-  for (const tab of ['connect', 'terminal', 'files', 'profiles', 'settings']) {
+  for (const tab of ['connect', 'terminal', 'files', 'profiles', 'extensions', 'settings']) {
     await goTab(page, tab);
     const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
     check(`${tab} tab still renders with no container`, painted);
   }
   /* oxlint-enable no-await-in-loop */
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[C] two profiles, switching, auth mode');
-  /* ------------------------------------------------------------------ */
 
   await ok(page, 'containerUp');
 
@@ -271,9 +244,7 @@ try {
     JSON.stringify(claudeJson.customApiKeyResponses ?? null),
   );
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[D] ~/.claude.json is merged, never clobbered');
-  /* ------------------------------------------------------------------ */
 
   const beforeMerge = { ...claudeJson, userID: 'deep-user-123', numStartups: 42 };
   beforeMerge.projects = {
@@ -316,9 +287,7 @@ try {
   const settingsBack = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
   check('corrupt settings.json is rebuilt with env', typeof settingsBack.env?.ANTHROPIC_BASE_URL === 'string');
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[E] file operations');
-  /* ------------------------------------------------------------------ */
 
   const odd = '/home/claude/workspace/日本語 と スペース.txt';
   await ok(page, 'fsWrite', [{ path: odd, content: 'ゼロ幅\tタブ\nと改行\n' }]);
@@ -395,14 +364,11 @@ try {
   const missing = await call(page, 'fsList', ['/home/claude/workspace/definitely-not-here']);
   check('listing a missing directory reports an error', missing.ok === false, missing.error ?? 'succeeded');
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[F] export');
-  /* ------------------------------------------------------------------ */
 
   const exportRoot = join(SCRATCH, 'exports');
   mkdirSync(exportRoot, { recursive: true });
   await ok(page, 'configSave', [{ lastExportDir: exportRoot }]);
-  // Answer the directory chooser without a human.
   await app.evaluate(({ dialog }, dir) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [dir] });
   }, exportRoot);
@@ -428,9 +394,7 @@ try {
     devJson.workspaceMount,
   );
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[G] VS Code attach URI');
-  /* ------------------------------------------------------------------ */
 
   const vscode = await ok(page, 'containerVscode');
   const hex = /attached-container\+([0-9a-f]+)/u.exec(vscode.uri)?.[1] ?? '';
@@ -442,9 +406,7 @@ try {
   );
   check('attach URI ends at the workspace', vscode.uri.endsWith('/home/claude/workspace'), vscode.uri);
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[H] terminals');
-  /* ------------------------------------------------------------------ */
 
   await ok(page, 'profileActivate', [bearer.id]);
   await ok(page, 'containerProvision');
@@ -490,9 +452,7 @@ try {
   const killMissing = await call(page, 'tmuxKill', ['never-existed']);
   check('killing a missing session is not an error', killMissing.ok === true);
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[I] lifecycle and persistence');
-  /* ------------------------------------------------------------------ */
 
   await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/persist.txt', content: 'survive me\n' }]);
 
@@ -525,16 +485,15 @@ try {
   const upAgain = await call(page, 'containerUp');
   check('starting an already running container is a no-op', upAgain.ok === true);
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[J] image sources round-trip');
-  /* ------------------------------------------------------------------ */
 
   const sources = await ok(page, 'imageSourcesGet');
   check('Dockerfile loaded', sources.dockerfile.includes('FROM ubuntu:24.04'));
   check('post-create loaded', sources.postCreate.includes('post-create'));
+  check('setup script loaded', sources.setup.includes('setup'), sources.setup.slice(0, 60));
 
   const marked = `${sources.postCreate}\necho "DEEP-POSTCREATE-MARKER"\n`;
-  await ok(page, 'imageSourcesSave', [{ dockerfile: sources.dockerfile, postCreate: marked }]);
+  await ok(page, 'imageSourcesSave', [{ dockerfile: sources.dockerfile, setup: sources.setup, postCreate: marked }]);
   const reread = await ok(page, 'imageSourcesGet');
   check('post-create edit persisted', reread.postCreate.includes('DEEP-POSTCREATE-MARKER'));
 
@@ -542,7 +501,9 @@ try {
   const inContainer = await ok(page, 'fsRead', ['/opt/cc/post-create.sh']);
   check('edited post-create reached the container', inContainer.includes('DEEP-POSTCREATE-MARKER'));
 
-  await ok(page, 'imageSourcesSave', [{ dockerfile: sources.dockerfile, postCreate: 'echo start\r\nexit 3\r\n' }]);
+  await ok(page, 'imageSourcesSave', [
+    { dockerfile: sources.dockerfile, setup: sources.setup, postCreate: 'echo start\r\nexit 3\r\n' },
+  ]);
   const crlfFree = (await ok(page, 'imageSourcesGet')).postCreate;
   check('CRLF is normalized on save', !crlfFree.includes('\r'), JSON.stringify(crlfFree));
   const failingPostCreate = await call(page, 'containerProvision');
@@ -556,13 +517,8 @@ try {
   check('reset restores the shipped sources', !restored.postCreate.includes('DEEP-POSTCREATE-MARKER'));
   check('reset keeps the Dockerfile intact', restored.dockerfile.includes('FROM ubuntu:24.04'));
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[K] image build path');
-  /* ------------------------------------------------------------------ */
 
-  // Builds against a scratch tag so the real image is never at risk. The
-  // Dockerfile below needs no network: `ubuntu:24.04` is already local by the
-  // time this runs, and COPY + grep take about a second.
   const scratchTag = 'cc-container-desktop-e2e:scratch';
   const realTag = (await ok(page, 'snapshot')).config.imageTag;
   const savedSources = await ok(page, 'imageSourcesGet');
@@ -571,7 +527,11 @@ try {
     await ok(page, 'configSave', [{ imageTag: scratchTag }]);
 
     await ok(page, 'imageSourcesSave', [
-      { dockerfile: 'FROM ubuntu:24.04\nRUN exit 42\n', postCreate: savedSources.postCreate },
+      {
+        dockerfile: 'FROM ubuntu:24.04\nRUN exit 42\n',
+        setup: savedSources.setup,
+        postCreate: savedSources.postCreate,
+      },
     ]);
     const failedBuild = await call(page, 'imageBuild', [{ noCache: false }]);
     check(
@@ -580,16 +540,16 @@ try {
       failedBuild.ok ? 'unexpectedly succeeded' : failedBuild.error,
     );
 
-    // An extra file next to the Dockerfile must reach the build context: the
-    // Image tab hands the user that folder, so a COPY of their own file has to
-    // work. Writing it from the host is exactly what a user would do.
     writeFileSync(join(savedSources.dir, 'extra-context-file.txt'), 'CONTEXT-OK\n');
     await ok(page, 'imageSourcesSave', [
       {
         dockerfile:
           'FROM ubuntu:24.04\n' +
           'COPY extra-context-file.txt /tmp/extra.txt\n' +
-          'RUN grep -q CONTEXT-OK /tmp/extra.txt\n',
+          'RUN grep -q CONTEXT-OK /tmp/extra.txt\n' +
+          'COPY setup.sh /opt/cc/setup.sh\n' +
+          'RUN bash /opt/cc/setup.sh\n',
+        setup: 'echo SETUP-RAN-AT-BUILD\n',
         postCreate: savedSources.postCreate,
       },
     ]);
@@ -609,24 +569,26 @@ try {
       buildLogs.slice(-2).join(' | '),
     );
 
+    check(
+      'setup.sh runs at build time, so its output is in the build log',
+      buildLogs.some((line) => line.includes('SETUP-RAN-AT-BUILD')),
+      buildLogs.filter((line) => line.includes('SETUP')).join(' | ') || '(not found)',
+    );
+
     const scratchImage = await ok(page, 'snapshot');
     check('the scratch image exists', scratchImage.image.exists === true, scratchImage.image.tag);
   } finally {
     rmSync(join(savedSources.dir, 'extra-context-file.txt'), { force: true });
-    await ok(page, 'imageSourcesSave', [{ dockerfile: savedSources.dockerfile, postCreate: savedSources.postCreate }]);
+    await ok(page, 'imageSourcesSave', [
+      { dockerfile: savedSources.dockerfile, setup: savedSources.setup, postCreate: savedSources.postCreate },
+    ]);
     await ok(page, 'configSave', [{ imageTag: realTag }]);
-    // The app has no "delete image" action, so clean up the scratch tag here
-    // rather than leaving it on the developer's machine.
     try {
       execFileSync('docker', ['rmi', '-f', scratchTag], { stdio: 'ignore' });
-    } catch {
-      // Nothing to remove, or no docker CLI on PATH; neither is worth failing on.
-    }
+    } catch {}
   }
 
-  /* ------------------------------------------------------------------ */
   console.log('\n[L] language switch');
-  /* ------------------------------------------------------------------ */
 
   await goTab(page, 'connect');
   await ok(page, 'setLanguage', ['en']);
@@ -643,9 +605,312 @@ try {
     await page.screenshot({ path: join(SHOT_DIR, 'deep-final.png') });
   }
 
-  /* ------------------------------------------------------------------ */
-  console.log('\n[M] cleanup of test profiles');
-  /* ------------------------------------------------------------------ */
+  console.log('\n[M] extensions: MCP, marketplaces, plugins, skills');
+
+  await ok(page, 'containerUp');
+
+  await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        'mkdir -p ~/.claude/skills/hand-written && echo "hand made" > ~/.claude/skills/hand-written/SKILL.md',
+      ],
+      asRoot: false,
+    },
+  ]);
+  const handMadeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  handMadeJson.mcpServers = {
+    ...(handMadeJson.mcpServers ?? {}),
+    'hand-added': { type: 'http', url: 'https://example.test/mcp' },
+  };
+  await ok(page, 'fsWrite', [
+    { path: '/home/claude/.claude.json', content: `${JSON.stringify(handMadeJson, null, 2)}\n` },
+  ]);
+
+  await ok(page, 'extensionsSave', [
+    {
+      mcpServers: [
+        {
+          id: 'x-remote',
+          name: 'agentskills',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://agentskills.io/mcp',
+          headers: { 'X-Probe': ' spaced ' },
+          timeoutMs: 30000,
+          note: '',
+        },
+        {
+          id: 'x-stdio',
+          name: 'local_fs',
+          enabled: true,
+          transport: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/claude/workspace'],
+          env: { DEBUG: '1' },
+          url: '',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+        {
+          id: 'x-off',
+          name: 'disabled_one',
+          enabled: false,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://disabled.test/mcp',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+        {
+          id: 'x-bad-name',
+          name: 'has.dots',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://bad.test/mcp',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+        {
+          id: 'x-reserved',
+          name: 'workspace',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://reserved.test/mcp',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+      ],
+      marketplaces: [
+        {
+          id: 'x-mkt',
+          name: 'acme-tools',
+          enabled: true,
+          sourceKind: 'github',
+          repo: 'acme-corp/claude-plugins',
+          url: '',
+          autoUpdate: true,
+        },
+      ],
+      plugins: [
+        { id: 'x-plg-on', plugin: 'formatter', marketplace: 'acme-tools', enabled: true },
+        { id: 'x-plg-off', plugin: 'experimental', marketplace: 'acme-tools', enabled: false },
+      ],
+      skills: [
+        {
+          id: 'x-skill',
+          enabled: true,
+          body: '---\nname: deep-probe\ndescription: A probe skill used by the end-to-end suite to prove skills are written.\n---\n\nDEEP-SKILL-MARKER\n',
+          files: [
+            { path: 'references/REFERENCE.md', content: 'DEEP-REFERENCE-MARKER\n' },
+            { path: 'scripts/probe.sh', content: '#!/bin/sh\necho probe\n' },
+          ],
+        },
+        {
+          id: 'x-skill-bad',
+          enabled: true,
+          body: '---\nname: Bad Name\n---\n\nnope\n',
+          files: [{ path: '../escape.txt', content: 'nope' }],
+        },
+        {
+          id: 'x-skill-ext',
+          enabled: true,
+          body: '---\nname: cc-only\ndescription: Uses a Claude Code-only frontmatter field, which claude.ai would reject.\nargument-hint: "[file]"\n---\n\nbody\n',
+          files: [],
+        },
+      ],
+    },
+  ]);
+  await ok(page, 'containerProvision');
+
+  const servers = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  check(
+    'a remote server carries an explicit type',
+    servers.agentskills?.type === 'http' && servers.agentskills?.url === 'https://agentskills.io/mcp',
+    JSON.stringify(servers.agentskills),
+  );
+  check(
+    'header whitespace is trimmed',
+    servers.agentskills?.headers?.['X-Probe'] === 'spaced',
+    JSON.stringify(servers.agentskills?.headers),
+  );
+  check('the per-server timeout is written', servers.agentskills?.timeout === 30000);
+  check(
+    'a stdio server has command and args and no type',
+    servers.local_fs?.command === 'npx' && servers.local_fs?.args?.length === 3 && servers.local_fs?.type === undefined,
+    JSON.stringify(servers.local_fs),
+  );
+  check('stdio env is written', servers.local_fs?.env?.DEBUG === '1');
+  check('a disabled server is not written', servers.disabled_one === undefined);
+  check('an invalid name is refused', servers['has.dots'] === undefined);
+  check('a reserved name is refused', servers.workspace === undefined);
+  check(
+    'a server added inside the container is left alone',
+    servers['hand-added']?.url === 'https://example.test/mcp',
+    JSON.stringify(servers['hand-added']),
+  );
+
+  const extSettings = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  check(
+    'the marketplace is registered',
+    extSettings.extraKnownMarketplaces?.['acme-tools']?.source?.repo === 'acme-corp/claude-plugins',
+    JSON.stringify(extSettings.extraKnownMarketplaces),
+  );
+  check('autoUpdate is carried through', extSettings.extraKnownMarketplaces?.['acme-tools']?.autoUpdate === true);
+  check(
+    'plugins are keyed as plugin@marketplace, both states kept',
+    extSettings.enabledPlugins?.['formatter@acme-tools'] === true &&
+      extSettings.enabledPlugins?.['experimental@acme-tools'] === false,
+    JSON.stringify(extSettings.enabledPlugins),
+  );
+
+  const skillBody = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  check('the skill was written', skillBody.includes('DEEP-SKILL-MARKER'));
+  const skillRef = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/references/REFERENCE.md']);
+  check('a bundled reference file is written', skillRef.includes('DEEP-REFERENCE-MARKER'));
+  const scriptMode = await ok(page, 'containerExec', [
+    { command: ['stat', '-c', '%a', '/home/claude/.claude/skills/deep-probe/scripts/probe.sh'], asRoot: false },
+  ]);
+  check('a bundled script is executable', scriptMode.stdout.trim() === '755', scriptMode.stdout.trim());
+
+  const badSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/Bad Name/SKILL.md']);
+  check('a skill with an invalid name is refused', badSkill.ok === false);
+  const escaped = await call(page, 'fsRead', ['/home/claude/.claude/skills/escape.txt']);
+  check('a file path escaping the skill directory is refused', escaped.ok === false);
+  const ccOnly = await ok(page, 'fsRead', ['/home/claude/.claude/skills/cc-only/SKILL.md']);
+  check('a Claude Code-only field is still written', ccOnly.includes('argument-hint'));
+  const handSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
+  check('a hand-written skill is left alone', handSkill.includes('hand made'));
+
+  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skills: [] }]);
+  await ok(page, 'containerProvision');
+  const afterRemoval = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  check(
+    'removing a server removes it from the container',
+    afterRemoval.agentskills === undefined,
+    JSON.stringify(afterRemoval),
+  );
+  check('the hand-added server still survives', afterRemoval['hand-added']?.url === 'https://example.test/mcp');
+  const settingsAfter = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  check('removing a marketplace removes it', settingsAfter.extraKnownMarketplaces?.['acme-tools'] === undefined);
+  check('removing a plugin removes it', settingsAfter.enabledPlugins?.['formatter@acme-tools'] === undefined);
+  const goneSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  check('removing a skill deletes its directory', goneSkill.ok === false);
+  const goneRef = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/references/REFERENCE.md']);
+  check('its bundled files go with it', goneRef.ok === false);
+  const stillThereSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
+  check('the hand-written skill is still there', stillThereSkill.ok === true);
+
+  console.log('\n[N] reset: a disposable session');
+
+  await ok(page, 'containerUp');
+  await ok(page, 'containerProvision');
+
+  await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        'sudo install -m 0755 /dev/stdin /usr/local/bin/reset-probe <<<"#!/bin/sh\necho GLOBAL-MARKER" && ' +
+          'echo HOME-MARKER > ~/.reset-probe && ' +
+          'echo WORKSPACE-MARKER > ~/workspace/reset-probe.txt',
+      ],
+      asRoot: false,
+    },
+  ]);
+
+  const before = await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'reset-probe; cat ~/.reset-probe ~/workspace/reset-probe.txt'], asRoot: false },
+  ]);
+  check(
+    'all three markers are in place before the reset',
+    ['GLOBAL-MARKER', 'HOME-MARKER', 'WORKSPACE-MARKER'].every((marker) => before.stdout.includes(marker)),
+    before.stdout.replace(/\s+/gu, ' ').trim(),
+  );
+
+  const containerBefore = (await ok(page, 'snapshot')).container.id;
+  const imageBefore = (await ok(page, 'snapshot')).image.id;
+
+  await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(1200);
+
+  const resetExportDir = join(SCRATCH, 'reset-exports');
+  mkdirSync(resetExportDir, { recursive: true });
+  await ok(page, 'configSave', [{ lastExportDir: resetExportDir }]);
+
+  const summary = await ok(page, 'containerReset', [{ exportFirst: true, rebuildImage: false }]);
+  check('reset reported a fresh container', typeof summary.containerName === 'string', summary.containerName);
+  check('reset exported first', typeof summary.exportedTo === 'string', String(summary.exportedTo));
+  check(
+    'the export holds the workspace file that was about to be destroyed',
+    existsSync(join(String(summary.exportedTo), 'reset-probe.txt')) &&
+      readFileSync(join(String(summary.exportedTo), 'reset-probe.txt'), 'utf8').includes('WORKSPACE-MARKER'),
+  );
+
+  const afterReset = await ok(page, 'snapshot');
+  check('container is running again', afterReset.container.running === true, afterReset.container.status);
+  check('it is a different container', afterReset.container.id !== containerBefore);
+  check(
+    'the image is untouched — it is the snapshot',
+    afterReset.image.id === imageBefore,
+    String(afterReset.image.id),
+  );
+
+  const after = await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        'command -v reset-probe || echo NO-GLOBAL; cat ~/.reset-probe 2>/dev/null || echo NO-HOME; ' +
+          'cat ~/workspace/reset-probe.txt 2>/dev/null || echo NO-WORKSPACE',
+      ],
+      asRoot: false,
+    },
+  ]);
+  check('the globally installed binary is gone', after.stdout.includes('NO-GLOBAL'), after.stdout.trim());
+  check('the home-directory file is gone', after.stdout.includes('NO-HOME'), after.stdout.trim());
+  check('the workspace file is gone', after.stdout.includes('NO-WORKSPACE'), after.stdout.trim());
+
+  check(
+    'Claude Code is still installed — it came from the image',
+    /\d+\.\d+\.\d+/u.test(
+      (await ok(page, 'containerExec', [{ command: ['claude', '--version'], asRoot: false }])).stdout,
+    ),
+  );
+
+  const freshSettings = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  check(
+    'the fresh container was provisioned',
+    typeof freshSettings.env?.ANTHROPIC_BASE_URL === 'string',
+    JSON.stringify(Object.keys(freshSettings.env ?? {})),
+  );
+  const freshClaudeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  check('onboarding is done in the fresh container', freshClaudeJson.hasCompletedOnboarding === true);
+
+  await page.waitForTimeout(600);
+  const tabsAfterReset = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  check('terminal tabs were dropped with the container', tabsAfterReset === 0, String(tabsAfterReset));
+
+  const sessionsAfterReset = await ok(page, 'tmuxList');
+  check('no tmux sessions survived', sessionsAfterReset.length === 0, JSON.stringify(sessionsAfterReset));
+
+  console.log('\n[P] cleanup of test profiles');
 
   const secretBefore = await ok(page, 'secretGet', [keyed.id]);
   check('secret readable before delete', secretBefore === 'sk-fake-for-header-check');

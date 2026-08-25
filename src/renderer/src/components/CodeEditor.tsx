@@ -1,5 +1,3 @@
-/** CodeMirror 6 wrapper used for `settings.json`, the Dockerfile and the post-create script. */
-
 import { json } from '@codemirror/lang-json';
 import { javascript } from '@codemirror/lang-javascript';
 import { EditorState } from '@codemirror/state';
@@ -17,8 +15,6 @@ function languageExtensions(language: EditorLanguage): Extension[] {
     case 'json':
       return [json()];
     case 'shell':
-      // No dedicated shell grammar is bundled; JS highlighting is close enough
-      // for comments, strings and brackets without pulling in another package.
       return [javascript()];
     case 'plain':
       return [];
@@ -37,8 +33,6 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
 
-  // Latest-callback ref, refreshed after each render rather than during it, so
-  // the editor is built once instead of on every keystroke.
   const onChangeRef = useRef(props.onChange);
   useEffect(() => {
     onChangeRef.current = props.onChange;
@@ -72,9 +66,6 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
       view.destroy();
       viewRef.current = null;
     };
-    // The initial document is intentionally not a dependency: re-creating the
-    // view on every keystroke would reset the cursor. External replacements go
-    // through the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, readOnly]);
 
