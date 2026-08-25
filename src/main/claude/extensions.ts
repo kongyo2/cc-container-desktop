@@ -26,6 +26,9 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   const entry: Record<string, unknown> = {};
 
   if (server.transport === 'stdio') {
+    // Optional for stdio, but `claude mcp add` writes it and `claude mcp list`
+    // renders entries uniformly when it is present.
+    entry['type'] = 'stdio';
     entry['command'] = server.command.trim();
     if (server.args.length > 0) entry['args'] = server.args.map((arg) => arg.trim()).filter((arg) => arg !== '');
     const env = trimmedRecord(server.env);

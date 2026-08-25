@@ -11,6 +11,7 @@ export interface Profile {
   readonly sonnetModel: string;
   readonly opusModel: string;
   readonly haikuModel: string;
+  readonly fableModel: string;
   readonly apiTimeoutMs: number | null;
   readonly contextTokens: number | null;
   readonly disableNonEssentialTraffic: boolean;

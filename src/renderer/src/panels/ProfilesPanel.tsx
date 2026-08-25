@@ -24,6 +24,7 @@ function blankProfile(name: string): Profile {
     sonnetModel: '',
     opusModel: '',
     haikuModel: '',
+    fableModel: '',
     apiTimeoutMs: null,
     contextTokens: null,
     disableNonEssentialTraffic: true,
@@ -136,6 +137,7 @@ export function ProfilesPanel(): JSX.Element {
       sonnetModel: preset.model,
       opusModel: preset.model,
       haikuModel: preset.haikuModel,
+      fableModel: preset.model,
       contextTokens: preset.contextTokens,
     });
   };
@@ -350,12 +352,20 @@ export function ProfilesPanel(): JSX.Element {
                   hint="ANTHROPIC_DEFAULT_OPUS_MODEL"
                 />
               </div>
-              <TextField
-                label={t('profileHaiku')}
-                value={draft.haikuModel}
-                onChange={(value) => update({ haikuModel: value })}
-                hint="ANTHROPIC_DEFAULT_HAIKU_MODEL"
-              />
+              <div className="grid2">
+                <TextField
+                  label={t('profileHaiku')}
+                  value={draft.haikuModel}
+                  onChange={(value) => update({ haikuModel: value })}
+                  hint="ANTHROPIC_DEFAULT_HAIKU_MODEL"
+                />
+                <TextField
+                  label={t('profileFable')}
+                  value={draft.fableModel}
+                  onChange={(value) => update({ fableModel: value })}
+                  hint="ANTHROPIC_DEFAULT_FABLE_MODEL"
+                />
+              </div>
             </Section>
 
             <Section title={pick(language, 'その他', 'Other')}>

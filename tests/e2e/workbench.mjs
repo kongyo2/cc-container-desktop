@@ -131,8 +131,8 @@ try {
     settings.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS,
   );
   check(
-    'auth token written, api key absent',
-    settings.env?.ANTHROPIC_AUTH_TOKEN === API_KEY && settings.env?.ANTHROPIC_API_KEY === undefined,
+    'auth token written, api key explicitly blanked',
+    settings.env?.ANTHROPIC_AUTH_TOKEN === API_KEY && settings.env?.ANTHROPIC_API_KEY === '',
   );
 
   console.log('\n[5] settings.json survives a rewrite of unrelated keys');

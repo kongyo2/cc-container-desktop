@@ -25,14 +25,24 @@ export function buildEnvBlock(profile: Profile, secret: string): Record<string, 
   if (profile.baseUrl !== '') env['ANTHROPIC_BASE_URL'] = profile.baseUrl;
 
   if (secret !== '') {
-    if (profile.authMode === 'authToken') env['ANTHROPIC_AUTH_TOKEN'] = secret;
-    else env['ANTHROPIC_API_KEY'] = secret;
+    if (profile.authMode === 'authToken') {
+      env['ANTHROPIC_AUTH_TOKEN'] = secret;
+      // The OpenRouter integration guide insists on this: an explicitly empty
+      // ANTHROPIC_API_KEY keeps Claude Code from ever falling back to direct
+      // Anthropic authentication while a bearer gateway is configured.
+      env['ANTHROPIC_API_KEY'] = '';
+    } else {
+      env['ANTHROPIC_API_KEY'] = secret;
+    }
   }
 
   if (profile.model !== '') env['ANTHROPIC_MODEL'] = profile.model;
   if (profile.sonnetModel !== '') env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = profile.sonnetModel;
   if (profile.opusModel !== '') env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = profile.opusModel;
   if (profile.haikuModel !== '') env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = profile.haikuModel;
+  // Claude Code 2.1.x added Fable as a fourth model class. On a gateway it is
+  // not offered in /model at all unless this variable names it.
+  if (profile.fableModel !== '') env['ANTHROPIC_DEFAULT_FABLE_MODEL'] = profile.fableModel;
 
   if (profile.apiTimeoutMs !== null) env['API_TIMEOUT_MS'] = String(profile.apiTimeoutMs);
 
@@ -204,6 +214,12 @@ export async function provisionContainer(): Promise<string> {
     delete settings['env'];
   } else {
     settings['env'] = buildEnvBlock(profile, secret);
+  }
+  if (config.autoOnboarding) {
+    // Current Claude Code migrated the old .claude.json bypassPermissionsModeAccepted
+    // flag to this settings key; writing it here means the migration has nothing
+    // left to redo on every start.
+    settings['skipDangerousModePermissionPrompt'] = true;
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 

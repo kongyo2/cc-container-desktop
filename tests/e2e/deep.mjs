@@ -192,6 +192,7 @@ try {
     sonnetModel: 'stealth/ox-alpha',
     opusModel: 'stealth/ox-alpha',
     haikuModel: 'stealth/ox-alpha',
+    fableModel: 'stealth/ox-alpha',
     apiTimeoutMs: 123456,
     contextTokens: 1048576,
     disableNonEssentialTraffic: true,
@@ -218,10 +219,15 @@ try {
   await ok(page, 'containerProvision');
   let env = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json'])).env;
   check(
-    'bearer profile sets AUTH_TOKEN only',
-    env.ANTHROPIC_AUTH_TOKEN === API_KEY && env.ANTHROPIC_API_KEY === undefined,
+    'bearer profile sets AUTH_TOKEN and explicitly blanks API_KEY',
+    env.ANTHROPIC_AUTH_TOKEN === API_KEY && env.ANTHROPIC_API_KEY === '',
   );
   check('extra env applied', env.CC_DEEP_MARKER === 'bearer', env.CC_DEEP_MARKER);
+  check(
+    'the fable alias is pinned for the gateway',
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL === 'stealth/ox-alpha',
+    env.ANTHROPIC_DEFAULT_FABLE_MODEL,
+  );
   check('API_TIMEOUT_MS applied', env.API_TIMEOUT_MS === '123456', env.API_TIMEOUT_MS);
   check('context tokens applied', env.CLAUDE_CODE_MAX_CONTEXT_TOKENS === '1048576', env.CLAUDE_CODE_MAX_CONTEXT_TOKENS);
 
@@ -432,7 +438,7 @@ try {
   const wide = await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 200, rows: 50 }]);
   await page.evaluate((id) => {
     window.__ccTermText = '';
-    window.cc.onTermData((event) => {
+    window.cc.onTerminalData((event) => {
       if (event.id === id) window.__ccTermText += event.data;
     });
   }, wide.id);
@@ -776,8 +782,8 @@ try {
   );
   check('the per-server timeout is written', servers.agentskills?.timeout === 30000);
   check(
-    'a stdio server has command and args and no type',
-    servers.local_fs?.command === 'npx' && servers.local_fs?.args?.length === 3 && servers.local_fs?.type === undefined,
+    'a stdio server is written the way `claude mcp add` writes it',
+    servers.local_fs?.command === 'npx' && servers.local_fs?.args?.length === 3 && servers.local_fs?.type === 'stdio',
     JSON.stringify(servers.local_fs),
   );
   check('stdio env is written', servers.local_fs?.env?.DEBUG === '1');
@@ -923,6 +929,10 @@ try {
     'the fresh container was provisioned',
     typeof freshSettings.env?.ANTHROPIC_BASE_URL === 'string',
     JSON.stringify(Object.keys(freshSettings.env ?? {})),
+  );
+  check(
+    'the bypass-permissions prompt is pre-accepted where current Claude Code reads it',
+    freshSettings.skipDangerousModePermissionPrompt === true,
   );
   const freshClaudeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
   check('onboarding is done in the fresh container', freshClaudeJson.hasCompletedOnboarding === true);
