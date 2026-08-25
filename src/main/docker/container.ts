@@ -74,28 +74,33 @@ function foreignVolumeError(name: string): Error {
   );
 }
 
+async function inspectVolume(name: string): Promise<{ readonly labels: unknown } | null> {
+  try {
+    const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
+    return { labels: raw.Labels ?? {} };
+  } catch (error) {
+    if (isNotFound(error)) return null;
+    throw error;
+  }
+}
+
 async function ensureVolume(): Promise<void> {
   const name = getConfig().volumeName;
-  if (!(await volumeIsOurs(name))) throw foreignVolumeError(name);
-
-  try {
-    await docker().getVolume(name).inspect();
+  const found = await inspectVolume(name);
+  if (found !== null) {
+    if (!isManaged(found.labels)) throw foreignVolumeError(name);
     return;
-  } catch (error) {
-    if (!isNotFound(error)) throw error;
   }
+
   logInfo('app', `ボリュームを作成します / creating volume: ${name}`);
   await docker().createVolume({ Name: name, Labels: { [MANAGED_LABEL]: 'true' } });
+
+  const created = await inspectVolume(name);
+  if (created !== null && !isManaged(created.labels)) throw foreignVolumeError(name);
 }
 
 export async function volumeExists(name: string): Promise<boolean> {
-  try {
-    await docker().getVolume(name).inspect();
-    return true;
-  } catch (error) {
-    if (isNotFound(error)) return false;
-    throw error;
-  }
+  return (await inspectVolume(name)) !== null;
 }
 
 async function createContainer(): Promise<void> {
@@ -209,13 +214,8 @@ function isManaged(labels: unknown): boolean {
 }
 
 async function volumeIsOurs(name: string): Promise<boolean> {
-  try {
-    const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
-    return isManaged(raw.Labels);
-  } catch (error) {
-    if (isNotFound(error)) return true;
-    throw error;
-  }
+  const found = await inspectVolume(name);
+  return found === null || isManaged(found.labels);
 }
 
 async function containerIsOurs(): Promise<boolean> {

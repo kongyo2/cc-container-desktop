@@ -222,7 +222,7 @@ export async function provisionContainer(): Promise<string> {
   for (const warning of skillWrite.warnings) logWarn('provision', warning);
 
   patchConfig({
-    managed: { ...plan.managed, skills: [...skillWrite.written, ...plan.preservedSkills] },
+    managed: { ...plan.managed, skills: [...skillWrite.owned, ...plan.preservedSkills] },
   });
 
   if (!(await fileExists(TMUX_CONF))) {
@@ -246,7 +246,7 @@ export async function provisionContainer(): Promise<string> {
   const extras: string[] = [];
   if (plan.managed.mcpServers.length > 0) extras.push(`MCP ${plan.managed.mcpServers.length}`);
   if (plan.managed.plugins.length > 0) extras.push(`plugins ${plan.managed.plugins.length}`);
-  if (skillWrite.written.length > 0) extras.push(`skills ${skillWrite.written.length}`);
+  if (skillWrite.owned.length > 0) extras.push(`skills ${skillWrite.owned.length}`);
 
   const summary =
     (profile === null

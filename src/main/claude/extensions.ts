@@ -304,7 +304,7 @@ export async function claimSkills(
 
 export interface SkillWriteResult {
   readonly warnings: readonly string[];
-  readonly written: readonly string[];
+  readonly owned: readonly string[];
 }
 
 export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult> {
@@ -328,43 +328,45 @@ export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult
       if (slash > 0) directories.add(`${root}/${file.path.slice(0, slash)}`);
     }
 
-    try {
-      await execCapture(['rm', '-rf', root], { workdir: '/' });
-      await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
-      await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
-    } catch (error) {
-      warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${describeError(error)}`);
+    const discard = async (reason: string): Promise<string | null> => {
+      warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${reason}`);
       try {
-        await execCapture(['rm', '-rf', root], { workdir: '/' });
+        const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
+        if (cleared.exitCode === 0) return null;
       } catch {}
-      return null;
-    }
+      return skill.name;
+    };
 
-    /* oxlint-disable no-await-in-loop */
-    for (const file of skill.files) {
-      try {
+    try {
+      const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
+      if (cleared.exitCode !== 0) return await discard(cleared.stderr.trim() || `rm -rf → exit ${cleared.exitCode}`);
+
+      const made = await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
+      if (made.exitCode !== 0) return await discard(made.stderr.trim() || `mkdir -p → exit ${made.exitCode}`);
+
+      await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
+      /* oxlint-disable no-await-in-loop */
+      for (const file of skill.files) {
         await writeFileText(`${root}/${file.path}`, file.content, file.path.startsWith('scripts/') ? 0o755 : 0o644);
-      } catch (error) {
-        warnings.push(
-          `skill ${skill.name}: ${file.path} を書けませんでした / could not write ${file.path}: ${describeError(error)}`,
-        );
       }
+      /* oxlint-enable no-await-in-loop */
+    } catch (error) {
+      return await discard(describeError(error));
     }
-    /* oxlint-enable no-await-in-loop */
     return skill.name;
   });
 
   const [removed, wrote] = await Promise.all([Promise.allSettled(removals), Promise.allSettled(writes)]);
 
-  const written: string[] = [];
+  const owned: string[] = [];
   for (const result of [...removed, ...wrote]) {
     if (result.status === 'rejected') {
       warnings.push(`skill: ${describeError(result.reason)}`);
       continue;
     }
-    if (typeof result.value === 'string') written.push(result.value);
+    if (typeof result.value === 'string') owned.push(result.value);
   }
-  return { warnings, written };
+  return { warnings, owned };
 }
 
 interface RawMcpStatus {
