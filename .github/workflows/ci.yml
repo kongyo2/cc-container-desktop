@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the running check obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The Chromium in node_modules/electron is the only browser these tests use.
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+jobs:
+  check:
+    name: Lint, types, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: Oxlint
+        run: npm run lint:strict
+
+      # Cache-free, and with skipLibCheck off in the separate sweep, so a
+      # dependency bump that breaks our types cannot slip through.
+      - name: Typecheck
+        run: npm run typecheck:ci
+
+      - name: Typecheck dependencies
+        run: npm run check:libs
+
+      - name: Build
+        run: npm run build
+
+  packaged:
+    name: Packaged app smoke test
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Electron needs a real GTK stack even to open an offscreen window.
+      - name: Install Electron's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libnotify4 libsecret-1-0
+
+      - name: Build and package
+        run: |
+          npm run build
+          npx electron-builder --dir --linux dir
+
+      - name: Launch the packaged binary
+        run: xvfb-run -a node tests/e2e/packaged.mjs release/linux-unpacked/cc-container-desktop
+
+  windows-build:
+    name: Build on Windows
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The target platform builds its own bundle: a path or line-ending problem
+      # that only shows up on Windows fails here rather than in a release.
+      - name: Build
+        run: npm run build
+
+      - name: Package (unpacked)
+        run: npx electron-builder --dir --win dir
+
+  e2e:
+    name: End-to-end against a live endpoint
+    # Needs a real credential, so it never runs on a fork PR. Trigger it by hand
+    # from the Actions tab once OPENROUTER_API_KEY is set in repository secrets.
+    if: github.event_name == 'workflow_dispatch'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Electron's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libnotify4 libsecret-1-0
+
+      - name: Check for a credential
+        id: creds
+        env:
+          KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: echo "present=${{ env.KEY != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: steps.creds.outputs.present == 'true'
+        run: npm run build
+
+      - name: Build the container image
+        if: steps.creds.outputs.present == 'true'
+        run: docker build -f docker/Dockerfile -t cc-container-desktop:latest docker/
+
+      - name: Workbench suite
+        if: steps.creds.outputs.present == 'true'
+        env:
+          CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CC_E2E_SKIP_BUILD: '1'
+        run: xvfb-run -a node tests/e2e/workbench.mjs
+
+      - name: Deep suite
+        if: steps.creds.outputs.present == 'true'
+        env:
+          CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: xvfb-run -a node tests/e2e/deep.mjs
+
+      - name: Live model suite
+        if: steps.creds.outputs.present == 'true'
+        env:
+          CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: xvfb-run -a node tests/e2e/live.mjs
+
+      - name: Report a missing credential
+        if: steps.creds.outputs.present != 'true'
+        run: |
+          echo "::warning::OPENROUTER_API_KEY is not set; the live end-to-end suites were skipped."

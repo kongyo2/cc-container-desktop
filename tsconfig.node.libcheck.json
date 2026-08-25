@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "declaration": false,
+    "declarationMap": false,
+    "isolatedDeclarations": false,
+
+    // Electron ships one `.d.ts` covering the main *and* renderer processes, so
+    // its declarations reference `HTMLElement`, `MessagePort` and friends. The
+    // loop config keeps `dom` out to stop main-process code reaching for browser
+    // globals; the sweep has to put it back to read Electron's types at all.
+    "lib": ["es2024", "dom"]
+  },
+  // `electron.vite.config.ts` is excluded on purpose: electron-vite's public
+  // types `import type` from `@swc/core`, an *optional* peer this project does
+  // not use, so checking them would mean carrying a 31 MB native package for a
+  // plugin that is never loaded. The config file is still type-checked by
+  // `tsconfig.node.json` in the loop and the `tsc -b` gate.
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
+}
