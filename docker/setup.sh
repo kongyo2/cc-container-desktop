@@ -21,16 +21,16 @@ set -euxo pipefail
 # rm -rf /var/lib/apt/lists/*
 
 # --- global npm packages -----------------------------------------------------
-# Installed as root into /usr/local, deliberately outside /home/claude: the home
+# Installed as root into /usr, deliberately outside /home/claude: the home
 # directory is a volume, and anything installed there would be frozen at
 # whatever first populated it and lost on a reset.
 # npm install -g pnpm yarn typescript
 
 # --- python tooling ----------------------------------------------------------
-# PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install ruff
-# PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install uv
+# PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/bin pipx install ruff
+# PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/bin pipx install uv
 
 # --- anything else -----------------------------------------------------------
-# curl -fsSL https://example.com/tool | sh -s -- --prefix /usr/local
+# curl -fsSL https://example.com/tool | sh -s -- --prefix /usr
 
 echo "setup: ok"

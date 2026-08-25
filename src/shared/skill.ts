@@ -57,9 +57,15 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function charLength(value: string): number {
+  return [...value].length;
+}
+
 export function nameProblem(name: string): string | null {
   if (name === '') return 'name が空です / name is empty';
-  if (name.length > MAX_NAME) return `name は ${MAX_NAME} 文字までです / name is longer than ${MAX_NAME} characters`;
+  if (charLength(name) > MAX_NAME) {
+    return `name は ${MAX_NAME} 文字までです / name is longer than ${MAX_NAME} characters`;
+  }
   if (name !== name.toLowerCase()) return 'name は小文字のみです / name must be lowercase';
   if (!NAME_PATTERN.test(name)) {
     return 'name は英小文字・数字・ハイフンのみ。先頭/末尾のハイフンと連続ハイフンは不可 / lowercase letters, digits and single hyphens only, not at either end';
@@ -67,12 +73,26 @@ export function nameProblem(name: string): string | null {
   return null;
 }
 
-export function isSafeSkillPath(path: string): boolean {
+export function normalizeSkillPath(path: string): string | null {
   const trimmed = path.trim();
-  if (trimmed === '' || trimmed.startsWith('/') || trimmed.includes('\\')) return false;
-  if (/(^|\/)\.\.(\/|$)/u.test(trimmed)) return false;
-  if (trimmed.toUpperCase() === 'SKILL.MD') return false;
-  return true;
+  if (trimmed === '' || trimmed.startsWith('/') || trimmed.includes('\\')) return null;
+  if (trimmed.includes('\0')) return null;
+
+  const parts: string[] = [];
+  for (const part of trimmed.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') return null;
+    parts.push(part);
+  }
+  if (parts.length === 0) return null;
+
+  const normalized = parts.join('/');
+  if (normalized.toUpperCase() === 'SKILL.MD') return null;
+  return normalized;
+}
+
+export function isSafeSkillPath(path: string): boolean {
+  return normalizeSkillPath(path) !== null;
 }
 
 export function validateSkill(body: string, files: readonly SkillFile[] = []): SkillValidation {
@@ -111,26 +131,30 @@ export function validateSkill(body: string, files: readonly SkillFile[] = []): S
   }
 
   const fields = parsed as Record<string, unknown>;
-  const name = asString(fields['name']);
+  const rawName = fields['name'];
+  const name = asString(rawName);
   const description = asString(fields['description']);
 
-  const problem = nameProblem(name);
+  const problem =
+    rawName !== undefined && typeof rawName !== 'string'
+      ? 'name は文字列にしてください（引用符で囲む）/ name must be a string — quote it'
+      : nameProblem(name);
   if (problem !== null) errors.push(problem);
 
   if (description === '') {
     errors.push('description は必須です / description is required');
-  } else if (description.length > MAX_DESCRIPTION) {
+  } else if (charLength(description) > MAX_DESCRIPTION) {
     errors.push(
       `description は ${MAX_DESCRIPTION} 文字までです / description is longer than ${MAX_DESCRIPTION} characters`,
     );
-  } else if (description.length < 20) {
+  } else if (charLength(description) < 20) {
     warnings.push(
       'description が短すぎます。何をするか、いつ使うかを書いてください / too short to match a task against; say what it does and when to use it',
     );
   }
 
   const compatibility = asString(fields['compatibility']);
-  if (compatibility.length > MAX_COMPATIBILITY) {
+  if (charLength(compatibility) > MAX_COMPATIBILITY) {
     errors.push(`compatibility は ${MAX_COMPATIBILITY} 文字までです / compatibility is too long`);
   }
 
@@ -163,10 +187,18 @@ export function validateSkill(body: string, files: readonly SkillFile[] = []): S
     warnings.push(`${unknown.join(', ')}: 認識できないフィールドです / unrecognized frontmatter field`);
   }
 
+  const seen = new Set<string>();
   for (const file of files) {
-    if (!isSafeSkillPath(file.path)) {
+    const normalized = normalizeSkillPath(file.path);
+    if (normalized === null) {
       errors.push(`${file.path}: スキル内の相対パスにしてください / must be a relative path inside the skill`);
+      continue;
     }
+    if (seen.has(normalized)) {
+      errors.push(`${normalized}: 同じパスのファイルが 2 つあります / two bundled files share this path`);
+      continue;
+    }
+    seen.add(normalized);
   }
 
   return {

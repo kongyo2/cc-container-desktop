@@ -910,6 +910,128 @@ try {
   const sessionsAfterReset = await ok(page, 'tmuxList');
   check('no tmux sessions survived', sessionsAfterReset.length === 0, JSON.stringify(sessionsAfterReset));
 
+  console.log('\n[O] the guards that stand between a typo and lost data');
+
+  await ok(page, 'configSave', [{ lastExportDir: null }]);
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/guard-probe.txt', content: 'STILL-HERE\n' }]);
+  const refused = await call(page, 'containerReset', [{ exportFirst: true, rebuildImage: false }]);
+  check('a reset that cannot export refuses instead of destroying', refused.ok === false, JSON.stringify(refused));
+  const survived = await call(page, 'fsRead', ['/home/claude/workspace/guard-probe.txt']);
+  check(
+    'the workspace it was about to destroy is still there',
+    survived.ok === true && survived.value.includes('STILL-HERE'),
+    survived.ok ? survived.value : survived.error,
+  );
+
+  const beforeBadPlugin = (await ok(page, 'snapshot')).config;
+  await ok(page, 'extensionsSave', [
+    {
+      ...beforeBadPlugin.extensions,
+      plugins: [{ id: 'plg_blank', plugin: '', marketplace: '', enabled: true }],
+    },
+  ]);
+  const afterBadPlugin = (await ok(page, 'snapshot')).config;
+  check(
+    'a half-typed plugin does not take the profiles with it',
+    afterBadPlugin.profiles.length === beforeBadPlugin.profiles.length,
+    `${beforeBadPlugin.profiles.length} → ${afterBadPlugin.profiles.length}`,
+  );
+  check(
+    'and the config still round-trips through its own schema',
+    JSON.parse(JSON.stringify(afterBadPlugin)).version === 1,
+    String(afterBadPlugin.version),
+  );
+
+  const protectedSkill = 'handmade-guard';
+  await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        `mkdir -p ~/.claude/skills/${protectedSkill} && echo MINE > ~/.claude/skills/${protectedSkill}/SKILL.md`,
+      ],
+      asRoot: false,
+    },
+  ]);
+  await ok(page, 'extensionsSave', [
+    {
+      mcpServers: [
+        {
+          id: 'mcp_proto',
+          name: 'constructor',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://example.test/proto',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+      ],
+      marketplaces: [],
+      plugins: [],
+      skills: [
+        {
+          id: 'skl_guard',
+          enabled: true,
+          body: `---\nname: ${protectedSkill}\ndescription: Tries to take a directory that already belongs to someone else in the container.\n---\n\nbody\n`,
+          files: [],
+        },
+        {
+          id: 'skl_dotslash',
+          enabled: true,
+          body: '---\nname: dotslash-guard\ndescription: Tries to overwrite its own validated SKILL.md through a ./ prefixed path.\n---\n\nreal body\n',
+          files: [{ path: './SKILL.md', content: '---\nname: impostor\ndescription: not the validated one\n---\n' }],
+        },
+      ],
+    },
+  ]);
+  await ok(page, 'containerProvision');
+
+  const handmade = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
+  check('a skill directory the app never created is left alone', handmade.trim() === 'MINE', handmade.trim());
+  const dotslash = await call(page, 'fsRead', ['/home/claude/.claude/skills/dotslash-guard/SKILL.md']);
+  check(
+    'a ./SKILL.md bundled file cannot overwrite the validated frontmatter',
+    dotslash.ok === false || !dotslash.value.includes('impostor'),
+    dotslash.ok ? dotslash.value.slice(0, 80) : dotslash.error,
+  );
+
+  const withProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  check(
+    'a server named after an Object.prototype member is written',
+    Object.hasOwn(withProto.mcpServers ?? {}, 'constructor'),
+    JSON.stringify(Object.keys(withProto.mcpServers ?? {})),
+  );
+  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skills: [] }]);
+  await ok(page, 'containerProvision');
+  const withoutProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  check(
+    'and removing it actually removes it',
+    !Object.hasOwn(withoutProto.mcpServers ?? {}, 'constructor'),
+    JSON.stringify(Object.keys(withoutProto.mcpServers ?? {})),
+  );
+
+  await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'ln -sfn /etc/hostname ~/workspace/a-link'], asRoot: false },
+  ]);
+  const linkRead = await call(page, 'fsRead', ['/home/claude/workspace/a-link']);
+  check(
+    'opening a symlink reports a problem instead of an empty editor',
+    linkRead.ok === false,
+    linkRead.ok ? JSON.stringify(linkRead.value) : linkRead.error,
+  );
+
+  const badScheme = await call(page, 'openExternal', ['file:///etc/passwd']);
+  check('a non-http link is refused', badScheme.ok === false, JSON.stringify(badScheme));
+  const badReveal = await call(page, 'revealPath', ['/etc']);
+  check('revealing a path outside the app data is refused', badReveal.ok === false, JSON.stringify(badReveal));
+
   console.log('\n[P] cleanup of test profiles');
 
   const secretBefore = await ok(page, 'secretGet', [keyed.id]);

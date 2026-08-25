@@ -1,8 +1,8 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { resolve, sep } from 'node:path';
 
 import { CHANNELS } from '../shared/ipc.ts';
 import type { BuildRequest, ExecRequest, ResetRequest, VscodeAttachResult, WriteFileRequest } from '../shared/ipc.ts';
-import { CONTAINER_WORKSPACE } from '../shared/presets.ts';
 import type {
   AppConfig,
   ExecResult,
@@ -23,6 +23,7 @@ import { readMcpStatus } from './claude/extensions.ts';
 import { provisionContainer } from './claude/provision.ts';
 import {
   activateProfile,
+  appDataDir,
   deleteProfile,
   getConfig,
   getSecret,
@@ -124,11 +125,25 @@ export function registerIpc(version: string): void {
     return next;
   });
   handle<[string], null>(CHANNELS.openExternal, async (url) => {
-    await shell.openExternal(url);
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`開けない URL です / not a URL: ${url}`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`http か https のリンクだけ開けます / only http and https links can be opened: ${url}`);
+    }
+    await shell.openExternal(parsed.toString());
     return null;
   });
   handle<[string], null>(CHANNELS.revealPath, (path) => {
-    shell.openPath(path).catch(() => undefined);
+    const root = resolve(appDataDir());
+    const target = resolve(path);
+    if (target !== root && !target.startsWith(root + sep)) {
+      throw new Error(`このフォルダは開けません / that folder is outside the app's own data: ${path}`);
+    }
+    shell.openPath(target).catch(() => undefined);
     return null;
   });
 
@@ -261,7 +276,10 @@ export function registerIpc(version: string): void {
     const destination = await pickDirectory(getConfig().lastExportDir);
     if (destination === null) return null;
     saveConfig({ ...getConfig(), lastExportDir: destination });
-    return withRunningContainer(() => exportWorkspace(destination));
+    const result = await withRunningContainer(() => exportWorkspace(destination));
+    return result.skipped.length === 0
+      ? result.path
+      : `${result.path} (${result.files} files, ${result.skipped.length} skipped)`;
   });
   handle<[], string | null>(CHANNELS.devcontainerWrite, async () => {
     const destination = await pickDirectory(getConfig().lastExportDir);
@@ -269,5 +287,3 @@ export function registerIpc(version: string): void {
     return writeDevcontainer(destination);
   });
 }
-
-export const DEFAULT_BROWSE_PATH: string = CONTAINER_WORKSPACE;

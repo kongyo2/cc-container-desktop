@@ -116,14 +116,55 @@ export async function restartContainer(): Promise<ContainerState> {
   return inspectContainer();
 }
 
+function isManaged(labels: unknown): boolean {
+  if (typeof labels !== 'object' || labels === null) return false;
+  return (labels as Record<string, unknown>)[MANAGED_LABEL] === 'true';
+}
+
+async function volumeIsOurs(name: string): Promise<boolean> {
+  try {
+    const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
+    return isManaged(raw.Labels);
+  } catch (error) {
+    if (isNotFound(error)) return true;
+    throw error;
+  }
+}
+
+async function containerIsOurs(): Promise<boolean> {
+  try {
+    const raw = (await containerHandle().inspect()) as { Config?: { Labels?: unknown } };
+    return isManaged(raw.Config?.Labels);
+  } catch (error) {
+    if (isNotFound(error)) return true;
+    throw error;
+  }
+}
+
 export async function removeContainer(removeVolume: boolean): Promise<ContainerState> {
   const config = getConfig();
   const state = await inspectContainer();
+
   if (state.exists) {
-    await containerHandle().remove({ force: true, v: false });
-    logInfo('app', `コンテナを削除しました / container removed: ${config.containerName}`);
+    if (!(await containerIsOurs())) {
+      throw new Error(
+        `${config.containerName} はこのアプリが作ったコンテナではありません。「設定」タブでコンテナ名を変えてください / ${config.containerName} was not created by this app; change the container name on the Settings tab`,
+      );
+    }
+    try {
+      await containerHandle().remove({ force: true, v: false });
+      logInfo('app', `コンテナを削除しました / container removed: ${config.containerName}`);
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+    }
   }
+
   if (removeVolume) {
+    if (!(await volumeIsOurs(config.volumeName))) {
+      throw new Error(
+        `${config.volumeName} はこのアプリが作ったボリュームではないので消しません。「設定」タブでボリューム名を変えてください / ${config.volumeName} was not created by this app and was left alone; change the volume name on the Settings tab`,
+      );
+    }
     try {
       await docker().getVolume(config.volumeName).remove();
       logInfo('app', `ボリュームを削除しました / volume removed: ${config.volumeName}`);
@@ -186,12 +227,29 @@ export async function execCapture(command: readonly string[], options: ExecOptio
     });
   await Promise.all([drained(stdout), drained(stderr)]);
 
-  const info = (await exec.inspect()) as { ExitCode?: number | null };
   return {
-    exitCode: info.ExitCode ?? 0,
+    exitCode: await settledExitCode(exec),
     stdout: Buffer.concat(outChunks).toString('utf8'),
     stderr: Buffer.concat(errChunks).toString('utf8'),
   };
+}
+
+interface ExecInspect {
+  readonly ExitCode?: number | null;
+  readonly Running?: boolean;
+}
+
+async function settledExitCode(exec: { inspect: () => Promise<unknown> }): Promise<number> {
+  /* oxlint-disable no-await-in-loop */
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const info = (await exec.inspect()) as ExecInspect;
+    if (typeof info.ExitCode === 'number') return info.ExitCode;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25);
+    });
+  }
+  /* oxlint-enable no-await-in-loop */
+  return -1;
 }
 
 export async function execChecked(command: readonly string[], options: ExecOptions = {}): Promise<string> {

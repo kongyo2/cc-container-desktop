@@ -12,6 +12,7 @@ import type {
   SkillConfig,
 } from '../../../shared/types.ts';
 import { skillTemplate, validateSkill } from '../../../shared/skill.ts';
+import { validateMcpServer } from '../../../shared/mcp.ts';
 import { CodeEditor } from '../components/CodeEditor.tsx';
 import { ArgEditor, PairEditor } from '../components/PairEditor.tsx';
 import { Check, Field, Section, TextField } from '../components/ui.tsx';
@@ -69,15 +70,16 @@ export function ExtensionsPanel(): JSX.Element {
   const setToast = useApp((state) => state.setToast);
   const setError = useApp((state) => state.setError);
 
-  const [draft, setDraft] = useState<{ base: Extensions; value: Extensions } | null>(null);
-  const extensions = draft !== null && draft.base === saved ? draft.value : saved;
-  const dirty = draft !== null && draft.base === saved;
+  const savedKey = JSON.stringify(saved);
+  const [draft, setDraft] = useState<{ base: string; value: Extensions } | null>(null);
+  const dirty = draft !== null && draft.base === savedKey;
+  const extensions = dirty && draft !== null ? draft.value : saved;
 
   const [statuses, setStatuses] = useState<readonly McpServerStatus[]>([]);
   const [editingSkill, setEditingSkill] = useState<string | null>(null);
 
   const update = (patch: Partial<Extensions>): void => {
-    setDraft({ base: saved, value: { ...extensions, ...patch } });
+    setDraft({ base: savedKey, value: { ...extensions, ...patch } });
   };
 
   const save = async (): Promise<boolean> => {
@@ -165,6 +167,7 @@ export function ExtensionsPanel(): JSX.Element {
 
         {extensions.mcpServers.map((server, index) => {
           const status = statusFor(server.name);
+          const problem = server.enabled ? validateMcpServer(server) : null;
           const replace = (patch: Partial<McpServerConfig>): void => {
             update({ mcpServers: extensions.mcpServers.with(index, { ...server, ...patch }) });
           };
@@ -174,6 +177,7 @@ export function ExtensionsPanel(): JSX.Element {
                 <Check label="" checked={server.enabled} onChange={(enabled) => replace({ enabled })} />
                 <strong>{server.name || t('commonUnset')}</strong>
                 <span className="tag">{server.transport}</span>
+                {problem === null ? null : <span className="tag err">!</span>}
                 {status === undefined ? null : (
                   <span className={`tag ${status.healthy ? 'ok' : ''}`}>{status.status}</span>
                 )}

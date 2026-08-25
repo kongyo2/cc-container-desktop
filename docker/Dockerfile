@@ -5,7 +5,8 @@
 # Two deliberate choices:
 #   * GitHub CLI is NOT installed. Getting work out of the container is a manual
 #     step (the app's "Export workspace" button, or the Files tab).
-#   * Claude Code is installed into /usr/local, never into /home/claude. The home
+#   * Claude Code is installed globally (npm prefix /usr), never into
+#     /home/claude. The home
 #     directory is a named Docker volume; anything installed there at build time
 #     would be frozen at whatever the volume was first populated with, and a
 #     rebuild would never reach it.

@@ -68,7 +68,12 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        event.preventDefault();
+        void window.cc.openExternal(uri);
+      }),
+    );
     const unicode = new Unicode11Addon();
     term.loadAddon(unicode);
     term.unicode.activeVersion = '11';

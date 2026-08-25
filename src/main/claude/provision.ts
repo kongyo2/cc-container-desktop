@@ -64,7 +64,7 @@ function onboardingPatch(config: AppConfig, profile: Profile | null, secret: str
   };
 
   if (config.autoApproveApiKey && profile?.authMode === 'apiKey' && secret !== '') {
-    patch['customApiKeyResponses'] = { approved: [secret.slice(-20), secret], rejected: [] };
+    patch['customApiKeyResponses'] = { approved: [secret.slice(-20)], rejected: [] };
   }
 
   return patch;
@@ -106,8 +106,9 @@ if (!isPlainObject(current)) current = {};
 
 const next = merge(current, patch, true);
 const tmp = target + '.tmp';
-fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\\n');
+fs.writeFileSync(tmp, JSON.stringify(next, null, 2) + '\\n', { mode: 0o600 });
 fs.renameSync(tmp, target);
+try { fs.chmodSync(target, 0o600); } catch {}
 `;
 }
 
@@ -152,14 +153,26 @@ async function readJsonFromContainer(path: string): Promise<Record<string, unkno
     const raw = await readFileRaw(path);
     if (raw.length === 0) return {};
     const parsed = JSON.parse(raw.toString('utf8')) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      await keepAside(path);
+      return {};
+    }
     return parsed as Record<string, unknown>;
   } catch (error) {
+    await keepAside(path);
     logWarn(
       'provision',
       `${path} を読めなかったので作り直します / rewriting unreadable ${path}: ${describeError(error)}`,
     );
     return {};
+  }
+}
+
+async function keepAside(path: string): Promise<void> {
+  const backup = `${path}.broken-${Date.now().toString(36)}`;
+  const result = await execCapture(['cp', '-p', path, backup], { workdir: '/' });
+  if (result.exitCode === 0) {
+    logWarn('provision', `退避しました / kept a copy of the unreadable file at ${backup}`);
   }
 }
 
@@ -176,9 +189,11 @@ export async function provisionContainer(): Promise<string> {
   const plan = planExtensions(config.extensions, config.managed, existingClaudeJson, existingSettings);
   for (const warning of plan.warnings) logWarn('provision', warning);
 
+  patchConfig({ managed: plan.managed });
+
   const patch = { ...onboardingPatch(config, profile, secret), ...plan.claudeJson };
   const replaceKeys = Object.keys(plan.claudeJson);
-  await writeFileText(ONBOARD_SCRIPT, onboardScriptSource(patch, replaceKeys), 0o755);
+  await writeFileText(ONBOARD_SCRIPT, onboardScriptSource(patch, replaceKeys), 0o700);
   await writeFileText(LAUNCH_SCRIPT, launchScriptSource(config), 0o755);
   if (config.autoOnboarding) {
     await execChecked(['node', ONBOARD_SCRIPT], { workdir: CONTAINER_HOME });
@@ -192,8 +207,7 @@ export async function provisionContainer(): Promise<string> {
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  await writeSkills(plan);
-  patchConfig({ managed: plan.managed });
+  for (const warning of await writeSkills(plan)) logWarn('provision', warning);
 
   if (!(await fileExists(TMUX_CONF))) {
     await writeFileText(TMUX_CONF, TMUX_CONF_SOURCE, 0o644);

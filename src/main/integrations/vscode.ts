@@ -7,7 +7,7 @@ import type { VscodeAttachResult } from '../../shared/ipc.ts';
 import { getConfig } from '../config/store.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
 import { ensureImageSources } from '../docker/image.ts';
-import { dockerfilePath, postCreatePath } from '../paths.ts';
+import { dockerfilePath, postCreatePath, setupPath } from '../paths.ts';
 
 export function attachedContainerUri(containerName: string, path: string): string {
   const payload = JSON.stringify({ containerName: `/${containerName}` });
@@ -79,6 +79,7 @@ export function writeDevcontainer(hostDir: string): string {
   try {
     copyFileSync(dockerfilePath(), join(dir, 'Dockerfile'));
     copyFileSync(postCreatePath(), join(dir, 'post-create.sh'));
+    copyFileSync(setupPath(), join(dir, 'setup.sh'));
   } catch (error) {
     logWarn('app', `イメージソースをコピーできませんでした / could not copy image sources: ${describeError(error)}`);
   }

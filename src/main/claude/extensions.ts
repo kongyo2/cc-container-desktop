@@ -1,47 +1,25 @@
 import { CONTAINER_HOME } from '../../shared/presets.ts';
-import { isSafeSkillPath, nameProblem, validateSkill } from '../../shared/skill.ts';
+import { validateMcpServer } from '../../shared/mcp.ts';
+import { nameProblem, normalizeSkillPath, validateSkill } from '../../shared/skill.ts';
 import type { Extensions, ManagedNames, McpServerConfig, McpServerStatus } from '../../shared/types.ts';
 import { execCapture } from '../docker/container.ts';
 import { writeFileText } from '../docker/files.ts';
-import { logWarn } from '../logger.ts';
+import { describeError, logWarn } from '../logger.ts';
 
 const SKILLS_DIR = `${CONTAINER_HOME}/.claude/skills`;
 
-const RESERVED_MCP_NAMES = new Set(
-  ['workspace', 'claude-in-chrome', 'computer-use', 'claude preview', 'claude browser'].map((name) =>
-    name.toLowerCase(),
-  ),
-);
+function emptyMap(): Record<string, unknown> {
+  return Object.create(null) as Record<string, unknown>;
+}
 
 function trimmedRecord(record: Readonly<Record<string, string>>): Record<string, string> {
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(record)) {
     const name = key.trim();
     if (name === '') continue;
     out[name] = value.trim();
   }
   return out;
-}
-
-export function validateMcpServer(server: McpServerConfig): string | null {
-  if (!/^[A-Za-z0-9_-]+$/u.test(server.name)) {
-    return `${server.name}: 名前に使えるのは英数字とハイフン、アンダースコアだけです / only letters, digits, "-" and "_" are allowed in a server name`;
-  }
-  if (RESERVED_MCP_NAMES.has(server.name.toLowerCase())) {
-    return `${server.name}: この名前は Claude Code の組み込みサーバ用に予約されています / this name is reserved for a built-in server`;
-  }
-  if (server.transport === 'stdio') {
-    if (server.command.trim() === '') return `${server.name}: command が空です / command is empty`;
-    return null;
-  }
-  if (server.url.trim() === '') return `${server.name}: URL が空です / url is empty`;
-  try {
-    // eslint-disable-next-line no-new
-    new URL(server.url.trim());
-  } catch {
-    return `${server.name}: URL の形式が不正です / url is not a valid URL`;
-  }
-  return null;
 }
 
 export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
@@ -68,11 +46,12 @@ function reconcile(
   next: Record<string, unknown>,
   previouslyManaged: readonly string[],
 ): { merged: Record<string, unknown>; managed: string[] } {
-  const merged = { ...current };
+  const merged = emptyMap();
+  for (const [key, value] of Object.entries(current)) merged[key] = value;
   for (const name of previouslyManaged) {
-    if (!(name in next)) delete merged[name];
+    if (!Object.hasOwn(next, name)) delete merged[name];
   }
-  Object.assign(merged, next);
+  for (const [key, value] of Object.entries(next)) merged[key] = value;
   return { merged, managed: Object.keys(next) };
 }
 
@@ -89,6 +68,7 @@ export interface ExtensionPlan {
   readonly warnings: readonly string[];
   readonly skills: readonly PlannedSkill[];
   readonly removedSkills: readonly string[];
+  readonly ownedSkills: readonly string[];
 }
 
 export function planExtensions(
@@ -99,7 +79,7 @@ export function planExtensions(
 ): ExtensionPlan {
   const warnings: string[] = [];
 
-  const nextServers: Record<string, unknown> = {};
+  const nextServers = emptyMap();
   for (const server of extensions.mcpServers) {
     if (!server.enabled) continue;
     const problem = validateMcpServer(server);
@@ -115,14 +95,17 @@ export function planExtensions(
       : {};
   const servers = reconcile(existingServers, nextServers, managed.mcpServers);
 
-  const nextMarkets: Record<string, unknown> = {};
+  const nextMarkets = emptyMap();
   for (const market of extensions.marketplaces) {
     if (!market.enabled) continue;
-    if (market.name.trim() === '') continue;
     const source =
       market.sourceKind === 'github'
         ? { source: 'github', repo: market.repo.trim() }
         : { source: 'git', url: market.url.trim() };
+    if (market.name.trim() === '') {
+      warnings.push('マーケットプレイス名が空です / a marketplace has no name and was skipped');
+      continue;
+    }
     if (market.sourceKind === 'github' && !/^[^/\s]+\/[^/\s]+$/u.test(market.repo.trim())) {
       warnings.push(`${market.name}: repo は owner/repo 形式で指定してください / repo must be "owner/repo"`);
       continue;
@@ -139,11 +122,16 @@ export function planExtensions(
       : {};
   const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces);
 
-  const nextPlugins: Record<string, unknown> = {};
+  const nextPlugins = emptyMap();
   for (const plugin of extensions.plugins) {
     const name = plugin.plugin.trim();
     const market = plugin.marketplace.trim();
-    if (name === '' || market === '') continue;
+    if (name === '' || market === '') {
+      warnings.push(
+        'プラグイン名とマーケットプレイス名の両方が必要です / a plugin needs both a plugin and a marketplace name',
+      );
+      continue;
+    }
     nextPlugins[`${name}@${market}`] = plugin.enabled;
   }
   const existingPlugins =
@@ -153,31 +141,41 @@ export function planExtensions(
   const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins);
 
   const skills: PlannedSkill[] = [];
+  const claimed = new Set<string>();
   for (const skill of extensions.skills) {
     if (!skill.enabled) continue;
     const check = validateSkill(skill.body, skill.files);
     for (const problem of check.errors) warnings.push(`skill: ${problem}`);
     for (const note of check.warnings) warnings.push(`skill ${check.name || '?'}: ${note}`);
     if (check.errors.length > 0) continue;
-    skills.push({
-      name: check.name,
-      body: skill.body,
-      files: skill.files.filter((file) => isSafeSkillPath(file.path)),
-    });
+    if (claimed.has(check.name)) {
+      warnings.push(
+        `skill ${check.name}: 同じ名前のスキルが 2 つあります / two skills share this name; keeping the first`,
+      );
+      continue;
+    }
+    claimed.add(check.name);
+
+    const files: { path: string; content: string }[] = [];
+    for (const file of skill.files) {
+      const path = normalizeSkillPath(file.path);
+      if (path !== null) files.push({ path, content: file.content });
+    }
+    skills.push({ name: check.name, body: skill.body, files });
   }
   const skillNames = skills.map((skill) => skill.name);
   const removedSkills = managed.skills.filter((name) => !skillNames.includes(name));
 
   const claudeJson: Record<string, unknown> = {};
-  if (Object.keys(servers.merged).length > 0 || 'mcpServers' in currentClaudeJson) {
+  if (Object.keys(servers.merged).length > 0 || Object.hasOwn(currentClaudeJson, 'mcpServers')) {
     claudeJson['mcpServers'] = servers.merged;
   }
 
   const settings: Record<string, unknown> = {};
-  if (Object.keys(markets.merged).length > 0 || 'extraKnownMarketplaces' in currentSettings) {
+  if (Object.keys(markets.merged).length > 0 || Object.hasOwn(currentSettings, 'extraKnownMarketplaces')) {
     settings['extraKnownMarketplaces'] = markets.merged;
   }
-  if (Object.keys(plugins.merged).length > 0 || 'enabledPlugins' in currentSettings) {
+  if (Object.keys(plugins.merged).length > 0 || Object.hasOwn(currentSettings, 'enabledPlugins')) {
     settings['enabledPlugins'] = plugins.merged;
   }
 
@@ -193,10 +191,14 @@ export function planExtensions(
     warnings,
     skills,
     removedSkills,
+    ownedSkills: managed.skills,
   };
 }
 
-export async function writeSkills(plan: ExtensionPlan): Promise<void> {
+export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[]> {
+  const warnings: string[] = [];
+  const owned = new Set(plan.ownedSkills);
+
   const removals = plan.removedSkills
     .filter((name) => nameProblem(name) === null)
     .map(async (name) => {
@@ -208,6 +210,17 @@ export async function writeSkills(plan: ExtensionPlan): Promise<void> {
 
   const writes = plan.skills.map(async (skill) => {
     const root = `${SKILLS_DIR}/${skill.name}`;
+
+    if (!owned.has(skill.name)) {
+      const existing = await execCapture(['test', '-e', root], { workdir: '/' });
+      if (existing.exitCode === 0) {
+        warnings.push(
+          `skill ${skill.name}: 同名のスキルがコンテナ内に既にあります。別の name にしてください / a skill of this name already exists in the container and was left alone; rename yours`,
+        );
+        return;
+      }
+    }
+
     await execCapture(['rm', '-rf', root], { workdir: '/' });
 
     const directories = new Set<string>();
@@ -218,14 +231,26 @@ export async function writeSkills(plan: ExtensionPlan): Promise<void> {
     await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
 
     await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
-    await Promise.all(
-      skill.files.map((file) =>
-        writeFileText(`${root}/${file.path}`, file.content, file.path.startsWith('scripts/') ? 0o755 : 0o644),
-      ),
-    );
+    /* oxlint-disable no-await-in-loop */
+    for (const file of skill.files) {
+      try {
+        await writeFileText(`${root}/${file.path}`, file.content, file.path.startsWith('scripts/') ? 0o755 : 0o644);
+      } catch (error) {
+        warnings.push(
+          `skill ${skill.name}: ${file.path} を書けませんでした / could not write ${file.path}: ${describeError(error)}`,
+        );
+      }
+    }
+    /* oxlint-enable no-await-in-loop */
   });
 
-  await Promise.all([...removals, ...writes]);
+  const results = await Promise.allSettled([...removals, ...writes]);
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      warnings.push(`skill: ${describeError(result.reason)}`);
+    }
+  }
+  return warnings;
 }
 
 interface RawMcpStatus {

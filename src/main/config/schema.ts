@@ -11,7 +11,7 @@ import type { AppConfig, Extensions, ManagedNames, Profile } from '../../shared/
 
 const profileSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().default(''),
   baseUrl: z.string().default(''),
   authMode: z.enum(['authToken', 'apiKey']).default('authToken'),
   model: z.string().default(''),
@@ -26,15 +26,9 @@ const profileSchema = z.object({
   note: z.string().default(''),
 });
 
-const mcpNameSchema = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9_-]+$/u);
-
 const mcpServerSchema = z.object({
   id: z.string().min(1),
-  name: mcpNameSchema,
+  name: z.string().default(''),
   enabled: z.boolean().default(true),
   transport: z.enum(['stdio', 'http', 'sse']).default('http'),
   command: z.string().default(''),
@@ -48,7 +42,7 @@ const mcpServerSchema = z.object({
 
 const marketplaceSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().default(''),
   enabled: z.boolean().default(true),
   sourceKind: z.enum(['github', 'git']).default('github'),
   repo: z.string().default(''),
@@ -58,8 +52,8 @@ const marketplaceSchema = z.object({
 
 const pluginSchema = z.object({
   id: z.string().min(1),
-  plugin: z.string().min(1),
-  marketplace: z.string().min(1),
+  plugin: z.string().default(''),
+  marketplace: z.string().default(''),
   enabled: z.boolean().default(true),
 });
 
@@ -67,7 +61,7 @@ const skillSchema = z.object({
   id: z.string().min(1),
   enabled: z.boolean().default(true),
   body: z.string().default(''),
-  files: z.array(z.object({ path: z.string().min(1), content: z.string().default('') })).default([]),
+  files: z.array(z.object({ path: z.string().default(''), content: z.string().default('') })).default([]),
 });
 
 const extensionsSchema = z.object({
@@ -85,17 +79,17 @@ const managedSchema = z.object({
 });
 
 const appConfigSchema = z.object({
-  version: z.literal(1).default(1),
-  language: z.enum(['ja', 'en']).default('ja'),
+  version: z.literal(1).catch(1).default(1),
+  language: z.enum(['ja', 'en']).catch('ja').default('ja'),
   activeProfileId: z.string().nullable().default(null),
   profiles: z.array(profileSchema).default([]),
-  containerName: z.string().min(1).default(DEFAULT_CONTAINER_NAME),
-  imageTag: z.string().min(1).default(DEFAULT_IMAGE_TAG),
-  volumeName: z.string().min(1).default(DEFAULT_VOLUME_NAME),
+  containerName: z.string().min(1).catch(DEFAULT_CONTAINER_NAME).default(DEFAULT_CONTAINER_NAME),
+  imageTag: z.string().min(1).catch(DEFAULT_IMAGE_TAG).default(DEFAULT_IMAGE_TAG),
+  volumeName: z.string().min(1).catch(DEFAULT_VOLUME_NAME).default(DEFAULT_VOLUME_NAME),
   autoOnboarding: z.boolean().default(true),
   autoApproveApiKey: z.boolean().default(true),
   skipPermissions: z.boolean().default(true),
-  tmuxSession: z.string().min(1).default(DEFAULT_TMUX_SESSION),
+  tmuxSession: z.string().min(1).catch(DEFAULT_TMUX_SESSION).default(DEFAULT_TMUX_SESSION),
   lastExportDir: z.string().nullable().default(null),
   exportBeforeReset: z.boolean().default(true),
   extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skills: [] }),
@@ -151,10 +145,61 @@ export function defaultConfig(): AppConfig {
   };
 }
 
+interface Checker {
+  readonly safeParse: (value: unknown) => { readonly success: boolean };
+}
+
+function keepValid(schema: Checker, raw: unknown, report: { dropped: number }): unknown[] {
+  if (!Array.isArray(raw)) {
+    if (raw !== undefined && raw !== null) report.dropped += 1;
+    return [];
+  }
+  const items: unknown[] = [];
+  for (const item of raw) {
+    if (schema.safeParse(item).success) items.push(item);
+    else report.dropped += 1;
+  }
+  return items;
+}
+
+function salvage(raw: unknown): { source: unknown; dropped: number } {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { source: raw, dropped: 0 };
+  const report = { dropped: 0 };
+  const source: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+
+  source['profiles'] = keepValid(profileSchema, source['profiles'], report);
+
+  const extensions = source['extensions'];
+  if (typeof extensions === 'object' && extensions !== null && !Array.isArray(extensions)) {
+    const next: Record<string, unknown> = { ...(extensions as Record<string, unknown>) };
+    next['mcpServers'] = keepValid(mcpServerSchema, next['mcpServers'], report);
+    next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
+    next['plugins'] = keepValid(pluginSchema, next['plugins'], report);
+    next['skills'] = keepValid(skillSchema, next['skills'], report);
+    source['extensions'] = next;
+  }
+
+  return { source, dropped: report.dropped };
+}
+
+export interface ConfigRead {
+  readonly config: AppConfig;
+  readonly dropped: number;
+  readonly reset: boolean;
+}
+
+export function readConfig(raw: unknown): ConfigRead {
+  const { source, dropped } = salvage(raw);
+  const parsed = appConfigSchema.safeParse(source);
+  if (!parsed.success) return { config: defaultConfig(), dropped, reset: true };
+  return { config: fromSchema(parsed.data), dropped, reset: false };
+}
+
 export function parseConfig(raw: unknown): AppConfig {
-  const parsed = appConfigSchema.safeParse(raw);
-  if (!parsed.success) return defaultConfig();
-  const value = parsed.data;
+  return readConfig(raw).config;
+}
+
+function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
   return {
     version: 1,
     language: value.language,

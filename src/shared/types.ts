@@ -139,8 +139,11 @@ export interface ImageSources {
 
 export interface ResetSummary {
   readonly exportedTo: string | null;
+  readonly exportedFiles: number;
+  readonly exportSkipped: number;
   readonly rebuiltImage: boolean;
   readonly containerName: string;
+  readonly provisionError: string | null;
 }
 
 export type McpTransport = 'stdio' | 'http' | 'sse';

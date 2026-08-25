@@ -81,7 +81,7 @@ export function ProfilesPanel(): JSX.Element {
   const draft = edits !== null && edits.id === effectiveId ? edits : source;
   const envText =
     envEdit !== null && envEdit.id === effectiveId ? envEdit.value : source === null ? '' : envToText(source.extraEnv);
-  const secret = secretEdit !== null && secretEdit.id === effectiveId ? secretEdit.value : '';
+  const secret = secretEdit !== null && secretEdit.id === effectiveId ? secretEdit.value : null;
 
   useEffect(() => {
     if (effectiveId === null) return undefined;
@@ -113,10 +113,12 @@ export function ProfilesPanel(): JSX.Element {
     const saved = await run('profile', () => window.cc.profileUpsert(profile));
     if (saved === null) return null;
 
-    const secretResult = await window.cc.secretSet(profile.id, secret);
-    if (!secretResult.ok) {
-      setError(secretResult.error);
-      return null;
+    if (secret !== null) {
+      const secretResult = await window.cc.secretSet(profile.id, secret);
+      if (!secretResult.ok) {
+        setError(secretResult.error);
+        return null;
+      }
     }
     if (activate) await run('profile', () => window.cc.profileActivate(profile.id));
     setEdits(null);
@@ -199,7 +201,7 @@ export function ProfilesPanel(): JSX.Element {
                       void (async () => {
                         const saved = await run('profile', () => window.cc.profileUpsert(copy));
                         if (saved === null) return;
-                        await window.cc.secretSet(copy.id, secret);
+                        if (secret !== null) await window.cc.secretSet(copy.id, secret);
                         select(copy.id);
                       })();
                     }}
@@ -308,7 +310,7 @@ export function ProfilesPanel(): JSX.Element {
                   <div className="inline-input">
                     <input
                       type={showSecret ? 'text' : 'password'}
-                      value={secret}
+                      value={secret ?? ''}
                       spellCheck={false}
                       placeholder={t('profileSecretPlaceholder')}
                       onChange={(event) => {

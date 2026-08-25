@@ -8,30 +8,39 @@ import { buildImage } from './docker/image.ts';
 import { closeAllTerminals } from './docker/terminal.ts';
 import { describeError, logInfo, logWarn } from './logger.ts';
 
-async function exportFirst(destination: string | null): Promise<string | null> {
+interface Exported {
+  readonly path: string;
+  readonly files: number;
+  readonly skipped: number;
+}
+
+async function exportFirst(destination: string | null): Promise<Exported> {
   if (destination === null || destination === '') {
-    logWarn(
-      'app',
-      '取り出し先が未設定なのでエクスポートを飛ばします / no export directory configured, skipping the pre-reset export',
+    throw new Error(
+      '取り出し先が決まっていないので中止しました。「ファイル」タブで一度取り出すか、先に取り出す設定を外してください / no export folder is set, so nothing was destroyed — export once from the Files tab, or turn off "export first"',
     );
-    return null;
   }
 
   const state = await inspectContainer();
+  if (!state.exists) {
+    logWarn('app', 'コンテナが無いので取り出しはありません / no container to export from');
+    return { path: '', files: 0, skipped: 0 };
+  }
   if (!state.running) {
-    logWarn('app', 'コンテナが動いていないのでエクスポートを飛ばします / container not running, nothing to export');
-    return null;
+    logInfo('app', '取り出しのためにコンテナを起動します / starting the container so the workspace can be exported');
+    await startContainer();
   }
 
-  logInfo('app', `リセット前にワークスペースを取り出します / exporting the workspace before the reset`);
-  return exportWorkspace(destination);
+  logInfo('app', 'リセット前にワークスペースを取り出します / exporting the workspace before the reset');
+  const result = await exportWorkspace(destination);
+  return { path: result.path, files: result.files, skipped: result.skipped.length };
 }
 
 export async function resetContainer(request: ResetRequest, destination: string | null): Promise<ResetSummary> {
   const config = getConfig();
 
-  const exportedTo = request.exportFirst ? await exportFirst(destination) : null;
-  if (exportedTo !== null && destination !== null) {
+  const exported = request.exportFirst ? await exportFirst(destination) : null;
+  if (exported !== null && exported.path !== '' && destination !== null) {
     saveConfig({ ...getConfig(), lastExportDir: destination });
   }
 
@@ -41,19 +50,28 @@ export async function resetContainer(request: ResetRequest, destination: string 
   await removeContainer(true);
 
   if (request.rebuildImage) {
-    await buildImage(config.imageTag, false);
+    await buildImage(config.imageTag, true);
   }
 
   await startContainer();
 
+  let provisionError: string | null = null;
   try {
     await provisionContainer();
   } catch (error) {
-    logWarn('app', `設定の書き込みに失敗しました / provisioning failed after the reset: ${describeError(error)}`);
+    provisionError = describeError(error);
+    logWarn('app', `設定の書き込みに失敗しました / provisioning failed after the reset: ${provisionError}`);
   }
 
   const state = await inspectContainer();
   logInfo('app', `新しいセッションを開始しました / fresh session ready: ${state.name}`);
 
-  return { exportedTo, rebuiltImage: request.rebuildImage, containerName: state.name };
+  return {
+    exportedTo: exported === null || exported.path === '' ? null : exported.path,
+    exportedFiles: exported === null ? 0 : exported.files,
+    exportSkipped: exported === null ? 0 : exported.skipped,
+    rebuiltImage: request.rebuildImage,
+    containerName: state.name,
+    provisionError,
+  };
 }
