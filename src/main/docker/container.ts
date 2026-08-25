@@ -78,8 +78,20 @@ async function createContainer(): Promise<void> {
   });
 }
 
+function foreignContainerError(name: string): Error {
+  return new Error(
+    `${name} はこのアプリが作ったコンテナではありません。「設定」タブでコンテナ名を変えてください / ${name} was not created by this app; change the container name on the Settings tab`,
+  );
+}
+
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
+
+  // Never adopt a container this app did not create — starting it would go on
+  // to rewrite its Claude settings and run our post-create script inside it.
+  if (state.exists && !(await containerIsOurs())) {
+    throw foreignContainerError(getConfig().containerName);
+  }
 
   if (state.exists && state.image !== null && state.image !== getConfig().imageTag) {
     logInfo(
@@ -113,6 +125,7 @@ export async function stopContainer(): Promise<ContainerState> {
 export async function restartContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
+  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
   await containerHandle().restart({ t: 5 });
   logInfo('app', 'コンテナを再起動しました / container restarted');
   return inspectContainer();
@@ -149,9 +162,7 @@ export async function removeContainer(removeVolume: boolean): Promise<ContainerS
 
   if (state.exists) {
     if (!(await containerIsOurs())) {
-      throw new Error(
-        `${config.containerName} はこのアプリが作ったコンテナではありません。「設定」タブでコンテナ名を変えてください / ${config.containerName} was not created by this app; change the container name on the Settings tab`,
-      );
+      throw foreignContainerError(config.containerName);
     }
     try {
       await containerHandle().remove({ force: true, v: false });

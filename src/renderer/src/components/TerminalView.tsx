@@ -102,7 +102,13 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
         cols: term.cols,
         rows: term.rows,
       });
-      if (disposed) return;
+      if (disposed) {
+        // The tab was closed while the open was in flight; the cleanup ran with
+        // idRef still null, so this session would otherwise leak in the main
+        // process and buffer output nobody will ever read.
+        if (result.ok) void window.cc.termClose(result.value.id);
+        return;
+      }
       if (!result.ok) {
         term.writeln(`\r\n[31m${result.error}[0m`);
         propsRef.current.onError(result.error);

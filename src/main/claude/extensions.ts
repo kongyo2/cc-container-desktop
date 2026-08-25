@@ -58,6 +58,27 @@ function reconcile(
   return { merged, managed: Object.keys(next) };
 }
 
+// `reconcile` reads absence as deletion, which is right when an entry is
+// disabled or removed but wrong when it merely failed validation: a half-edited
+// URL must not take down the configuration that was working a minute ago. Keep
+// the last applied entry for names that are still ours.
+function preserveInvalid(
+  next: Record<string, unknown>,
+  existing: Record<string, unknown>,
+  previouslyManaged: readonly string[],
+  invalidNames: readonly string[],
+  warnings: string[],
+): void {
+  for (const name of invalidNames) {
+    if (Object.hasOwn(next, name)) continue;
+    if (!previouslyManaged.includes(name) || !Object.hasOwn(existing, name)) continue;
+    next[name] = existing[name];
+    warnings.push(
+      `${name}: 無効な編集は反映せず、直前に適用した設定を残しました / the invalid edit was not applied; the last applied configuration was kept`,
+    );
+  }
+}
+
 export interface PlannedSkill {
   readonly name: string;
   readonly body: string;
@@ -83,11 +104,13 @@ export function planExtensions(
   const warnings: string[] = [];
 
   const nextServers = emptyMap();
+  const invalidServerNames: string[] = [];
   for (const server of extensions.mcpServers) {
     if (!server.enabled) continue;
     const problem = validateMcpServer(server);
     if (problem !== null) {
       warnings.push(problem);
+      invalidServerNames.push(server.name);
       continue;
     }
     nextServers[server.name] = mcpEntry(server);
@@ -96,33 +119,39 @@ export function planExtensions(
     typeof currentClaudeJson['mcpServers'] === 'object' && currentClaudeJson['mcpServers'] !== null
       ? (currentClaudeJson['mcpServers'] as Record<string, unknown>)
       : {};
+  preserveInvalid(nextServers, existingServers, managed.mcpServers, invalidServerNames, warnings);
   const servers = reconcile(existingServers, nextServers, managed.mcpServers);
 
   const nextMarkets = emptyMap();
+  const invalidMarketNames: string[] = [];
   for (const market of extensions.marketplaces) {
     if (!market.enabled) continue;
+    const name = market.name.trim();
     const source =
       market.sourceKind === 'github'
         ? { source: 'github', repo: market.repo.trim() }
         : { source: 'git', url: market.url.trim() };
-    if (market.name.trim() === '') {
+    if (name === '') {
       warnings.push('マーケットプレイス名が空です / a marketplace has no name and was skipped');
       continue;
     }
     if (market.sourceKind === 'github' && !/^[^/\s]+\/[^/\s]+$/u.test(market.repo.trim())) {
       warnings.push(`${market.name}: repo は owner/repo 形式で指定してください / repo must be "owner/repo"`);
+      invalidMarketNames.push(name);
       continue;
     }
     if (market.sourceKind === 'git' && market.url.trim() === '') {
       warnings.push(`${market.name}: git の URL が空です / git url is empty`);
+      invalidMarketNames.push(name);
       continue;
     }
-    nextMarkets[market.name.trim()] = market.autoUpdate ? { source, autoUpdate: true } : { source };
+    nextMarkets[name] = market.autoUpdate ? { source, autoUpdate: true } : { source };
   }
   const existingMarkets =
     typeof currentSettings['extraKnownMarketplaces'] === 'object' && currentSettings['extraKnownMarketplaces'] !== null
       ? (currentSettings['extraKnownMarketplaces'] as Record<string, unknown>)
       : {};
+  preserveInvalid(nextMarkets, existingMarkets, managed.marketplaces, invalidMarketNames, warnings);
   const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces);
 
   const nextPlugins = emptyMap();
@@ -198,9 +227,49 @@ export function planExtensions(
   };
 }
 
+// A skill name the app has not managed before may already belong to a
+// hand-written or synced skill in the container. That check has to happen
+// BEFORE the managed list is persisted: claiming first and probing later meant
+// the very next provision believed the name was ours and rm -rf'd someone
+// else's work. This narrows the plan to the skills the app may actually own.
+export async function claimSkills(
+  plan: ExtensionPlan,
+): Promise<{ readonly plan: ExtensionPlan; readonly warnings: readonly string[] }> {
+  const owned = new Set(plan.ownedSkills);
+
+  const probes = await Promise.all(
+    plan.skills.map(async (skill): Promise<{ skill: PlannedSkill; keep: boolean; warning: string | null }> => {
+      if (owned.has(skill.name)) return { skill, keep: true, warning: null };
+      try {
+        const existing = await execCapture(['test', '-e', `${SKILLS_DIR}/${skill.name}`], { workdir: '/' });
+        if (existing.exitCode === 0) {
+          return {
+            skill,
+            keep: false,
+            warning: `skill ${skill.name}: 同名のスキルがコンテナ内に既にあります。別の name にしてください / a skill of this name already exists in the container and was left alone; rename yours`,
+          };
+        }
+        return { skill, keep: true, warning: null };
+      } catch (error) {
+        return {
+          skill,
+          keep: false,
+          warning: `skill ${skill.name}: 既存の確認ができなかったので書き込みません / could not check for an existing skill, so it was not written: ${describeError(error)}`,
+        };
+      }
+    }),
+  );
+
+  const skills = probes.filter((probe) => probe.keep).map((probe) => probe.skill);
+  const warnings = probes.map((probe) => probe.warning).filter((warning): warning is string => warning !== null);
+  return {
+    plan: { ...plan, skills, managed: { ...plan.managed, skills: skills.map((skill) => skill.name) } },
+    warnings,
+  };
+}
+
 export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[]> {
   const warnings: string[] = [];
-  const owned = new Set(plan.ownedSkills);
 
   const removals = plan.removedSkills
     .filter((name) => nameProblem(name) === null)
@@ -213,16 +282,6 @@ export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[
 
   const writes = plan.skills.map(async (skill) => {
     const root = `${SKILLS_DIR}/${skill.name}`;
-
-    if (!owned.has(skill.name)) {
-      const existing = await execCapture(['test', '-e', root], { workdir: '/' });
-      if (existing.exitCode === 0) {
-        warnings.push(
-          `skill ${skill.name}: 同名のスキルがコンテナ内に既にあります。別の name にしてください / a skill of this name already exists in the container and was left alone; rename yours`,
-        );
-        return;
-      }
-    }
 
     await execCapture(['rm', '-rf', root], { workdir: '/' });
 

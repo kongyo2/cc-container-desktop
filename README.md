@@ -35,7 +35,7 @@ Docker Desktop(起動していること)。開発する場合のみ Node.js 22 �
 | スイート        | 内容                                                                                                                      | 項目数 |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `workbench.mjs` | イメージ → コンテナ → 設定書き込み → `claude -p` が応答 → tmux 再接続 | 29 |
-| `deep.mjs` | 入力欄への実タイピング、コンテナ停止中の挙動、壊れた JSON、CJK ファイル名、権限、エクスポート、リセット、拡張、データ保護 | 147 |
+| `deep.mjs` | 入力欄への実タイピング、コンテナ停止中の挙動、壊れた JSON、CJK ファイル名、権限、エクスポート、リセット、拡張、データ保護 | 152 |
 | `live.mjs` | ツール実行、モデル別名、GUI ターミナル、再接続後の会話継続、MCP とスキルがモデルに届くか | 23 |
 | `packaged.mjs` | 固めたバイナリを起動して `resourcesPath` からの解決を確認 | 9 |
 
@@ -44,7 +44,7 @@ CC_E2E_API_KEY=sk-or-v1-... npm run e2e:all        # Linux では xvfb-run -a �
 CC_E2E_API_KEY=sk-or-v1-... npm run e2e:packaged   # 要 npm run pack:dir
 ```
 
-`deep.mjs` と `packaged.mjs` はモデルを呼ばないので、Docker さえあれば全 156 項目がいつでも検証できます(最新コードで通過確認済み)。`workbench.mjs` と `live.mjs` は実エンドポイントが必要で、OpenRouter + `stealth/ox-alpha` での通過を確認済みです — オンボーディング画面は出ず、モデルは自分のツールでファイルを読み書きし、MCP ツールを実際に呼び、注入したスキルを実際に使い、再接続後も会話が続きます。他のプリセット(Anthropic / Moonshot / Z.ai / DeepSeek / MiniMax)は未検証で、UI にもそう表示されます。
+`deep.mjs` と `packaged.mjs` はモデルを呼ばないので、Docker さえあれば全 161 項目がいつでも検証できます(最新コードで通過確認済み)。`workbench.mjs` と `live.mjs` は実エンドポイントが必要で、OpenRouter + `stealth/ox-alpha` での通過を確認済みです — オンボーディング画面は出ず、モデルは自分のツールでファイルを読み書きし、MCP ツールを実際に呼び、注入したスキルを実際に使い、再接続後も会話が続きます。他のプリセット(Anthropic / Moonshot / Z.ai / DeepSeek / MiniMax)は未検証で、UI にもそう表示されます。
 
 ## 開発
 

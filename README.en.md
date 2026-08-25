@@ -35,7 +35,7 @@ Four suites under `tests/e2e/`, all against a real Docker daemon and a real endp
 | Suite           | What it covers                                                                                                                     | Checks |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `workbench.mjs` | image → container → provisioning → a live `claude -p` answer → tmux reattach | 29 |
-| `deep.mjs` | real typing, no-container behaviour, corrupt JSON, CJK filenames, permission bits, export, reset, extensions, the data-loss guards | 147 |
+| `deep.mjs` | real typing, no-container behaviour, corrupt JSON, CJK filenames, permission bits, export, reset, extensions, the data-loss guards | 152 |
 | `live.mjs` | tool use, model aliases, the GUI terminal, conversation survival across a reattach, MCP and skills reaching the model | 23 |
 | `packaged.mjs` | launches the `electron-builder` output and checks it resolves from `resourcesPath` | 9 |
 
@@ -44,7 +44,7 @@ CC_E2E_API_KEY=sk-or-v1-... npm run e2e:all        # prefix with xvfb-run -a on 
 CC_E2E_API_KEY=sk-or-v1-... npm run e2e:packaged   # needs npm run pack:dir first
 ```
 
-`deep.mjs` and `packaged.mjs` never call the model, so their 156 checks run against nothing but Docker — and pass on the current code. `workbench.mjs` and `live.mjs` need a live endpoint; they pass against OpenRouter + `stealth/ox-alpha`: no onboarding screen ever appears, the model reads and writes files with its own tools, actually calls an MCP tool, actually uses an injected skill, and still remembers the conversation after a reattach. The other presets (Anthropic, Moonshot, Z.ai, DeepSeek, MiniMax) are untested and labelled as such in the UI.
+`deep.mjs` and `packaged.mjs` never call the model, so their 161 checks run against nothing but Docker — and pass on the current code. `workbench.mjs` and `live.mjs` need a live endpoint; they pass against OpenRouter + `stealth/ox-alpha`: no onboarding screen ever appears, the model reads and writes files with its own tools, actually calls an MCP tool, actually uses an injected skill, and still remembers the conversation after a reattach. The other presets (Anthropic, Moonshot, Z.ai, DeepSeek, MiniMax) are untested and labelled as such in the UI.
 
 ## Development
 

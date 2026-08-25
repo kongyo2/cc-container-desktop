@@ -828,6 +828,55 @@ try {
   const handSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
   check('a hand-written skill is left alone', handSkill.includes('hand made'));
 
+  const extBeforeBadEdit = (await ok(page, 'snapshot')).config.extensions;
+  await ok(page, 'extensionsSave', [
+    {
+      ...extBeforeBadEdit,
+      mcpServers: extBeforeBadEdit.mcpServers.map((server) =>
+        server.name === 'agentskills' ? { ...server, url: '' } : server,
+      ),
+    },
+  ]);
+  await ok(page, 'containerProvision');
+  const preserved = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  check(
+    'an invalid edit to a managed server keeps its last applied config',
+    preserved.agentskills?.url === 'https://agentskills.io/mcp',
+    JSON.stringify(preserved.agentskills),
+  );
+
+  await ok(page, 'configSave', [{ autoOnboarding: false }]);
+  const extNoOnboard = (await ok(page, 'snapshot')).config.extensions;
+  await ok(page, 'extensionsSave', [
+    {
+      ...extNoOnboard,
+      mcpServers: [
+        ...extNoOnboard.mcpServers,
+        {
+          id: 'x-late',
+          name: 'late_join',
+          enabled: true,
+          transport: 'http',
+          command: '',
+          args: [],
+          env: {},
+          url: 'https://late.test/mcp',
+          headers: {},
+          timeoutMs: null,
+          note: '',
+        },
+      ],
+    },
+  ]);
+  await ok(page, 'containerProvision');
+  const lateServers = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  check(
+    'MCP servers still install with auto-onboarding off',
+    lateServers.late_join?.url === 'https://late.test/mcp',
+    JSON.stringify(lateServers.late_join),
+  );
+  await ok(page, 'configSave', [{ autoOnboarding: true }]);
+
   await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skills: [] }]);
   await ok(page, 'containerProvision');
   const afterRemoval = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
@@ -1029,6 +1078,9 @@ try {
 
   const handmade = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
   check('a skill directory the app never created is left alone', handmade.trim() === 'MINE', handmade.trim());
+  await ok(page, 'containerProvision');
+  const handmadeSecond = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
+  check('and a second provision still does not claim it', handmadeSecond.trim() === 'MINE', handmadeSecond.trim());
   const dotslash = await call(page, 'fsRead', ['/home/claude/.claude/skills/dotslash-guard/SKILL.md']);
   check(
     'a ./SKILL.md bundled file cannot overwrite the validated frontmatter',
@@ -1050,6 +1102,12 @@ try {
     !Object.hasOwn(withoutProto.mcpServers ?? {}, 'constructor'),
     JSON.stringify(Object.keys(withoutProto.mcpServers ?? {})),
   );
+  const handmadeAfterClear = await call(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
+  check(
+    'clearing the extensions does not delete the never-claimed skill',
+    handmadeAfterClear.ok === true && handmadeAfterClear.value.trim() === 'MINE',
+    handmadeAfterClear.ok ? handmadeAfterClear.value.trim() : handmadeAfterClear.error,
+  );
 
   await ok(page, 'containerExec', [
     { command: ['bash', '-lc', 'ln -sfn /etc/hostname ~/workspace/a-link'], asRoot: false },
@@ -1065,6 +1123,21 @@ try {
   check('a non-http link is refused', badScheme.ok === false, JSON.stringify(badScheme));
   const badReveal = await call(page, 'revealPath', ['/etc']);
   check('revealing a path outside the app data is refused', badReveal.ok === false, JSON.stringify(badReveal));
+
+  const guardConfig = (await ok(page, 'snapshot')).config;
+  await ok(page, 'containerRemove', [false]);
+  execFileSync('docker', ['create', '--name', guardConfig.containerName, guardConfig.imageTag], { stdio: 'ignore' });
+  try {
+    const adopted = await call(page, 'containerUp');
+    check(
+      'a same-name container the app did not create is refused, not adopted',
+      adopted.ok === false && adopted.error.includes(guardConfig.containerName),
+      JSON.stringify(adopted),
+    );
+  } finally {
+    execFileSync('docker', ['rm', '-f', guardConfig.containerName], { stdio: 'ignore' });
+  }
+  await ok(page, 'containerUp');
 
   console.log('\n[P] cleanup of test profiles');
 
