@@ -2,7 +2,8 @@ import type { ResetRequest } from '../shared/ipc.ts';
 import type { ResetSummary } from '../shared/types.ts';
 import { provisionContainer } from './claude/provision.ts';
 import { getConfig, saveConfig } from './config/store.ts';
-import { inspectContainer, removeContainer, startContainer } from './docker/container.ts';
+import { inspectContainer, removeContainer, startContainer, volumeExists } from './docker/container.ts';
+import { inspectImage } from './docker/engine.ts';
 import { exportWorkspace } from './docker/files.ts';
 import { buildImage } from './docker/image.ts';
 import { closeAllTerminals } from './docker/terminal.ts';
@@ -22,8 +23,16 @@ async function exportFirst(destination: string | null): Promise<Exported> {
   }
 
   const state = await inspectContainer();
-  if (!state.exists) {
-    logWarn('app', 'コンテナが無いので取り出しはありません / no container to export from');
+  // The workspace lives in the home volume, not in the container. Skipping the
+  // export because the container happens to be gone would go on to delete a
+  // volume still holding every file. Only a missing volume means there really is
+  // nothing to copy out; otherwise start the container, creating it if need be.
+  const volume = state.homeVolume ?? getConfig().volumeName;
+  if (!state.exists && !(await volumeExists(volume))) {
+    logWarn(
+      'app',
+      'コンテナもボリュームも無いので取り出しはありません / there is no container and no home volume to export from',
+    );
     return { path: '', files: 0, skipped: 0 };
   }
   if (!state.running) {
@@ -44,14 +53,27 @@ export async function resetContainer(request: ResetRequest, destination: string 
     saveConfig({ ...getConfig(), lastExportDir: destination });
   }
 
-  closeAllTerminals();
-
-  logInfo('app', `リセットします / resetting: container=${config.containerName} volume=${config.volumeName}`);
-  await removeContainer(true);
-
+  // Everything that can fail happens before the destructive step. Rebuilding
+  // after the wipe meant a build that failed — or a tag naming an image that was
+  // never built — left the user with no workspace, no container, and nothing to
+  // start one from.
   if (request.rebuildImage) {
     await buildImage(config.imageTag, true);
   }
+  if (!(await inspectImage(config.imageTag)).exists) {
+    throw new Error(
+      `${config.imageTag} がまだビルドされていないので、何も消していません。「接続」タブでビルドしてください / ${config.imageTag} has not been built, so nothing was destroyed — build it on the Connect tab first`,
+    );
+  }
+
+  closeAllTerminals();
+
+  const before = await inspectContainer();
+  logInfo(
+    'app',
+    `リセットします / resetting: container=${config.containerName} volume=${before.homeVolume ?? config.volumeName}`,
+  );
+  await removeContainer(true);
 
   await startContainer();
 

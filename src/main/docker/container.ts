@@ -2,10 +2,10 @@ import type { Container } from 'dockerode';
 import { PassThrough } from 'node:stream';
 
 import { CONTAINER_HOME, CONTAINER_USER, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
-import type { ContainerState, ExecResult, TmuxSession } from '../../shared/types.ts';
+import type { AppConfig, ContainerState, ExecResult, TmuxSession } from '../../shared/types.ts';
 import { getConfig } from '../config/store.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
-import { docker, isNotFound } from './engine.ts';
+import { docker, inspectImage, isNotFound } from './engine.ts';
 
 const MANAGED_LABEL = 'com.cc-container-desktop.managed';
 
@@ -15,12 +15,37 @@ export function containerHandle(): Container {
   return docker().getContainer(getConfig().containerName);
 }
 
+interface InspectMount {
+  readonly Type?: string;
+  readonly Name?: string;
+  readonly Destination?: string;
+}
+
 interface InspectResponse {
   readonly Id?: string;
   readonly Image?: string;
   readonly Config?: { readonly Image?: string };
   readonly State?: { readonly Running?: boolean; readonly Status?: string; readonly StartedAt?: string };
+  readonly Mounts?: readonly InspectMount[];
 }
+
+function homeVolumeOf(raw: InspectResponse): string | null {
+  for (const mount of raw.Mounts ?? []) {
+    if (mount.Destination !== CONTAINER_HOME) continue;
+    return mount.Type === 'volume' ? (mount.Name ?? null) : null;
+  }
+  return null;
+}
+
+const MISSING_CONTAINER: Omit<ContainerState, 'name'> = {
+  exists: false,
+  running: false,
+  status: 'missing',
+  id: null,
+  image: null,
+  startedAt: null,
+  homeVolume: null,
+};
 
 export async function inspectContainer(): Promise<ContainerState> {
   const name = getConfig().containerName;
@@ -35,28 +60,59 @@ export async function inspectContainer(): Promise<ContainerState> {
       id: raw.Id ?? null,
       image: raw.Config?.Image ?? raw.Image ?? null,
       startedAt: running ? (raw.State?.StartedAt ?? null) : null,
+      homeVolume: homeVolumeOf(raw),
     };
   } catch (error) {
-    if (isNotFound(error)) {
-      return { name, exists: false, running: false, status: 'missing', id: null, image: null, startedAt: null };
-    }
+    if (isNotFound(error)) return { name, ...MISSING_CONTAINER };
     throw error;
   }
 }
 
+function foreignVolumeError(name: string): Error {
+  return new Error(
+    `${name} はこのアプリが作ったボリュームではありません。「設定」タブでボリューム名を変えてください / ${name} was not created by this app; change the volume name on the Settings tab`,
+  );
+}
+
 async function ensureVolume(): Promise<void> {
   const name = getConfig().volumeName;
+  // The home volume holds ~/.claude.json, ~/.claude/settings.json and the
+  // skills. Mounting one this app did not create and then provisioning would
+  // rewrite somebody else's Claude configuration — the very thing the foreign
+  // container check below refuses to do.
+  if (!(await volumeIsOurs(name))) throw foreignVolumeError(name);
+
   try {
     await docker().getVolume(name).inspect();
+    return;
   } catch (error) {
     if (!isNotFound(error)) throw error;
-    logInfo('app', `ボリュームを作成します / creating volume: ${name}`);
-    await docker().createVolume({ Name: name, Labels: { [MANAGED_LABEL]: 'true' } });
+  }
+  logInfo('app', `ボリュームを作成します / creating volume: ${name}`);
+  await docker().createVolume({ Name: name, Labels: { [MANAGED_LABEL]: 'true' } });
+}
+
+export async function volumeExists(name: string): Promise<boolean> {
+  try {
+    await docker().getVolume(name).inspect();
+    return true;
+  } catch (error) {
+    if (isNotFound(error)) return false;
+    throw error;
   }
 }
 
 async function createContainer(): Promise<void> {
   const config = getConfig();
+  // The Connect tab disables "start" while the image is missing, but it does so
+  // from a snapshot: the tag can be retargeted on the Settings tab, or the image
+  // pruned, between the snapshot and the click. Say so in a sentence rather than
+  // letting Docker's raw 404 through.
+  if (!(await inspectImage(config.imageTag)).exists) {
+    throw new Error(
+      `${config.imageTag} がまだビルドされていません。「接続」タブでビルドしてください / ${config.imageTag} has not been built yet — build it on the Connect tab`,
+    );
+  }
   await ensureVolume();
   logInfo('app', `コンテナを作成します / creating container: ${config.containerName}`);
   await docker().createContainer({
@@ -84,6 +140,19 @@ function foreignContainerError(name: string): Error {
   );
 }
 
+// An image tag or a volume name can be retargeted from the Settings tab, but a
+// running container's image and binds are fixed at creation. The Settings tab
+// promises "changing the container or volume name creates a fresh container on
+// the next start", so both have to be treated the same way: rebuild.
+// `homeVolume` is null when the mount is not a named volume, and that is not a
+// mismatch — it is a container we cannot classify, so we leave it alone.
+function staleReason(state: ContainerState, config: AppConfig): string | null {
+  if (!state.exists) return null;
+  if (state.image !== null && state.image !== config.imageTag) return `image ${config.imageTag}`;
+  if (state.homeVolume !== null && state.homeVolume !== config.volumeName) return `volume ${config.volumeName}`;
+  return null;
+}
+
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
 
@@ -93,11 +162,9 @@ export async function startContainer(): Promise<ContainerState> {
     throw foreignContainerError(getConfig().containerName);
   }
 
-  if (state.exists && state.image !== null && state.image !== getConfig().imageTag) {
-    logInfo(
-      'app',
-      `イメージが変わったのでコンテナを作り直します / recreating container for image ${getConfig().imageTag}`,
-    );
+  const stale = staleReason(state, getConfig());
+  if (stale !== null) {
+    logInfo('app', `設定が変わったのでコンテナを作り直します / recreating container for ${stale}`);
     await removeContainer(false);
     state = await inspectContainer();
   }
@@ -115,6 +182,11 @@ export async function startContainer(): Promise<ContainerState> {
 
 export async function stopContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
+  // Same rule as starting: a container this app did not create is somebody
+  // else's workload, and the name matching is not a reason to touch it.
+  if (state.exists && !(await containerIsOurs())) {
+    throw foreignContainerError(getConfig().containerName);
+  }
   if (state.running) {
     await containerHandle().stop({ t: 5 });
     logInfo('app', 'コンテナを停止しました / container stopped');
@@ -126,6 +198,10 @@ export async function restartContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
   if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+  // `docker restart` cannot change an image or a bind, so a container that no
+  // longer matches the configured image or volume goes through startContainer,
+  // which rebuilds it.
+  if (staleReason(state, getConfig()) !== null) return startContainer();
   await containerHandle().restart({ t: 5 });
   logInfo('app', 'コンテナを再起動しました / container restarted');
   return inspectContainer();
@@ -159,6 +235,11 @@ async function containerIsOurs(): Promise<boolean> {
 export async function removeContainer(removeVolume: boolean): Promise<ContainerState> {
   const config = getConfig();
   const state = await inspectContainer();
+  // Delete the volume this container actually has mounted at $HOME, not the one
+  // the config happens to name now: after a rename in Settings those differ, and
+  // deleting the configured name would destroy an unrelated volume while leaving
+  // the one holding the user's work behind.
+  const volumeName = state.homeVolume ?? config.volumeName;
 
   if (state.exists) {
     if (!(await containerIsOurs())) {
@@ -173,14 +254,14 @@ export async function removeContainer(removeVolume: boolean): Promise<ContainerS
   }
 
   if (removeVolume) {
-    if (!(await volumeIsOurs(config.volumeName))) {
+    if (!(await volumeIsOurs(volumeName))) {
       throw new Error(
-        `${config.volumeName} はこのアプリが作ったボリュームではないので消しません。「設定」タブでボリューム名を変えてください / ${config.volumeName} was not created by this app and was left alone; change the volume name on the Settings tab`,
+        `${volumeName} はこのアプリが作ったボリュームではないので消しません。「設定」タブでボリューム名を変えてください / ${volumeName} was not created by this app and was left alone; change the volume name on the Settings tab`,
       );
     }
     try {
-      await docker().getVolume(config.volumeName).remove();
-      logInfo('app', `ボリュームを削除しました / volume removed: ${config.volumeName}`);
+      await docker().getVolume(volumeName).remove();
+      logInfo('app', `ボリュームを削除しました / volume removed: ${volumeName}`);
     } catch (error) {
       if (!isNotFound(error)) throw error;
     }

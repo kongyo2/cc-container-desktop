@@ -62,6 +62,11 @@ export interface ContainerState {
   readonly id: string | null;
   readonly image: string | null;
   readonly startedAt: string | null;
+  // The named volume this container has mounted at the container home. Binds
+  // are fixed when a container is created, so this is what the container is
+  // really using — not what the Settings tab names now. `null` when there is no
+  // container, or when its home is not a named volume.
+  readonly homeVolume: string | null;
 }
 
 export interface TmuxSession {

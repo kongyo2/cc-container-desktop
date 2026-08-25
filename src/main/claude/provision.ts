@@ -206,8 +206,6 @@ export async function provisionContainer(): Promise<string> {
   for (const warning of claim.warnings) logWarn('provision', warning);
   const plan = claim.plan;
 
-  patchConfig({ managed: plan.managed });
-
   // The merge script always runs: mcpServers must reach ~/.claude.json whether
   // or not onboarding is being auto-answered. The onboarding flags themselves
   // ride along only when the user asked for them.
@@ -233,7 +231,17 @@ export async function provisionContainer(): Promise<string> {
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  for (const warning of await writeSkills(plan)) logWarn('provision', warning);
+  const skillWrite = await writeSkills(plan);
+  for (const warning of skillWrite.warnings) logWarn('provision', warning);
+
+  // Ownership is recorded only now, once every write behind it has landed.
+  // Persisting it before the writes left an aborted provision owning names it
+  // had never written, and `claimSkills` skips the existence probe for names it
+  // already owns — so the next run would overwrite whatever had appeared there
+  // in the meantime. Skills that were preserved rather than rewritten stay ours.
+  patchConfig({
+    managed: { ...plan.managed, skills: [...skillWrite.written, ...plan.preservedSkills] },
+  });
 
   if (!(await fileExists(TMUX_CONF))) {
     await writeFileText(TMUX_CONF, TMUX_CONF_SOURCE, 0o644);
@@ -256,7 +264,7 @@ export async function provisionContainer(): Promise<string> {
   const extras: string[] = [];
   if (plan.managed.mcpServers.length > 0) extras.push(`MCP ${plan.managed.mcpServers.length}`);
   if (plan.managed.plugins.length > 0) extras.push(`plugins ${plan.managed.plugins.length}`);
-  if (plan.skills.length > 0) extras.push(`skills ${plan.skills.length}`);
+  if (skillWrite.written.length > 0) extras.push(`skills ${skillWrite.written.length}`);
 
   const summary =
     (profile === null

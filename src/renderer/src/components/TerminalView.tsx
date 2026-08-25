@@ -7,7 +7,7 @@ import type { JSX } from 'react';
 import { useEffect, useRef } from 'react';
 
 import type { TerminalKind } from '../../../shared/types.ts';
-import { attachTerminal } from '../terminalBus.ts';
+import { attachTerminal, forgetTerminal } from '../terminalBus.ts';
 
 const THEME = {
   background: '#101013',
@@ -106,7 +106,10 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
         // The tab was closed while the open was in flight; the cleanup ran with
         // idRef still null, so this session would otherwise leak in the main
         // process and buffer output nobody will ever read.
-        if (result.ok) void window.cc.termClose(result.value.id);
+        if (result.ok) {
+          void window.cc.termClose(result.value.id);
+          forgetTerminal(result.value.id);
+        }
         return;
       }
       if (!result.ok) {

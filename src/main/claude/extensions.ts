@@ -44,18 +44,59 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   return entry;
 }
 
+// Structural comparison of two entries as they appear in .claude.json /
+// settings.json. Used to tell "this is already exactly what we would write"
+// from "somebody else's entry happens to share the name".
+function sameEntry(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((item, index) => sameEntry(item, right[index]));
+  }
+  if (typeof left !== 'object' || typeof right !== 'object') return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && sameEntry(a[key], b[key]));
+}
+
+// A name the app has not managed before may already belong to an entry the user
+// wrote by hand or added with `claude mcp add` / `/plugin`. Claiming it would
+// overwrite that entry now and delete it the moment the row is disabled — the
+// hazard `claimSkills` was written to prevent for ~/.claude/skills. The same
+// rule applies here, and the probe is free: `current` is the file we just read.
+// An entry identical to what we would write is not somebody else's work, so
+// adopting it is a no-op and stays allowed; that is what lets the app recover
+// the entries of a provision that wrote them and then failed before recording
+// them as managed.
 function reconcile(
   current: Record<string, unknown>,
   next: Record<string, unknown>,
   previouslyManaged: readonly string[],
+  label: string,
+  warnings: string[],
 ): { merged: Record<string, unknown>; managed: string[] } {
   const merged = emptyMap();
   for (const [key, value] of Object.entries(current)) merged[key] = value;
   for (const name of previouslyManaged) {
     if (!Object.hasOwn(next, name)) delete merged[name];
   }
-  for (const [key, value] of Object.entries(next)) merged[key] = value;
-  return { merged, managed: Object.keys(next) };
+
+  const managed: string[] = [];
+  for (const [key, value] of Object.entries(next)) {
+    const foreign = !previouslyManaged.includes(key) && Object.hasOwn(current, key) && !sameEntry(current[key], value);
+    if (foreign) {
+      warnings.push(
+        `${label} ${key}: 同じ名前の設定がコンテナ内に既にあるので触りません。別の名前にしてください / an entry of this name already exists in the container and was left alone; rename yours`,
+      );
+      continue;
+    }
+    merged[key] = value;
+    managed.push(key);
+  }
+  return { merged, managed };
 }
 
 // `reconcile` reads absence as deletion, which is right when an entry is
@@ -93,6 +134,9 @@ export interface ExtensionPlan {
   readonly skills: readonly PlannedSkill[];
   readonly removedSkills: readonly string[];
   readonly ownedSkills: readonly string[];
+  // Skills whose current edit does not validate but whose last written version
+  // is kept in place. Not rewritten, still ours.
+  readonly preservedSkills: readonly string[];
 }
 
 export function planExtensions(
@@ -120,7 +164,7 @@ export function planExtensions(
       ? (currentClaudeJson['mcpServers'] as Record<string, unknown>)
       : {};
   preserveInvalid(nextServers, existingServers, managed.mcpServers, invalidServerNames, warnings);
-  const servers = reconcile(existingServers, nextServers, managed.mcpServers);
+  const servers = reconcile(existingServers, nextServers, managed.mcpServers, 'mcp', warnings);
 
   const nextMarkets = emptyMap();
   const invalidMarketNames: string[] = [];
@@ -152,7 +196,7 @@ export function planExtensions(
       ? (currentSettings['extraKnownMarketplaces'] as Record<string, unknown>)
       : {};
   preserveInvalid(nextMarkets, existingMarkets, managed.marketplaces, invalidMarketNames, warnings);
-  const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces);
+  const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces, 'marketplace', warnings);
 
   const nextPlugins = emptyMap();
   for (const plugin of extensions.plugins) {
@@ -170,16 +214,30 @@ export function planExtensions(
     typeof currentSettings['enabledPlugins'] === 'object' && currentSettings['enabledPlugins'] !== null
       ? (currentSettings['enabledPlugins'] as Record<string, unknown>)
       : {};
-  const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins);
+  const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins, 'plugin', warnings);
 
   const skills: PlannedSkill[] = [];
+  const preservedSkills: string[] = [];
   const claimed = new Set<string>();
   for (const skill of extensions.skills) {
     if (!skill.enabled) continue;
     const check = validateSkill(skill.body, skill.files);
     for (const problem of check.errors) warnings.push(`skill: ${problem}`);
     for (const note of check.warnings) warnings.push(`skill ${check.name || '?'}: ${note}`);
-    if (check.errors.length > 0) continue;
+    if (check.errors.length > 0) {
+      // Same rule `preserveInvalid` applies to MCP servers and marketplaces: an
+      // edit that stopped validating is not a request to delete the skill that
+      // was working a minute ago. Only possible while the name itself still
+      // parses — without a name there is nothing to match the row against.
+      if (check.name !== '' && managed.skills.includes(check.name) && !claimed.has(check.name)) {
+        claimed.add(check.name);
+        preservedSkills.push(check.name);
+        warnings.push(
+          `skill ${check.name}: 無効な編集は反映せず、直前に書き込んだスキルを残しました / the invalid edit was not applied; the skill last written was kept`,
+        );
+      }
+      continue;
+    }
     if (claimed.has(check.name)) {
       warnings.push(
         `skill ${check.name}: 同じ名前のスキルが 2 つあります / two skills share this name; keeping the first`,
@@ -196,7 +254,7 @@ export function planExtensions(
     skills.push({ name: check.name, body: skill.body, files });
   }
   const skillNames = skills.map((skill) => skill.name);
-  const removedSkills = managed.skills.filter((name) => !skillNames.includes(name));
+  const removedSkills = managed.skills.filter((name) => !skillNames.includes(name) && !preservedSkills.includes(name));
 
   const claudeJson: Record<string, unknown> = {};
   if (Object.keys(servers.merged).length > 0 || Object.hasOwn(currentClaudeJson, 'mcpServers')) {
@@ -218,12 +276,13 @@ export function planExtensions(
       mcpServers: servers.managed,
       marketplaces: markets.managed,
       plugins: plugins.managed,
-      skills: skillNames,
+      skills: [...skillNames, ...preservedSkills],
     },
     warnings,
     skills,
     removedSkills,
     ownedSkills: managed.skills,
+    preservedSkills,
   };
 }
 
@@ -263,12 +322,24 @@ export async function claimSkills(
   const skills = probes.filter((probe) => probe.keep).map((probe) => probe.skill);
   const warnings = probes.map((probe) => probe.warning).filter((warning): warning is string => warning !== null);
   return {
-    plan: { ...plan, skills, managed: { ...plan.managed, skills: skills.map((skill) => skill.name) } },
+    plan: {
+      ...plan,
+      skills,
+      managed: { ...plan.managed, skills: [...skills.map((skill) => skill.name), ...plan.preservedSkills] },
+    },
     warnings,
   };
 }
 
-export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[]> {
+export interface SkillWriteResult {
+  readonly warnings: readonly string[];
+  // The skills that actually reached the container. Only these may be recorded
+  // as managed: a name claimed without a directory behind it would be deleted —
+  // or would silently take over somebody else's skill — on the next provision.
+  readonly written: readonly string[];
+}
+
+export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult> {
   const warnings: string[] = [];
 
   const removals = plan.removedSkills
@@ -280,19 +351,31 @@ export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[
       }
     });
 
-  const writes = plan.skills.map(async (skill) => {
+  const writes = plan.skills.map(async (skill): Promise<string | null> => {
     const root = `${SKILLS_DIR}/${skill.name}`;
-
-    await execCapture(['rm', '-rf', root], { workdir: '/' });
 
     const directories = new Set<string>();
     for (const file of skill.files) {
       const slash = file.path.lastIndexOf('/');
       if (slash > 0) directories.add(`${root}/${file.path.slice(0, slash)}`);
     }
-    await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
 
-    await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
+    try {
+      await execCapture(['rm', '-rf', root], { workdir: '/' });
+      await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
+      await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
+    } catch (error) {
+      warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${describeError(error)}`);
+      // Leave nothing half-written behind: a bare directory here would make the
+      // next provision's existence probe refuse this name for good.
+      try {
+        await execCapture(['rm', '-rf', root], { workdir: '/' });
+      } catch {
+        // The container is already refusing writes; there is nothing else to try.
+      }
+      return null;
+    }
+
     /* oxlint-disable no-await-in-loop */
     for (const file of skill.files) {
       try {
@@ -304,15 +387,20 @@ export async function writeSkills(plan: ExtensionPlan): Promise<readonly string[
       }
     }
     /* oxlint-enable no-await-in-loop */
+    return skill.name;
   });
 
-  const results = await Promise.allSettled([...removals, ...writes]);
-  for (const result of results) {
+  const [removed, wrote] = await Promise.all([Promise.allSettled(removals), Promise.allSettled(writes)]);
+
+  const written: string[] = [];
+  for (const result of [...removed, ...wrote]) {
     if (result.status === 'rejected') {
       warnings.push(`skill: ${describeError(result.reason)}`);
+      continue;
     }
+    if (typeof result.value === 'string') written.push(result.value);
   }
-  return warnings;
+  return { warnings, written };
 }
 
 interface RawMcpStatus {
