@@ -1,0 +1,13 @@
+# Everything in this repository is consumed by Linux tooling at some point: the
+# Dockerfile and post-create script run inside the container, and Prettier is
+# configured with endOfLine: lf. Checking out CRLF on Windows would break the
+# shell script and the Dockerfile's line continuations, so pin the working tree
+# to LF regardless of core.autocrlf.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary
+*.woff binary
+*.woff2 binary

@@ -6,7 +6,7 @@
  * app upgrade. "Restore defaults" is the one path that copies over them.
  */
 
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { ImageSources } from '../../shared/types.ts';
@@ -42,9 +42,11 @@ export function readImageSources(): ImageSources {
 }
 
 export function writeImageSources(sources: Pick<ImageSources, 'dockerfile' | 'postCreate'>): ImageSources {
-  writeFileSync(dockerfilePath(), sources.dockerfile, 'utf8');
-  // Shell scripts are pushed into the container as-is; CRLF would make bash
-  // choke on `\r` at the end of every line, so normalize on the way out.
+  // Both files are consumed by Linux tooling: CRLF makes bash choke on a `\r`
+  // at the end of every line, and breaks `RUN` line continuations in a
+  // Dockerfile. A Windows editor is the likely author, so normalize on the way
+  // out rather than hoping.
+  writeFileSync(dockerfilePath(), sources.dockerfile.replaceAll('\r\n', '\n'), 'utf8');
   writeFileSync(postCreatePath(), sources.postCreate.replaceAll('\r\n', '\n'), 'utf8');
   return readImageSources();
 }
@@ -70,14 +72,26 @@ function progressText(event: BuildProgress): string | null {
   return null;
 }
 
-/** Builds `tag` from the user's sources, streaming Docker's output into the log pane. */
+/**
+ * Builds `tag` from the user's sources, streaming Docker's output into the log pane.
+ *
+ * The whole `userData/docker` directory is the build context, not just the two
+ * files the app ships. The Image tab hands out that folder and invites edits, so
+ * a `COPY my-thing /` added to the Dockerfile has to be able to find
+ * `my-thing` — with a fixed file list it would fail with "not found in build
+ * context" on a Dockerfile that looks perfectly correct.
+ */
 export async function buildImage(tag: string, noCache: boolean): Promise<void> {
   ensureImageSources();
   const context = userDockerDir();
-  logInfo('build', `イメージをビルドします / building image: ${tag}${noCache ? ' (--no-cache)' : ''}`);
+  const src = readdirSync(context);
+  logInfo(
+    'build',
+    `イメージをビルドします / building image: ${tag}${noCache ? ' (--no-cache)' : ''} — context: ${src.length} entries`,
+  );
 
   const stream = await docker().buildImage(
-    { context, src: [...SOURCE_FILES] },
+    { context, src },
     { t: tag, nocache: noCache, pull: noCache, dockerfile: 'Dockerfile' },
   );
 

@@ -10,7 +10,8 @@
   "rules": {
     "no-console": "off",
     "react/react-in-jsx-scope": "off",
-    "import/no-unassigned-import": "off"
+    "import/no-unassigned-import": "off",
+    "no-underscore-dangle": "off"
   },
   "ignorePatterns": ["node_modules", "out", "dist", "release", "coverage", "*.min.js"]
 }

@@ -103,18 +103,18 @@ Claude Code is installed _outside_ `/home/claude` (in `/usr`) on purpose: a home
 
 Four suites under `tests/e2e/`, all of them running against a **real Docker daemon and a real endpoint**. Nothing is mocked.
 
-| Suite           | What it covers                                                                                                                                      | Checks |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `workbench.mjs` | The happy path: image → container → provisioning → a live `claude -p` answer → tmux reattach                                                        | 28     |
-| `deep.mjs`      | The awkward parts: real typing into controlled inputs, behaviour with no container, corrupt JSON, CJK filenames, permission bits, lifecycle, export | 83     |
-| `live.mjs`      | Real model work: tool use (file read/write, shell), model aliases, the GUI terminal, and **whether a conversation survives a reattach**             | 17     |
-| `packaged.mjs`  | Launches the `electron-builder` output and checks it resolves its resources from `resourcesPath`                                                    | 9      |
+| Suite           | What it covers                                                                                                                                                    | Checks |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `workbench.mjs` | The happy path: image → container → provisioning → a live `claude -p` answer → tmux reattach                                                                      | 28     |
+| `deep.mjs`      | The awkward parts: real typing into controlled inputs, behaviour with no container, corrupt JSON, CJK filenames, permission bits, lifecycle, export, image builds | 88     |
+| `live.mjs`      | Real model work: tool use (file read/write, shell), model aliases, the GUI terminal, and **whether a conversation survives a reattach**                           | 17     |
+| `packaged.mjs`  | Launches the `electron-builder` output and checks it resolves its resources from `resourcesPath`                                                                  | 9      |
 
 ```bash
 CC_E2E_API_KEY=sk-or-v1-... npm run e2e:all     # prefix with xvfb-run -a on headless Linux
 ```
 
-All 137 checks pass against **OpenRouter + `stealth/ox-alpha`**. In particular:
+All 142 checks pass against **OpenRouter + `stealth/ox-alpha`**. In particular:
 
 - Claude Code v2.1.241 in the container answers, and **uses its own tools** to read files, write files and run shell commands
 - no onboarding, theme picker or trust dialog ever appears

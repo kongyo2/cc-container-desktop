@@ -10,7 +10,8 @@
  *   CC_E2E_API_KEY=sk-... xvfb-run -a node tests/e2e/deep.mjs
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
 
@@ -87,6 +88,14 @@ try {
 
   const boot = await ok(page, 'snapshot');
   if (!boot.docker.available) throw new Error('docker is not available');
+
+  // Mirror the log stream into the page so the build assertions can read it.
+  await page.evaluate(() => {
+    window.__ccBuildLogs = [];
+    window.cc.onLog((line) => {
+      if (line.stream === 'build') window.__ccBuildLogs.push(line.text);
+    });
+  });
 
   /* ------------------------------------------------------------------ */
   console.log('\n[A] typing into controlled inputs');
@@ -548,7 +557,75 @@ try {
   check('reset keeps the Dockerfile intact', restored.dockerfile.includes('FROM ubuntu:24.04'));
 
   /* ------------------------------------------------------------------ */
-  console.log('\n[K] language switch');
+  console.log('\n[K] image build path');
+  /* ------------------------------------------------------------------ */
+
+  // Builds against a scratch tag so the real image is never at risk. The
+  // Dockerfile below needs no network: `ubuntu:24.04` is already local by the
+  // time this runs, and COPY + grep take about a second.
+  const scratchTag = 'cc-container-desktop-e2e:scratch';
+  const realTag = (await ok(page, 'snapshot')).config.imageTag;
+  const savedSources = await ok(page, 'imageSourcesGet');
+
+  try {
+    await ok(page, 'configSave', [{ imageTag: scratchTag }]);
+
+    await ok(page, 'imageSourcesSave', [
+      { dockerfile: 'FROM ubuntu:24.04\nRUN exit 42\n', postCreate: savedSources.postCreate },
+    ]);
+    const failedBuild = await call(page, 'imageBuild', [{ noCache: false }]);
+    check(
+      'a failing build is reported as an error',
+      failedBuild.ok === false && /42/u.test(failedBuild.error),
+      failedBuild.ok ? 'unexpectedly succeeded' : failedBuild.error,
+    );
+
+    // An extra file next to the Dockerfile must reach the build context: the
+    // Image tab hands the user that folder, so a COPY of their own file has to
+    // work. Writing it from the host is exactly what a user would do.
+    writeFileSync(join(savedSources.dir, 'extra-context-file.txt'), 'CONTEXT-OK\n');
+    await ok(page, 'imageSourcesSave', [
+      {
+        dockerfile:
+          'FROM ubuntu:24.04\n' +
+          'COPY extra-context-file.txt /tmp/extra.txt\n' +
+          'RUN grep -q CONTEXT-OK /tmp/extra.txt\n',
+        postCreate: savedSources.postCreate,
+      },
+    ]);
+    const contextBuild = await call(page, 'imageBuild', [{ noCache: false }]);
+    check(
+      'a user-added file reaches the build context',
+      contextBuild.ok === true,
+      contextBuild.ok ? '' : contextBuild.error,
+    );
+
+    await page.waitForTimeout(600);
+    const buildLogs = await page.evaluate(() => window.__ccBuildLogs ?? []);
+    check('build progress was streamed to the log pane', buildLogs.length > 3, `${buildLogs.length} lines`);
+    check(
+      'the log reports completion',
+      buildLogs.some((line) => /build finished|ビルド完了/u.test(line)),
+      buildLogs.slice(-2).join(' | '),
+    );
+
+    const scratchImage = await ok(page, 'snapshot');
+    check('the scratch image exists', scratchImage.image.exists === true, scratchImage.image.tag);
+  } finally {
+    rmSync(join(savedSources.dir, 'extra-context-file.txt'), { force: true });
+    await ok(page, 'imageSourcesSave', [{ dockerfile: savedSources.dockerfile, postCreate: savedSources.postCreate }]);
+    await ok(page, 'configSave', [{ imageTag: realTag }]);
+    // The app has no "delete image" action, so clean up the scratch tag here
+    // rather than leaving it on the developer's machine.
+    try {
+      execFileSync('docker', ['rmi', '-f', scratchTag], { stdio: 'ignore' });
+    } catch {
+      // Nothing to remove, or no docker CLI on PATH; neither is worth failing on.
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  console.log('\n[L] language switch');
   /* ------------------------------------------------------------------ */
 
   await goTab(page, 'connect');
@@ -567,7 +644,7 @@ try {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n[L] cleanup of test profiles');
+  console.log('\n[M] cleanup of test profiles');
   /* ------------------------------------------------------------------ */
 
   const secretBefore = await ok(page, 'secretGet', [keyed.id]);
