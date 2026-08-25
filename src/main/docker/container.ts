@@ -9,6 +9,8 @@ import { docker, isNotFound } from './engine.ts';
 
 const MANAGED_LABEL = 'com.cc-container-desktop.managed';
 
+const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
+
 export function containerHandle(): Container {
   return docker().getContainer(getConfig().containerName);
 }
@@ -202,8 +204,18 @@ export async function execCapture(command: readonly string[], options: ExecOptio
   const stderr = new PassThrough();
   const outChunks: Buffer[] = [];
   const errChunks: Buffer[] = [];
-  stdout.on('data', (chunk: Buffer) => outChunks.push(chunk));
-  stderr.on('data', (chunk: Buffer) => errChunks.push(chunk));
+  let outBytes = 0;
+  let errBytes = 0;
+  stdout.on('data', (chunk: Buffer) => {
+    if (outBytes >= MAX_CAPTURE_BYTES) return;
+    outBytes += chunk.length;
+    outChunks.push(chunk);
+  });
+  stderr.on('data', (chunk: Buffer) => {
+    if (errBytes >= MAX_CAPTURE_BYTES) return;
+    errBytes += chunk.length;
+    errChunks.push(chunk);
+  });
   docker().modem.demuxStream(stream, stdout, stderr);
 
   if (options.stdin !== undefined) {
@@ -227,6 +239,10 @@ export async function execCapture(command: readonly string[], options: ExecOptio
     });
   await Promise.all([drained(stdout), drained(stderr)]);
 
+  const truncated = outBytes >= MAX_CAPTURE_BYTES || errBytes >= MAX_CAPTURE_BYTES;
+  if (truncated) {
+    logWarn('app', `出力が大きすぎるので切り詰めました / output truncated at ${MAX_CAPTURE_BYTES} bytes`);
+  }
   return {
     exitCode: await settledExitCode(exec),
     stdout: Buffer.concat(outChunks).toString('utf8'),

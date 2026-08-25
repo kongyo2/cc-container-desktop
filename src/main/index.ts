@@ -9,6 +9,15 @@ import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
 
 const isDev = !app.isPackaged;
 
+function isOpenable(url: string): boolean {
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function buildMenu(): void {
   const menu = Menu.buildFromTemplate([
     {
@@ -68,7 +77,7 @@ function createWindow(): BrowserWindow {
   window.once('ready-to-show', () => window.show());
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (isOpenable(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
 

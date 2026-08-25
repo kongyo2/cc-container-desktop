@@ -61,8 +61,11 @@ jobs:
           else
             VERSION="$(node -p "require('./package.json').version")"
           fi
-          # Fail before building rather than shipping an artifact named after a typo.
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+          # Fail before building rather than shipping an artifact named after a
+          # typo. Matched with bash's own =~ rather than grep: grep anchors per
+          # line, so a multi-line input whose first line is valid would pass the
+          # guard and then carry the rest into $GITHUB_OUTPUT.
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$VERSION' is not a semver version"
             exit 1
           fi

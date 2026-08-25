@@ -429,6 +429,30 @@ try {
   await ok(page, 'termClose', [shellA.id]);
   await ok(page, 'termClose', [shellB.id]);
 
+  const wide = await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 200, rows: 50 }]);
+  await page.evaluate((id) => {
+    window.__ccTermText = '';
+    window.cc.onTermData((event) => {
+      if (event.id === id) window.__ccTermText += event.data;
+    });
+  }, wide.id);
+  await page.waitForTimeout(600);
+  const REPEATS = 20000;
+  await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
+  await page.waitForTimeout(9000);
+  const termText = await page.evaluate(() => window.__ccTermText ?? '');
+  check(
+    'a 60KB run of 3-byte characters survives the pty stream intact',
+    !termText.includes('�'),
+    `${(termText.match(/�/gu) ?? []).length} replacement char(s) in ${termText.length}`,
+  );
+  check(
+    'and every character arrived',
+    (termText.match(/あ/gu) ?? []).length >= REPEATS,
+    `${(termText.match(/あ/gu) ?? []).length}/${REPEATS}`,
+  );
+  await ok(page, 'termClose', [wide.id]);
+
   const named = await ok(page, 'termOpen', [
     { kind: 'attach', sessionName: 'has spaces.and:colons', cols: 80, rows: 24 },
   ]);

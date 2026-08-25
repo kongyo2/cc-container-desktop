@@ -1,3 +1,4 @@
+import { StringDecoder } from 'node:string_decoder';
 import type { Exec } from 'dockerode';
 import { randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
@@ -67,8 +68,10 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   const id = randomUUID();
   sessions.set(id, { id, stream, exec });
 
+  const decoder = new StringDecoder('utf8');
   stream.on('data', (chunk: Buffer) => {
-    send(EVENTS.termData, { id, data: chunk.toString('utf8') });
+    const text = decoder.write(chunk);
+    if (text !== '') send(EVENTS.termData, { id, data: text });
   });
 
   const finish = (): void => {

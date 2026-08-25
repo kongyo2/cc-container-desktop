@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -184,13 +185,15 @@ function timestamp(): string {
 }
 
 function representableOnWindows(name: string): boolean {
-  const base = name.split('/').pop() ?? name;
-  for (const char of base) {
-    if ('<>:"|?*'.includes(char)) return false;
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 32) return false;
+  for (const segment of name.split('/')) {
+    if (segment === '') continue;
+    for (const char of segment) {
+      if ('<>:"|?*'.includes(char)) return false;
+      if ((char.codePointAt(0) ?? 0) < 32) return false;
+    }
+    if (segment.endsWith('.') || segment.endsWith(' ')) return false;
   }
-  return base !== '' && !base.endsWith('.') && !base.endsWith(' ');
+  return name !== '';
 }
 
 function escapes(root: string, name: string, header: { type?: string; linkname?: string | null }): boolean {
@@ -213,7 +216,7 @@ export async function exportWorkspace(destinationRoot: string): Promise<ExportRe
   for (let suffix = 2; existsSync(finalDir); suffix += 1) {
     finalDir = join(destinationRoot, `workspace_${timestamp()}_${suffix}`);
   }
-  const scratchDir = `${finalDir}.partial`;
+  const scratchDir = `${finalDir}.${randomUUID().slice(0, 8)}.partial`;
   rmSync(scratchDir, { recursive: true, force: true });
   mkdirSync(scratchDir, { recursive: true });
 

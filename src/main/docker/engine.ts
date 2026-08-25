@@ -9,12 +9,10 @@ export function docker(): Docker {
   if (client !== null) return client;
 
   const host = process.env['DOCKER_HOST'];
-  if (host !== undefined && host !== '') {
-    client = new Docker();
-  } else if (process.platform === 'win32') {
-    client = new Docker({ socketPath: '//./pipe/docker_engine' });
+  if (host === undefined || host === '') {
+    client = process.platform === 'win32' ? new Docker({ socketPath: '//./pipe/docker_engine' }) : new Docker();
   } else {
-    client = new Docker({ socketPath: '/var/run/docker.sock' });
+    client = new Docker();
   }
   return client;
 }
