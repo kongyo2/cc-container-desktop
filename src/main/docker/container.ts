@@ -76,10 +76,6 @@ function foreignVolumeError(name: string): Error {
 
 async function ensureVolume(): Promise<void> {
   const name = getConfig().volumeName;
-  // The home volume holds ~/.claude.json, ~/.claude/settings.json and the
-  // skills. Mounting one this app did not create and then provisioning would
-  // rewrite somebody else's Claude configuration — the very thing the foreign
-  // container check below refuses to do.
   if (!(await volumeIsOurs(name))) throw foreignVolumeError(name);
 
   try {
@@ -104,10 +100,6 @@ export async function volumeExists(name: string): Promise<boolean> {
 
 async function createContainer(): Promise<void> {
   const config = getConfig();
-  // The Connect tab disables "start" while the image is missing, but it does so
-  // from a snapshot: the tag can be retargeted on the Settings tab, or the image
-  // pruned, between the snapshot and the click. Say so in a sentence rather than
-  // letting Docker's raw 404 through.
   if (!(await inspectImage(config.imageTag)).exists) {
     throw new Error(
       `${config.imageTag} がまだビルドされていません。「接続」タブでビルドしてください / ${config.imageTag} has not been built yet — build it on the Connect tab`,
@@ -140,12 +132,6 @@ function foreignContainerError(name: string): Error {
   );
 }
 
-// An image tag or a volume name can be retargeted from the Settings tab, but a
-// running container's image and binds are fixed at creation. The Settings tab
-// promises "changing the container or volume name creates a fresh container on
-// the next start", so both have to be treated the same way: rebuild.
-// `homeVolume` is null when the mount is not a named volume, and that is not a
-// mismatch — it is a container we cannot classify, so we leave it alone.
 function staleReason(state: ContainerState, config: AppConfig): string | null {
   if (!state.exists) return null;
   if (state.image !== null && state.image !== config.imageTag) return `image ${config.imageTag}`;
@@ -156,8 +142,6 @@ function staleReason(state: ContainerState, config: AppConfig): string | null {
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
 
-  // Never adopt a container this app did not create — starting it would go on
-  // to rewrite its Claude settings and run our post-create script inside it.
   if (state.exists && !(await containerIsOurs())) {
     throw foreignContainerError(getConfig().containerName);
   }
@@ -182,8 +166,6 @@ export async function startContainer(): Promise<ContainerState> {
 
 export async function stopContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
-  // Same rule as starting: a container this app did not create is somebody
-  // else's workload, and the name matching is not a reason to touch it.
   if (state.exists && !(await containerIsOurs())) {
     throw foreignContainerError(getConfig().containerName);
   }
@@ -198,9 +180,6 @@ export async function restartContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
   if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
-  // `docker restart` cannot change an image or a bind, so a container that no
-  // longer matches the configured image or volume goes through startContainer,
-  // which rebuilds it.
   if (staleReason(state, getConfig()) !== null) return startContainer();
   await containerHandle().restart({ t: 5 });
   logInfo('app', 'コンテナを再起動しました / container restarted');
@@ -235,10 +214,6 @@ async function containerIsOurs(): Promise<boolean> {
 export async function removeContainer(removeVolume: boolean): Promise<ContainerState> {
   const config = getConfig();
   const state = await inspectContainer();
-  // Delete the volume this container actually has mounted at $HOME, not the one
-  // the config happens to name now: after a rename in Settings those differ, and
-  // deleting the configured name would destroy an unrelated volume while leaving
-  // the one holding the user's work behind.
   const volumeName = state.homeVolume ?? config.volumeName;
 
   if (state.exists) {

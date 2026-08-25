@@ -32,9 +32,6 @@ export function startTerminalBus(): void {
   });
 }
 
-// For a session nothing will ever attach to: whatever arrived while its open
-// was in flight has no reader, and would otherwise sit in these maps for the
-// life of the window.
 export function forgetTerminal(id: string): void {
   buffers.delete(id);
   pendingExits.delete(id);

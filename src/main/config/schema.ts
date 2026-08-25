@@ -201,12 +201,6 @@ export function parseConfig(raw: unknown): AppConfig {
   return readConfig(raw).config;
 }
 
-// `salvage` drops profile rows that no longer parse, and a hand-edited or
-// downgraded config.json can name a profile that was never there. A selection
-// that resolves to nothing reads as "no profile" to the main process — which
-// then provisions the container with no `env` block at all, losing its endpoint
-// and credentials — while the Profiles tab goes on showing the first profile as
-// the one being edited. Point it back at a profile that exists.
 function resolveActiveProfile(activeProfileId: string | null, profiles: readonly Profile[]): string | null {
   if (activeProfileId === null) return null;
   if (profiles.some((profile) => profile.id === activeProfileId)) return activeProfileId;

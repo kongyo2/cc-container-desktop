@@ -26,8 +26,6 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   const entry: Record<string, unknown> = {};
 
   if (server.transport === 'stdio') {
-    // Optional for stdio, but `claude mcp add` writes it and `claude mcp list`
-    // renders entries uniformly when it is present.
     entry['type'] = 'stdio';
     entry['command'] = server.command.trim();
     if (server.args.length > 0) entry['args'] = server.args.map((arg) => arg.trim()).filter((arg) => arg !== '');
@@ -44,9 +42,6 @@ export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   return entry;
 }
 
-// Structural comparison of two entries as they appear in .claude.json /
-// settings.json. Used to tell "this is already exactly what we would write"
-// from "somebody else's entry happens to share the name".
 function sameEntry(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (left === null || right === null) return false;
@@ -62,15 +57,6 @@ function sameEntry(left: unknown, right: unknown): boolean {
   return keys.every((key) => Object.hasOwn(b, key) && sameEntry(a[key], b[key]));
 }
 
-// A name the app has not managed before may already belong to an entry the user
-// wrote by hand or added with `claude mcp add` / `/plugin`. Claiming it would
-// overwrite that entry now and delete it the moment the row is disabled — the
-// hazard `claimSkills` was written to prevent for ~/.claude/skills. The same
-// rule applies here, and the probe is free: `current` is the file we just read.
-// An entry identical to what we would write is not somebody else's work, so
-// adopting it is a no-op and stays allowed; that is what lets the app recover
-// the entries of a provision that wrote them and then failed before recording
-// them as managed.
 function reconcile(
   current: Record<string, unknown>,
   next: Record<string, unknown>,
@@ -99,10 +85,6 @@ function reconcile(
   return { merged, managed };
 }
 
-// `reconcile` reads absence as deletion, which is right when an entry is
-// disabled or removed but wrong when it merely failed validation: a half-edited
-// URL must not take down the configuration that was working a minute ago. Keep
-// the last applied entry for names that are still ours.
 function preserveInvalid(
   next: Record<string, unknown>,
   existing: Record<string, unknown>,
@@ -134,8 +116,6 @@ export interface ExtensionPlan {
   readonly skills: readonly PlannedSkill[];
   readonly removedSkills: readonly string[];
   readonly ownedSkills: readonly string[];
-  // Skills whose current edit does not validate but whose last written version
-  // is kept in place. Not rewritten, still ours.
   readonly preservedSkills: readonly string[];
 }
 
@@ -225,10 +205,6 @@ export function planExtensions(
     for (const problem of check.errors) warnings.push(`skill: ${problem}`);
     for (const note of check.warnings) warnings.push(`skill ${check.name || '?'}: ${note}`);
     if (check.errors.length > 0) {
-      // Same rule `preserveInvalid` applies to MCP servers and marketplaces: an
-      // edit that stopped validating is not a request to delete the skill that
-      // was working a minute ago. Only possible while the name itself still
-      // parses — without a name there is nothing to match the row against.
       if (check.name !== '' && managed.skills.includes(check.name) && !claimed.has(check.name)) {
         claimed.add(check.name);
         preservedSkills.push(check.name);
@@ -286,11 +262,6 @@ export function planExtensions(
   };
 }
 
-// A skill name the app has not managed before may already belong to a
-// hand-written or synced skill in the container. That check has to happen
-// BEFORE the managed list is persisted: claiming first and probing later meant
-// the very next provision believed the name was ours and rm -rf'd someone
-// else's work. This narrows the plan to the skills the app may actually own.
 export async function claimSkills(
   plan: ExtensionPlan,
 ): Promise<{ readonly plan: ExtensionPlan; readonly warnings: readonly string[] }> {
@@ -333,9 +304,6 @@ export async function claimSkills(
 
 export interface SkillWriteResult {
   readonly warnings: readonly string[];
-  // The skills that actually reached the container. Only these may be recorded
-  // as managed: a name claimed without a directory behind it would be deleted —
-  // or would silently take over somebody else's skill — on the next provision.
   readonly written: readonly string[];
 }
 
@@ -366,13 +334,9 @@ export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult
       await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
     } catch (error) {
       warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${describeError(error)}`);
-      // Leave nothing half-written behind: a bare directory here would make the
-      // next provision's existence probe refuse this name for good.
       try {
         await execCapture(['rm', '-rf', root], { workdir: '/' });
-      } catch {
-        // The container is already refusing writes; there is nothing else to try.
-      }
+      } catch {}
       return null;
     }
 

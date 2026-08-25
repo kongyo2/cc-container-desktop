@@ -27,9 +27,6 @@ export function buildEnvBlock(profile: Profile, secret: string): Record<string, 
   if (secret !== '') {
     if (profile.authMode === 'authToken') {
       env['ANTHROPIC_AUTH_TOKEN'] = secret;
-      // The OpenRouter integration guide insists on this: an explicitly empty
-      // ANTHROPIC_API_KEY keeps Claude Code from ever falling back to direct
-      // Anthropic authentication while a bearer gateway is configured.
       env['ANTHROPIC_API_KEY'] = '';
     } else {
       env['ANTHROPIC_API_KEY'] = secret;
@@ -40,8 +37,6 @@ export function buildEnvBlock(profile: Profile, secret: string): Record<string, 
   if (profile.sonnetModel !== '') env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = profile.sonnetModel;
   if (profile.opusModel !== '') env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = profile.opusModel;
   if (profile.haikuModel !== '') env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = profile.haikuModel;
-  // Claude Code 2.1.x added Fable as a fourth model class. On a gateway it is
-  // not offered in /model at all unless this variable names it.
   if (profile.fableModel !== '') env['ANTHROPIC_DEFAULT_FABLE_MODEL'] = profile.fableModel;
 
   if (profile.apiTimeoutMs !== null) env['API_TIMEOUT_MS'] = String(profile.apiTimeoutMs);
@@ -200,15 +195,10 @@ export async function provisionContainer(): Promise<string> {
   const rawPlan = planExtensions(config.extensions, config.managed, existingClaudeJson, existingSettings);
   for (const warning of rawPlan.warnings) logWarn('provision', warning);
 
-  // Probe for skills the app must not own BEFORE the managed list is
-  // persisted; a name skipped here is never claimed and never deleted.
   const claim = await claimSkills(rawPlan);
   for (const warning of claim.warnings) logWarn('provision', warning);
   const plan = claim.plan;
 
-  // The merge script always runs: mcpServers must reach ~/.claude.json whether
-  // or not onboarding is being auto-answered. The onboarding flags themselves
-  // ride along only when the user asked for them.
   const patch = config.autoOnboarding
     ? { ...onboardingPatch(config, profile, secret), ...plan.claudeJson }
     : { ...plan.claudeJson };
@@ -224,9 +214,6 @@ export async function provisionContainer(): Promise<string> {
     settings['env'] = buildEnvBlock(profile, secret);
   }
   if (config.autoOnboarding) {
-    // Current Claude Code migrated the old .claude.json bypassPermissionsModeAccepted
-    // flag to this settings key; writing it here means the migration has nothing
-    // left to redo on every start.
     settings['skipDangerousModePermissionPrompt'] = true;
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
@@ -234,11 +221,6 @@ export async function provisionContainer(): Promise<string> {
   const skillWrite = await writeSkills(plan);
   for (const warning of skillWrite.warnings) logWarn('provision', warning);
 
-  // Ownership is recorded only now, once every write behind it has landed.
-  // Persisting it before the writes left an aborted provision owning names it
-  // had never written, and `claimSkills` skips the existence probe for names it
-  // already owns — so the next run would overwrite whatever had appeared there
-  // in the meantime. Skills that were preserved rather than rewritten stay ours.
   patchConfig({
     managed: { ...plan.managed, skills: [...skillWrite.written, ...plan.preservedSkills] },
   });

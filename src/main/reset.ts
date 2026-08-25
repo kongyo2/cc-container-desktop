@@ -23,10 +23,6 @@ async function exportFirst(destination: string | null): Promise<Exported> {
   }
 
   const state = await inspectContainer();
-  // The workspace lives in the home volume, not in the container. Skipping the
-  // export because the container happens to be gone would go on to delete a
-  // volume still holding every file. Only a missing volume means there really is
-  // nothing to copy out; otherwise start the container, creating it if need be.
   const volume = state.homeVolume ?? getConfig().volumeName;
   if (!state.exists && !(await volumeExists(volume))) {
     logWarn(
@@ -53,10 +49,6 @@ export async function resetContainer(request: ResetRequest, destination: string 
     saveConfig({ ...getConfig(), lastExportDir: destination });
   }
 
-  // Everything that can fail happens before the destructive step. Rebuilding
-  // after the wipe meant a build that failed — or a tag naming an image that was
-  // never built — left the user with no workspace, no container, and nothing to
-  // start one from.
   if (request.rebuildImage) {
     await buildImage(config.imageTag, true);
   }

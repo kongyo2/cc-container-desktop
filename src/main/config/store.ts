@@ -14,11 +14,6 @@ interface SecretEntry {
   readonly value: string;
 }
 
-// Every credential records how it is stored. A single file-wide flag meant that
-// a change in `safeStorage` availability — a locked or missing session keyring
-// on Linux is enough — re-encoded the whole file on the next save, and any
-// entry that could not be decrypted at that moment was dropped from it. Saving
-// one profile's key would silently delete every other profile's.
 interface SecretFile {
   readonly version: 2;
   readonly entries: Record<string, SecretEntry>;
@@ -152,9 +147,6 @@ export function secretsAreEncrypted(): boolean {
   }
 }
 
-// Reads both the per-entry shape and the older file-wide
-// `{ encrypted, entries: { id: value } }` shape, which is migrated on the next
-// write. Returns null when there is nothing usable to read.
 function parseSecretFile(raw: unknown): SecretFile | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const candidate = raw as { encrypted?: unknown; entries?: unknown };
@@ -216,9 +208,6 @@ export function getSecret(profileId: string): string {
 }
 
 export function setSecret(profileId: string, secret: string): void {
-  // Only the entry being written is touched. Anything stored earlier keeps its
-  // own encoding, so a key encrypted while the keyring was up stays encrypted
-  // and readable again later instead of being re-encoded — or dropped — now.
   const entries = { ...readSecretFile().entries };
 
   if (secret === '') {
