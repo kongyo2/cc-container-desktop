@@ -157,6 +157,23 @@ export async function startContainer(): Promise<ContainerState> {
     await createContainer();
     state = await inspectContainer();
   }
+  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
+    throw foreignVolumeError(state.homeVolume);
+  }
+  if (!state.running) {
+    await containerHandle().start();
+    logInfo('app', 'コンテナを起動しました / container started');
+  }
+  return inspectContainer();
+}
+
+export async function startExistingContainer(): Promise<ContainerState> {
+  const state = await inspectContainer();
+  if (!state.exists) return startContainer();
+  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
+    throw foreignVolumeError(state.homeVolume);
+  }
   if (!state.running) {
     await containerHandle().start();
     logInfo('app', 'コンテナを起動しました / container started');

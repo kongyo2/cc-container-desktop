@@ -2,7 +2,13 @@ import type { ResetRequest } from '../shared/ipc.ts';
 import type { ResetSummary } from '../shared/types.ts';
 import { provisionContainer } from './claude/provision.ts';
 import { getConfig, saveConfig } from './config/store.ts';
-import { inspectContainer, removeContainer, startContainer, volumeExists } from './docker/container.ts';
+import {
+  inspectContainer,
+  removeContainer,
+  startContainer,
+  startExistingContainer,
+  volumeExists,
+} from './docker/container.ts';
 import { inspectImage } from './docker/engine.ts';
 import { exportWorkspace } from './docker/files.ts';
 import { buildImage } from './docker/image.ts';
@@ -33,7 +39,7 @@ async function exportFirst(destination: string | null): Promise<Exported> {
   }
   if (!state.running) {
     logInfo('app', '取り出しのためにコンテナを起動します / starting the container so the workspace can be exported');
-    await startContainer();
+    await startExistingContainer();
   }
 
   logInfo('app', 'リセット前にワークスペースを取り出します / exporting the workspace before the reset');
