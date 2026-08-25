@@ -22,6 +22,7 @@ extraResources:
 asar: true
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
@@ -29,6 +30,9 @@ win:
   artifactName: ${productName}-${version}-${arch}.${ext}
 
 nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -40,3 +44,7 @@ linux:
   target:
     - AppImage
   category: Development
+  icon: build/icon.png
+  # Without this the window manager cannot tie a running window to the .desktop
+  # entry, so the app shows a generic icon in the dock.
+  syncDesktopName: true

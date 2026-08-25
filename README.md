@@ -149,18 +149,47 @@ Claude Code は `/home/claude` の**外**（`/usr`）に入れてあります。
 
 ## 動作確認
 
-`tests/e2e/workbench.mjs` が、実際の Docker と実際のエンドポイントに対して一通りを検証します。
+`tests/e2e/` に 4 つのスイートがあります。すべて **実際の Docker と実際のエンドポイント**に対して走ります。モックはありません。
+
+| スイート        | 内容                                                                                                                          | 項目数 |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `workbench.mjs` | 基本の流れ: イメージ → コンテナ → 設定書き込み → `claude -p` が応答 → tmux 再接続                                             | 28     |
+| `deep.mjs`      | 意地悪系: 入力欄への実タイピング、コンテナ停止中の挙動、壊れた JSON、CJK ファイル名、権限ビット、ライフサイクル、エクスポート | 83     |
+| `live.mjs`      | 実モデル: ツール実行（ファイル読み書き・シェル）、モデル別名、GUI ターミナルでの対話、**再接続後に会話が続くか**              | 17     |
+| `packaged.mjs`  | `electron-builder` で固めたバイナリを起動し、`resourcesPath` からの解決を確認                                                 | 9      |
 
 ```bash
-CC_E2E_API_KEY=sk-or-v1-... \
-CC_E2E_BASE_URL=https://openrouter.ai/api \
-CC_E2E_MODEL=stealth/ox-alpha \
-npm run e2e            # Linux CI では npm run e2e:xvfb
+CC_E2E_API_KEY=sk-or-v1-... npm run e2e:all     # Linux では xvfb-run -a を前に付ける
 ```
 
-このリポジトリでは **OpenRouter + `stealth/ox-alpha`** で全 28 項目の通過を確認済みです。プロファイル保存 → コンテナ起動 → 設定書き込み → `claude -p` が実際に応答 → tmux 再接続 → 各タブ描画までを含みます。GUI から対話的に打った場合も、Claude Code の TUI が描画され応答が返ることを確認しています。
+**OpenRouter + `stealth/ox-alpha`** で、全 137 項目の通過を確認済みです。特に:
+
+- コンテナ内の Claude Code v2.1.241 が実際に応答し、**自分のツールでファイルを読み書きし、シェルを実行**できる
+- オンボーディング画面・テーマ選択・信頼ダイアログが一度も出ない
+- GUI のターミナルにキーボードで打ち込んで応答が返る
+- タブを閉じて再接続したあと、**さっき教えた合言葉をモデルが覚えている**（会話が継続している）
 
 他のプリセット（Anthropic 公式 / Moonshot / Z.ai / DeepSeek / MiniMax）は**未検証**です。プロファイル画面でも「未検証」と表示されます。
+
+---
+
+## CI とリリース
+
+`.github/workflows/` に 2 つあります。
+
+**`ci.yml`** — push と PR で自動実行。Prettier / oxlint（警告もエラー扱い）/ 型検査（キャッシュなし + 依存の型まで）/ ビルド、Linux でのパッケージ起動確認、Windows でのビルド確認。
+実 API を使う E2E は手動トリガー時だけ走ります。リポジトリの Secrets に `OPENROUTER_API_KEY` を入れておくと、Actions タブから「Run workflow」で 3 スイートすべてが走ります。未設定なら警告を出してスキップします。
+
+**`release.yml`** — **手動トリガーのみ**（Actions タブ → Release → Run workflow）。入力:
+
+| 入力         | 既定  | 内容                                                                                       |
+| ------------ | ----- | ------------------------------------------------------------------------------------------ |
+| `version`    | 空    | `0.2.0` のように指定。空なら `package.json` の値。既存タグと衝突したらビルド前に失敗します |
+| `draft`      | true  | 下書きとして作成。中身を確認してから自分で公開                                             |
+| `prerelease` | false | プレリリース扱い                                                                           |
+| `linux`      | false | Linux AppImage も添付                                                                      |
+
+Windows インストーラ（NSIS, x64）をビルドし、`v<version>` タグの GitHub Release に添付します。バージョンは成果物にだけ反映され、ブランチにコミットは積みません。
 
 ---
 

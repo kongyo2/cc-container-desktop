@@ -30,8 +30,17 @@ const LIST_SCRIPT = `
 const fs = require('fs');
 const path = require('path');
 const dir = process.argv[1];
+let names;
+try {
+  names = fs.readdirSync(dir);
+} catch (error) {
+  // A bare stack trace is useless in a UI banner. Emit the errno so the caller
+  // can turn it into a sentence, and nothing else.
+  process.stderr.write(String(error && error.code ? error.code : 'EUNKNOWN'));
+  process.exit(1);
+}
 const out = [];
-for (const name of fs.readdirSync(dir)) {
+for (const name of names) {
   const full = path.join(dir, name);
   let st;
   try { st = fs.lstatSync(full); } catch { continue; }
@@ -53,6 +62,21 @@ for (const name of fs.readdirSync(dir)) {
 process.stdout.write(JSON.stringify(out));
 `;
 
+/** Turns the errno the listing script prints into something worth showing a user. */
+function describeListFailure(path: string, code: string): string {
+  switch (code) {
+    case 'ENOENT':
+      return `見つかりません / no such directory: ${path}`;
+    case 'ENOTDIR':
+      return `フォルダではありません / not a directory: ${path}`;
+    case 'EACCES':
+    case 'EPERM':
+      return `権限がありません / permission denied: ${path}`;
+    default:
+      return `一覧を取得できません / cannot list ${path} (${code})`;
+  }
+}
+
 interface RawEntry {
   readonly name?: unknown;
   readonly path?: unknown;
@@ -69,7 +93,7 @@ function toFileKind(value: unknown): FileKind {
 export async function listDirectory(path: string): Promise<readonly FileEntry[]> {
   const result = await execCapture(['node', '-e', LIST_SCRIPT, path], { workdir: '/' });
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() === '' ? `cannot list ${path}` : result.stderr.trim());
+    throw new Error(describeListFailure(path, result.stderr.trim() || 'EUNKNOWN'));
   }
 
   const parsed = JSON.parse(result.stdout) as readonly RawEntry[];
@@ -124,15 +148,31 @@ export async function readFileText(path: string): Promise<string> {
   return raw.toString('utf8');
 }
 
-/** Writes a file into the container, owned by the `claude` user. */
-export async function writeFileText(path: string, content: string, mode = 0o644): Promise<void> {
+/** Reads an existing file's permission bits, or `null` when there is no such file. */
+async function currentMode(path: string): Promise<number | null> {
+  const result = await execCapture(['stat', '-c', '%a', path], { workdir: '/' });
+  if (result.exitCode !== 0) return null;
+  const parsed = Number.parseInt(result.stdout.trim(), 8);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Writes a file into the container, owned by the `claude` user.
+ *
+ * Omit `mode` to keep whatever the file already had — a `putArchive` entry sets
+ * the mode outright, so a fixed default would silently strip the executable bit
+ * off every script edited through the Files tab. New files get 0644.
+ */
+export async function writeFileText(path: string, content: string, mode?: number): Promise<void> {
   const slash = path.lastIndexOf('/');
   const dir = slash <= 0 ? '/' : path.slice(0, slash);
   const name = path.slice(slash + 1);
   if (name === '') throw new Error(`invalid path: ${path}`);
 
+  const effectiveMode = mode ?? (await currentMode(path)) ?? 0o644;
+
   const pack = tarStream.pack();
-  pack.entry({ name, mode, uid: CONTAINER_UID, gid: CONTAINER_GID, mtime: new Date() }, content);
+  pack.entry({ name, mode: effectiveMode, uid: CONTAINER_UID, gid: CONTAINER_GID, mtime: new Date() }, content);
   pack.finalize();
 
   await containerHandle().putArchive(pack, { path: dir });

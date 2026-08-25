@@ -2,7 +2,7 @@
   "name": "cc-container-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Claude Code container workbench — run Claude Code inside Docker with swappable endpoints, models and API keys.",
+  "description": "Claude Code container workbench \u2014 run Claude Code inside Docker with swappable endpoints, models and API keys.",
   "author": "kongyo2",
   "license": "MIT",
   "main": "./out/main/index.js",
@@ -27,7 +27,10 @@
     "pack:dir": "electron-vite build && electron-builder --dir",
     "dist:win": "electron-vite build && electron-builder --win --x64",
     "e2e": "node tests/e2e/workbench.mjs",
-    "e2e:xvfb": "xvfb-run -a node tests/e2e/workbench.mjs"
+    "e2e:deep": "node tests/e2e/deep.mjs",
+    "e2e:live": "node tests/e2e/live.mjs",
+    "e2e:packaged": "node tests/e2e/packaged.mjs release/linux-unpacked/cc-container-desktop",
+    "e2e:all": "npm run e2e && npm run e2e:deep && npm run e2e:live"
   },
   "dependencies": {
     "dockerode": "^5.0.1",
@@ -66,5 +69,6 @@
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "zustand": "^5.0.15"
-  }
+  },
+  "desktopName": "cc-container-desktop.desktop"
 }

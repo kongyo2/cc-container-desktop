@@ -68,6 +68,9 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#16161a',
     autoHideMenuBar: true,
     title: 'Claude Code Container Workbench',
+    // Packaged builds take their icon from the executable; in development there
+    // is no executable to take it from, so point at the source asset.
+    ...(isDev ? { icon: join(app.getAppPath(), 'build', 'icon.png') } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // The preload script only needs `ipcRenderer`, so the renderer can stay

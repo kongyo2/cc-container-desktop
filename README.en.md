@@ -101,18 +101,47 @@ Claude Code is installed _outside_ `/home/claude` (in `/usr`) on purpose: a home
 
 ## Verification
 
-`tests/e2e/workbench.mjs` drives the built app against a real Docker daemon and a real endpoint.
+Four suites under `tests/e2e/`, all of them running against a **real Docker daemon and a real endpoint**. Nothing is mocked.
+
+| Suite           | What it covers                                                                                                                                      | Checks |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `workbench.mjs` | The happy path: image → container → provisioning → a live `claude -p` answer → tmux reattach                                                        | 28     |
+| `deep.mjs`      | The awkward parts: real typing into controlled inputs, behaviour with no container, corrupt JSON, CJK filenames, permission bits, lifecycle, export | 83     |
+| `live.mjs`      | Real model work: tool use (file read/write, shell), model aliases, the GUI terminal, and **whether a conversation survives a reattach**             | 17     |
+| `packaged.mjs`  | Launches the `electron-builder` output and checks it resolves its resources from `resourcesPath`                                                    | 9      |
 
 ```bash
-CC_E2E_API_KEY=sk-or-v1-... \
-CC_E2E_BASE_URL=https://openrouter.ai/api \
-CC_E2E_MODEL=stealth/ox-alpha \
-npm run e2e            # npm run e2e:xvfb on headless Linux
+CC_E2E_API_KEY=sk-or-v1-... npm run e2e:all     # prefix with xvfb-run -a on headless Linux
 ```
 
-All 28 checks pass against **OpenRouter + `stealth/ox-alpha`**: profile persistence, container start, provisioning, a live `claude -p` answer, tmux reattach, and every tab rendering. Typing into the GUI terminal was separately confirmed to render Claude Code's TUI and get an answer back.
+All 137 checks pass against **OpenRouter + `stealth/ox-alpha`**. In particular:
+
+- Claude Code v2.1.241 in the container answers, and **uses its own tools** to read files, write files and run shell commands
+- no onboarding, theme picker or trust dialog ever appears
+- typing into the GUI terminal gets a real answer back
+- after closing the tab and reattaching, **the model still remembers the codeword** it was given — the conversation genuinely continued
 
 The other presets (Anthropic, Moonshot, Z.ai, DeepSeek, MiniMax) are **untested** and labelled as such in the UI.
+
+---
+
+## CI and releases
+
+Two workflows under `.github/workflows/`.
+
+**`ci.yml`** runs on every push and pull request: Prettier, oxlint (warnings are errors), typechecking (cache-free, plus the dependency-types sweep), a build, a packaged-binary launch on Linux, and a build on Windows.
+The suites that spend real tokens run only on a manual trigger. Put `OPENROUTER_API_KEY` in repository secrets and use "Run workflow" from the Actions tab to run all three; without the secret they are skipped with a warning.
+
+**`release.yml`** is **manual only** (Actions → Release → Run workflow):
+
+| Input        | Default | Meaning                                                                                              |
+| ------------ | ------- | ---------------------------------------------------------------------------------------------------- |
+| `version`    | empty   | e.g. `0.2.0`; empty uses `package.json`. A clash with an existing tag fails before anything is built |
+| `draft`      | true    | Create as a draft so you can review it before publishing                                             |
+| `prerelease` | false   | Mark as a pre-release                                                                                |
+| `linux`      | false   | Also attach a Linux AppImage                                                                         |
+
+It builds the Windows NSIS x64 installer and attaches it to a `v<version>` GitHub Release. The version is stamped into the artifact only; no version-bump commit lands on the branch.
 
 ---
 

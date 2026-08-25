@@ -1,6 +1,7 @@
 /** Small presentational primitives shared by every panel. */
 
 import type { JSX, ReactNode } from 'react';
+import { useState } from 'react';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'idle';
 
@@ -69,6 +70,66 @@ export function TextField({
         placeholder={placeholder ?? ''}
         style={mono ? undefined : { fontFamily: 'var(--sans)' }}
         onChange={(event) => onChange(event.target.value)}
+      />
+    </Field>
+  );
+}
+
+/**
+ * A text field that reports its value when you leave it, not on every keystroke.
+ *
+ * Use this wherever a change costs an IPC round trip or gets rewritten on the
+ * way in. `TextField` writes straight through, so a handler that persists and
+ * then re-reads the value races the typist and eats characters, and a
+ * `normalize` that trims trailing separators would delete each `/` as it is
+ * typed. Here the draft is local until blur or Enter.
+ *
+ * The draft is tagged with the prop value it was forked from: when that prop
+ * changes underneath (another pane saved, a profile was switched), the tag stops
+ * matching and the field shows the new truth instead of a stale edit.
+ */
+export function DeferredTextField({
+  label,
+  value,
+  onCommit,
+  normalize,
+  hint,
+  placeholder,
+  type = 'text',
+  mono = true,
+}: {
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+  normalize?: (value: string) => string;
+  hint?: string;
+  placeholder?: string;
+  type?: 'text' | 'password';
+  mono?: boolean;
+}): JSX.Element {
+  const [draft, setDraft] = useState<{ base: string; text: string } | null>(null);
+  const shown = draft !== null && draft.base === value ? draft.text : value;
+
+  const commit = (): void => {
+    setDraft(null);
+    const next = normalize === undefined ? shown : normalize(shown);
+    if (next !== value) onCommit(next);
+  };
+
+  return (
+    <Field label={label} {...(hint === undefined ? {} : { hint })}>
+      <input
+        type={type}
+        value={shown}
+        placeholder={placeholder ?? ''}
+        spellCheck={false}
+        style={mono ? undefined : { fontFamily: 'var(--sans)' }}
+        onChange={(event) => setDraft({ base: value, text: event.target.value })}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Escape') setDraft(null);
+        }}
       />
     </Field>
   );

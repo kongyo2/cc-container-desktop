@@ -1,0 +1,153 @@
+name: Release
+
+# Manual only. Pick a version, get a Windows installer attached to a GitHub
+# Release. Nothing here fires on a push.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.2.0. Leave empty to use the one in package.json.'
+        required: false
+        type: string
+      draft:
+        description: 'Create the release as a draft, so you can review it before publishing.'
+        required: false
+        default: true
+        type: boolean
+      prerelease:
+        description: 'Mark the release as a pre-release.'
+        required: false
+        default: false
+        type: boolean
+      linux:
+        description: 'Also attach a Linux AppImage.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Resolve the version
+        id: version
+        shell: bash
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$REQUESTED" ]; then
+            VERSION="${REQUESTED#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+          # Fail before building rather than shipping an artifact named after a typo.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a semver version"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::tag v$VERSION already exists"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+      # Only the artifact is stamped; the commit is left alone so a release can
+      # be cut from any ref without a version bump landing on the branch.
+      - name: Stamp the version
+        shell: bash
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: npm run build
+
+      - name: Package
+        # `--publish never`: this workflow owns publishing, so a partial upload
+        # by electron-builder cannot leave a half-made release behind.
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -la release
+
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "## Claude Code Container Workbench $VERSION"
+            echo
+            echo "Windows 11 用インストーラです。Docker Desktop が必要です。"
+            echo "A Windows 11 installer. Docker Desktop is required."
+            echo
+            echo "### 使い方 / Getting started"
+            echo
+            echo '1. 下の `.exe` をダウンロードして実行 / download and run the `.exe` below'
+            echo '2. Docker Desktop を起動 / start Docker Desktop'
+            echo '3. アプリの「接続」タブでイメージをビルドし、コンテナを起動 / build the image on the Connect tab, then start the container'
+            echo
+            echo "詳細は [README](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/README.md) を参照してください."
+          } > "$NOTES_FILE"
+
+          ARGS=(--title "$VERSION" --notes-file "$NOTES_FILE" --target "$GITHUB_SHA")
+          if [ "${{ inputs.draft }}" = "true" ]; then ARGS+=(--draft); fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then ARGS+=(--prerelease); fi
+
+          gh release create "$TAG" "${ARGS[@]}" release/*.exe
+          echo "Created $TAG"
+
+  linux:
+    name: Linux AppImage
+    needs: windows
+    if: inputs.linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The bare version, not the tag: `npm version` wants semver without the `v`.
+      - name: Stamp the version
+        run: npm version "${{ needs.windows.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        run: npm run build
+
+      - name: Package
+        run: npx electron-builder --linux AppImage --publish never
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.windows.outputs.tag }}
+        run: gh release upload "$TAG" release/*.AppImage --clobber

@@ -5,7 +5,7 @@ import type { JSX } from 'react';
 import { useState } from 'react';
 
 import type { Language } from '../../../shared/types.ts';
-import { Check, Field, Section, TextField } from '../components/ui.tsx';
+import { Check, DeferredTextField, Field, Section } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -50,25 +50,37 @@ export function SettingsPanel(): JSX.Element {
         />
 
         <div className="grid2" style={{ marginTop: 10 }}>
-          <TextField
+          <DeferredTextField
             label={t('settingsTmuxSession')}
             value={config.tmuxSession}
-            onChange={(value) => void run('config', () => window.cc.configSave({ tmuxSession: value }))}
+            onCommit={(value) => {
+              if (value.trim() === '') return;
+              void run('config', () => window.cc.configSave({ tmuxSession: value.trim() }));
+            }}
           />
-          <TextField
+          <DeferredTextField
             label={t('settingsContainerName')}
             value={config.containerName}
-            onChange={(value) => void run('config', () => window.cc.configSave({ containerName: value }))}
+            onCommit={(value) => {
+              if (value.trim() === '') return;
+              void run('config', () => window.cc.configSave({ containerName: value.trim() }));
+            }}
           />
-          <TextField
+          <DeferredTextField
             label={t('settingsImageTag')}
             value={config.imageTag}
-            onChange={(value) => void run('config', () => window.cc.configSave({ imageTag: value }))}
+            onCommit={(value) => {
+              if (value.trim() === '') return;
+              void run('config', () => window.cc.configSave({ imageTag: value.trim() }));
+            }}
           />
-          <TextField
+          <DeferredTextField
             label={t('settingsVolumeName')}
             value={config.volumeName}
-            onChange={(value) => void run('config', () => window.cc.configSave({ volumeName: value }))}
+            onCommit={(value) => {
+              if (value.trim() === '') return;
+              void run('config', () => window.cc.configSave({ volumeName: value.trim() }));
+            }}
           />
         </div>
         <p className="hint">

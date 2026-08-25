@@ -134,10 +134,13 @@ export function closeTerminal(id: string): void {
   const session = sessions.get(id);
   if (session === undefined) return;
   sessions.delete(id);
+
   // Ending stdin drops the tmux *client*; the tmux server and everything running
   // inside it stay alive, which is exactly what reattaching depends on.
+  // Destroying in the same tick would cut the connection before the half-close
+  // reaches the daemon, so give it one turn of the loop first.
   session.stream.end();
-  session.stream.destroy();
+  setTimeout(() => session.stream.destroy(), 0);
 }
 
 export function closeAllTerminals(): void {

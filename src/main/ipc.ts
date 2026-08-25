@@ -46,6 +46,7 @@ import {
   restartContainer,
   startContainer,
   stopContainer,
+  withRunningContainer,
 } from './docker/container.ts';
 import { inspectImage, probeDocker } from './docker/engine.ts';
 import { exportWorkspace, listDirectory, makeDirectory, readFileText, writeFileText } from './docker/files.ts';
@@ -53,6 +54,9 @@ import { buildImage, readImageSources, resetImageSources, writeImageSources } fr
 import { closeTerminal, openTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
 import { openInVscode, writeDevcontainer } from './integrations/vscode.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
+
+/** Filled in by {@link registerIpc}; read by `snapshot()` below. */
+let appVersion = '0.0.0';
 
 function handle<A extends readonly unknown[], T>(channel: string, fn: (...args: A) => Promise<T> | T): void {
   ipcMain.handle(channel, async (_event, ...args: unknown[]): Promise<Result<T>> => {
@@ -100,8 +104,6 @@ async function snapshot(): Promise<Snapshot> {
   };
 }
 
-let appVersion = '0.0.0';
-
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
 }
@@ -122,7 +124,11 @@ export function registerIpc(version: string): void {
 
   /* ---------------------------------- app --------------------------------- */
   handle<[], Snapshot>(CHANNELS.snapshot, snapshot);
-  handle<[Language], AppConfig>(CHANNELS.setLanguage, (language) => patchConfig({ language }));
+  handle<[Language], AppConfig>(CHANNELS.setLanguage, (language) => {
+    const next = patchConfig({ language });
+    notifyStateChanged();
+    return next;
+  });
   handle<[string], null>(CHANNELS.openExternal, async (url) => {
     await shell.openExternal(url);
     return null;
@@ -138,8 +144,16 @@ export function registerIpc(version: string): void {
     notifyStateChanged();
     return next;
   });
-  handle<[Profile], AppConfig>(CHANNELS.profileUpsert, (profile) => upsertProfile(profile));
-  handle<[string], AppConfig>(CHANNELS.profileDelete, (id) => deleteProfile(id));
+  handle<[Profile], AppConfig>(CHANNELS.profileUpsert, (profile) => {
+    const next = upsertProfile(profile);
+    notifyStateChanged();
+    return next;
+  });
+  handle<[string], AppConfig>(CHANNELS.profileDelete, (id) => {
+    const next = deleteProfile(id);
+    notifyStateChanged();
+    return next;
+  });
   handle<[string], AppConfig>(CHANNELS.profileActivate, (id) => {
     const next = activateProfile(id);
     notifyStateChanged();
@@ -189,10 +203,10 @@ export function registerIpc(version: string): void {
   });
   handle<[], Snapshot>(CHANNELS.containerState, snapshot);
   handle<[ExecRequest], ExecResult>(CHANNELS.containerExec, (request) =>
-    execCapture(request.command, { asRoot: request.asRoot }),
+    withRunningContainer(() => execCapture(request.command, { asRoot: request.asRoot })),
   );
   handle<[], string>(CHANNELS.containerProvision, async () => {
-    const summary = await provisionContainer();
+    const summary = await withRunningContainer(provisionContainer);
     notifyStateChanged();
     return summary;
   });
@@ -201,15 +215,17 @@ export function registerIpc(version: string): void {
   /* --------------------------------- tmux --------------------------------- */
   handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
   handle<[string], null>(CHANNELS.tmuxKill, async (name) => {
-    await killTmuxSession(name);
+    await withRunningContainer(() => killTmuxSession(name));
     return null;
   });
 
   /* ------------------------------- terminals ------------------------------ */
-  handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, async (request) => {
-    if (request.kind === 'claude') await provisionContainer();
-    return openTerminal(request);
-  });
+  handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, (request) =>
+    withRunningContainer(async () => {
+      if (request.kind === 'claude') await provisionContainer();
+      return openTerminal(request);
+    }),
+  );
   handle<[string, string], null>(CHANNELS.termWrite, (id, data) => {
     writeTerminal(id, data);
     return null;
@@ -224,14 +240,14 @@ export function registerIpc(version: string): void {
   });
 
   /* ------------------------------ file access ----------------------------- */
-  handle<[string], readonly FileEntry[]>(CHANNELS.fsList, (path) => listDirectory(path));
-  handle<[string], string>(CHANNELS.fsRead, (path) => readFileText(path));
+  handle<[string], readonly FileEntry[]>(CHANNELS.fsList, (path) => withRunningContainer(() => listDirectory(path)));
+  handle<[string], string>(CHANNELS.fsRead, (path) => withRunningContainer(() => readFileText(path)));
   handle<[WriteFileRequest], null>(CHANNELS.fsWrite, async (request) => {
-    await writeFileText(request.path, request.content);
+    await withRunningContainer(() => writeFileText(request.path, request.content));
     return null;
   });
   handle<[string], null>(CHANNELS.fsMkdir, async (path) => {
-    await makeDirectory(path);
+    await withRunningContainer(() => makeDirectory(path));
     return null;
   });
 
@@ -240,7 +256,7 @@ export function registerIpc(version: string): void {
     const destination = await pickDirectory(getConfig().lastExportDir);
     if (destination === null) return null;
     saveConfig({ ...getConfig(), lastExportDir: destination });
-    return exportWorkspace(destination);
+    return withRunningContainer(() => exportWorkspace(destination));
   });
   handle<[], string | null>(CHANNELS.devcontainerWrite, async () => {
     const destination = await pickDirectory(getConfig().lastExportDir);

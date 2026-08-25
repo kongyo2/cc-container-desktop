@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 
 import { ENDPOINT_PRESETS, MESSAGES_PATH, normalizeBaseUrl } from '../../../shared/presets.ts';
 import type { AuthMode, Profile } from '../../../shared/types.ts';
-import { Check, Field, Section, TextField } from '../components/ui.tsx';
+import { Check, DeferredTextField, Field, Section, TextField } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -289,20 +289,16 @@ export function ProfilesPanel(): JSX.Element {
                 </Field>
               </div>
 
-              <Field
+              <DeferredTextField
                 label={t('profileBaseUrl')}
+                value={draft.baseUrl}
+                normalize={normalizeBaseUrl}
+                onCommit={(value) => update({ baseUrl: value })}
                 hint={
                   draft.baseUrl === '' ? 'ANTHROPIC_BASE_URL' : `ANTHROPIC_BASE_URL — ${draft.baseUrl}${MESSAGES_PATH}`
                 }
-              >
-                <input
-                  type="text"
-                  value={draft.baseUrl}
-                  spellCheck={false}
-                  placeholder="https://openrouter.ai/api"
-                  onChange={(event) => update({ baseUrl: normalizeBaseUrl(event.target.value) })}
-                />
-              </Field>
+                placeholder="https://openrouter.ai/api"
+              />
               <p className="hint" style={{ marginTop: -4 }}>
                 {t('profileBaseUrlNote')}
               </p>

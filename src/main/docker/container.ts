@@ -197,8 +197,19 @@ export async function execCapture(command: readonly string[], options: ExecOptio
     stream.on('close', resolve);
     stream.on('error', reject);
   });
-  stdout.end();
-  stderr.end();
+
+  // The demuxed halves are separate streams: the source ending does not mean
+  // their `data` events have all fired yet. Wait for each to drain, or the last
+  // few bytes of output go missing at random.
+  const drained = (channel: PassThrough): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (channel.writableEnded) {
+        resolve();
+        return;
+      }
+      channel.end(() => resolve());
+    });
+  await Promise.all([drained(stdout), drained(stderr)]);
 
   const info = (await exec.inspect()) as { ExitCode?: number | null };
   return {
@@ -257,12 +268,41 @@ export async function killTmuxSession(name: string): Promise<void> {
   }
 }
 
-/** Best-effort check that the container is up; used to give the UI a clear message. */
+/** The one message the UI should show for "you need to start the container first". */
+export const NOT_RUNNING_MESSAGE =
+  'コンテナが起動していません。「接続」タブから起動してください。 / The container is not running — start it from the Connect tab.';
+
+/**
+ * Fails with a sentence the user can act on, instead of Docker's
+ * `(HTTP code 404) no such container`.
+ *
+ * Checking first still races a container that stops mid-call, so
+ * {@link translateContainerError} rewrites the 404 as well.
+ */
 export async function requireRunning(): Promise<void> {
+  let state: ContainerState;
   try {
-    const state = await inspectContainer();
-    if (!state.running) throw new Error('container is not running');
+    state = await inspectContainer();
   } catch (error) {
-    throw new Error(`コンテナが起動していません / container is not running: ${describeError(error)}`, { cause: error });
+    throw new Error(`${NOT_RUNNING_MESSAGE} (${describeError(error)})`, { cause: error });
+  }
+  if (!state.running) throw new Error(NOT_RUNNING_MESSAGE);
+}
+
+/** Rewrites a "no such container" failure; anything else is passed through untouched. */
+export function translateContainerError(error: unknown): unknown {
+  if (!isNotFound(error)) return error;
+  const message = describeError(error);
+  if (!/no such container/iu.test(message)) return error;
+  return new Error(NOT_RUNNING_MESSAGE, { cause: error });
+}
+
+/** Runs `action`, converting a missing-container failure into {@link NOT_RUNNING_MESSAGE}. */
+export async function withRunningContainer<T>(action: () => Promise<T>): Promise<T> {
+  await requireRunning();
+  try {
+    return await action();
+  } catch (error) {
+    throw translateContainerError(error);
   }
 }
