@@ -1,0 +1,84 @@
+/**
+ * Docker Engine access.
+ *
+ * One lazily-created `Dockerode` instance for the whole process. Connection
+ * details come from `DOCKER_HOST` when set, and otherwise from the platform
+ * default — the named pipe on Windows, the unix socket elsewhere.
+ */
+
+import Docker from 'dockerode';
+
+import type { DockerStatus, ImageStatus } from '../../shared/types.ts';
+import { describeError } from '../logger.ts';
+
+let client: Docker | null = null;
+
+export function docker(): Docker {
+  if (client !== null) return client;
+
+  const host = process.env['DOCKER_HOST'];
+  if (host !== undefined && host !== '') {
+    // dockerode parses `tcp://`, `npipe://` and `unix://` forms out of the URL.
+    client = new Docker();
+  } else if (process.platform === 'win32') {
+    client = new Docker({ socketPath: '//./pipe/docker_engine' });
+  } else {
+    client = new Docker({ socketPath: '/var/run/docker.sock' });
+  }
+  return client;
+}
+
+interface VersionResponse {
+  readonly Version?: string;
+  readonly ApiVersion?: string;
+  readonly Os?: string;
+}
+
+export async function probeDocker(): Promise<DockerStatus> {
+  try {
+    const raw = (await docker().version()) as VersionResponse;
+    return {
+      available: true,
+      version: raw.Version ?? null,
+      apiVersion: raw.ApiVersion ?? null,
+      os: raw.Os ?? null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      version: null,
+      apiVersion: null,
+      os: null,
+      error: describeError(error),
+    };
+  }
+}
+
+interface ImageInspectResponse {
+  readonly Id?: string;
+  readonly Created?: string;
+  readonly Size?: number;
+}
+
+export async function inspectImage(tag: string): Promise<ImageStatus> {
+  try {
+    const raw = (await docker().getImage(tag).inspect()) as ImageInspectResponse;
+    return {
+      tag,
+      exists: true,
+      id: raw.Id ?? null,
+      createdAt: raw.Created ?? null,
+      sizeBytes: raw.Size ?? null,
+    };
+  } catch {
+    return { tag, exists: false, id: null, createdAt: null, sizeBytes: null };
+  }
+}
+
+/** True when the error carries Docker's 404, i.e. "no such container/volume/image". */
+export function isNotFound(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const status = (error as { statusCode?: unknown }).statusCode;
+  return status === 404;
+}

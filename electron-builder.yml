@@ -1,0 +1,42 @@
+appId: com.kongyo2.cc-container-desktop
+productName: CC Container Desktop
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# The Dockerfile and post-create script must stay outside the asar: the app
+# copies them into userData on first run, and asar paths are not real files.
+extraResources:
+  - from: docker
+    to: docker
+    filter:
+      - '**/*'
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: CC Container Desktop
+
+linux:
+  target:
+    - AppImage
+  category: Development

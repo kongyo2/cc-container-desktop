@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "composite": false,
+    "incremental": false,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "declaration": false,
+    "declarationMap": false,
+    "isolatedDeclarations": false
+  }
+}

@@ -1,0 +1,157 @@
+# Claude Code Container Workbench
+
+An Electron desktop app for Windows 11 that runs Claude Code inside a Docker container, with the **endpoint, model and API key swappable per use case**. Nothing — not Node, not Claude Code — gets installed on the host.
+
+日本語版は [README.md](README.md) を参照してください。
+
+![Connect tab](docs/screenshot-connect.png)
+
+![Terminal](docs/screenshot-terminal.png)
+
+![Profiles](docs/screenshot-profiles.png)
+
+---
+
+## What changed from the batch-file setup
+
+|                                   | Before (`claude-container`)                  | Now                                                                  |
+| --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------- |
+| Changing settings                 | Attach VS Code, hand-edit `settings.json`    | Pick a profile, hit Apply                                            |
+| Onboarding                        | Write `hasCompletedOnboarding` once, by hand | Written **on every launch**, automatically                           |
+| Reconnecting to a running session | Not possible — every `exec` started fresh    | Reattaches to a tmux session; closing the tab leaves it running      |
+| Poking at the internals           | Needed VS Code Remote Containers             | Built-in file browser + editor; the Dockerfile is editable in the UI |
+| GitHub CLI                        | Installed in the image                       | **Not installed** — export the workspace manually                    |
+| API key                           | Plain text in `settings.json`                | OS encrypted store (DPAPI on Windows)                                |
+
+---
+
+## Requirements
+
+- Windows 11 with **Docker Desktop** running
+- Node.js 22+ only if you are building the app yourself
+
+---
+
+## Setup
+
+```powershell
+npm install
+npm run build
+
+npm run dev        # run in development
+npm run dist:win   # build a Windows x64 installer into release/
+```
+
+---
+
+## Using it
+
+### 1. Build and start
+
+On the **Connect** tab, top to bottom: check Docker is green → **Build** the image (first run only) → **Start** the container. The container just idles on `sleep infinity`; all work happens in `docker exec` sessions.
+
+### 2. Configure the endpoint
+
+On the **Profiles** tab:
+
+- **Base URL** — a prefix only. Claude Code appends `/v1/messages`, so OpenRouter is `https://openrouter.ai/api`, **not** `https://openrouter.ai/api/v1`. The resolved URL is shown under the field.
+- **Auth mode** — `ANTHROPIC_AUTH_TOKEN` (`Authorization: Bearer`) by default, because it never triggers Claude Code's one-time key-approval prompt. Switch to `ANTHROPIC_API_KEY` only for endpoints that want `x-api-key`.
+- **API key** — stored in the OS encrypted store.
+- **Models** — `ANTHROPIC_MODEL` plus what each of `sonnet` / `opus` / `haiku` resolves to.
+- **Context window** — Claude Code assumes 200k for a model ID it does not recognize and compacts against that. Declaring the real window stops it throwing away context a large-window model could still hold.
+
+Apply saves the profile and, if the container is running, pushes it in immediately.
+
+### 3. Start / reattach
+
+**Start / reattach Claude Code**, on the Connect tab or the Terminal tab. Each press:
+
+1. merges `hasCompletedOnboarding: true` (and workspace trust) into `~/.claude.json` — merged, never clobbered
+2. replaces the `env` block of `~/.claude/settings.json` from the active profile
+3. runs `post-create.sh`
+4. attaches to the tmux session (`cc` by default), creating it and launching Claude Code if it does not exist
+
+**Closing the tab leaves Claude Code running.** The same button reattaches. The tmux session list at the bottom of the Terminal tab does the same thing explicitly.
+
+### 4. Getting work out
+
+There is no GitHub CLI in the container by design. Use **Files → Export workspace** and pick a destination; you get `<destination>/workspace_YYYYMMDD_HHMMSS/`.
+
+---
+
+## Poking at the internals
+
+**Files tab** — browse and edit any file in the container, with quick links to `settings.json`, `.claude.json` and `CLAUDE.md`. Keys you add to `settings.json` by hand (`hooks`, `permissions`, `statusLine`) survive re-provisioning; only `env` is owned by the profile.
+
+**Image tab** — edit the `Dockerfile` and `post-create.sh`. The Dockerfile defines the image (build, then recreate the container). `post-create.sh` runs on **every** container start — git identity, extra npm globals, dotfiles go there. Edits live in `%APPDATA%\cc-container-desktop\docker\` and survive app upgrades; "Restore defaults" brings back the shipped copies.
+
+**VS Code** — Settings tab → _Open the container in VS Code_, the same mechanism as Dev Containers' "Attach to Running Container". _Write devcontainer.json_ emits a `.devcontainer/` that builds the same image against the same volume.
+
+---
+
+## What is in the container
+
+Ubuntu 24.04 · Node.js 24 · `@anthropic-ai/claude-code` · git, tmux, ripgrep, fd, jq, python3 + pipx, build-essential, htop, tree, vim-tiny, nano · user `claude` at uid/gid **1000** with passwordless sudo · **no GitHub CLI**.
+
+`/home/claude` is the named volume `cc-workbench-home`, so the workspace (`/home/claude/workspace`) and every setting survive removing the container. Only "Remove with volume" erases them.
+
+Claude Code is installed _outside_ `/home/claude` (in `/usr`) on purpose: a home directory backed by a volume would freeze whatever version first populated it, and image rebuilds would never reach it.
+
+---
+
+## Verification
+
+`tests/e2e/workbench.mjs` drives the built app against a real Docker daemon and a real endpoint.
+
+```bash
+CC_E2E_API_KEY=sk-or-v1-... \
+CC_E2E_BASE_URL=https://openrouter.ai/api \
+CC_E2E_MODEL=stealth/ox-alpha \
+npm run e2e            # npm run e2e:xvfb on headless Linux
+```
+
+All 28 checks pass against **OpenRouter + `stealth/ox-alpha`**: profile persistence, container start, provisioning, a live `claude -p` answer, tmux reattach, and every tab rendering. Typing into the GUI terminal was separately confirmed to render Claude Code's TUI and get an answer back.
+
+The other presets (Anthropic, Moonshot, Z.ai, DeepSeek, MiniMax) are **untested** and labelled as such in the UI.
+
+---
+
+## Development
+
+```bash
+npm run typecheck      # tsc -b across main and renderer
+npm run typecheck:ci   # cache-free
+npm run check:libs     # skipLibCheck off, sweeps dependency types
+npm run lint           # oxlint
+npm run format         # prettier
+npm run check          # all of the above plus a build
+```
+
+```
+src/
+  main/        Electron main process
+    docker/    engine / container / files / terminal, all via dockerode
+    claude/    provision.ts — onboarding flags and settings.json
+    config/    settings, plus API keys through safeStorage
+  preload/     contextBridge (sandboxed, ipcRenderer only)
+  renderer/    React 19 + xterm.js + CodeMirror 6
+  shared/      types, IPC contract and i18n shared by all three
+docker/        default Dockerfile and post-create.sh
+tests/e2e/     Playwright (Electron) end-to-end check
+```
+
+The renderer runs with `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`, and a CSP whose `connect-src` is `'self'`. It reaches neither the Docker socket nor the filesystem directly.
+
+---
+
+## Troubleshooting
+
+**"Docker not found"** — start Docker Desktop; check `docker version` works.
+
+**"There's an issue with the selected model"** — almost always the base URL. `https://openrouter.ai/api/v1` resolves to `/api/v1/v1/messages` and 404s. Use `https://openrouter.ai/api` and check the resolved URL shown under the field.
+
+**"API keys are stored in plain text"** — the OS has no encryption backend. Windows 11 normally has DPAPI, so this should not appear there; on Linux it needs a keyring.
+
+**A tmux session disappeared** — the launcher falls back to `bash -l` when Claude Code exits, so the session survives that. It goes away when the container stops or restarts (the tmux server dies with it), or when you press Kill.
+
+**A rebuilt image is not being used** — remove the container on the Connect tab and start it again. A changed image tag recreates it automatically.

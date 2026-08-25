@@ -1,0 +1,149 @@
+/** App-level settings: language, naming, launch behaviour, VS Code interop. */
+
+import { Code2, Copy, FileCode2 } from 'lucide-react';
+import type { JSX } from 'react';
+import { useState } from 'react';
+
+import type { Language } from '../../../shared/types.ts';
+import { Check, Field, Section, TextField } from '../components/ui.tsx';
+import { pick, useLanguage, useT } from '../i18n.ts';
+import { useApp } from '../store.ts';
+
+export function SettingsPanel(): JSX.Element {
+  const t = useT();
+  const language = useLanguage();
+  const snapshot = useApp((state) => state.snapshot);
+  const run = useApp((state) => state.run);
+  const setToast = useApp((state) => state.setToast);
+  const [uri, setUri] = useState('');
+
+  if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
+  const { config } = snapshot;
+
+  return (
+    <>
+      <Section title={t('settingsGeneral')}>
+        <Field label={t('settingsLanguage')}>
+          <select
+            value={config.language}
+            onChange={(event) => void run('config', () => window.cc.setLanguage(event.target.value as Language))}
+          >
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </Field>
+
+        <Check
+          label={t('settingsAutoOnboarding')}
+          checked={config.autoOnboarding}
+          onChange={(checked) => void run('config', () => window.cc.configSave({ autoOnboarding: checked }))}
+        />
+        <Check
+          label={t('settingsAutoApprove')}
+          checked={config.autoApproveApiKey}
+          onChange={(checked) => void run('config', () => window.cc.configSave({ autoApproveApiKey: checked }))}
+        />
+        <Check
+          label={t('settingsSkipPermissions')}
+          checked={config.skipPermissions}
+          onChange={(checked) => void run('config', () => window.cc.configSave({ skipPermissions: checked }))}
+        />
+
+        <div className="grid2" style={{ marginTop: 10 }}>
+          <TextField
+            label={t('settingsTmuxSession')}
+            value={config.tmuxSession}
+            onChange={(value) => void run('config', () => window.cc.configSave({ tmuxSession: value }))}
+          />
+          <TextField
+            label={t('settingsContainerName')}
+            value={config.containerName}
+            onChange={(value) => void run('config', () => window.cc.configSave({ containerName: value }))}
+          />
+          <TextField
+            label={t('settingsImageTag')}
+            value={config.imageTag}
+            onChange={(value) => void run('config', () => window.cc.configSave({ imageTag: value }))}
+          />
+          <TextField
+            label={t('settingsVolumeName')}
+            value={config.volumeName}
+            onChange={(value) => void run('config', () => window.cc.configSave({ volumeName: value }))}
+          />
+        </div>
+        <p className="hint">
+          {pick(
+            language,
+            'コンテナ名・ボリューム名を変えると、次回の起動で新しいコンテナが作られます。前のボリュームは残ります。',
+            'Changing the container or volume name creates a fresh container on the next start; the old volume stays put.',
+          )}
+        </p>
+      </Section>
+
+      <Section title={t('settingsIntegration')}>
+        <p className="hint">{t('settingsVscodeHint')}</p>
+        <div className="row">
+          <button
+            className="btn"
+            disabled={!snapshot.container.running}
+            onClick={() => {
+              void (async () => {
+                const result = await run('vscode', () => window.cc.containerVscode());
+                if (result === null) return;
+                setUri(result.uri);
+                setToast(result.hint);
+              })();
+            }}
+            type="button"
+          >
+            <Code2 size={14} /> {t('settingsVscode')}
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              void (async () => {
+                const dir = await run('devcontainer', () => window.cc.devcontainerWrite());
+                if (dir !== null && dir !== '') setToast(dir);
+              })();
+            }}
+            type="button"
+          >
+            <FileCode2 size={14} /> {t('settingsDevcontainer')}
+          </button>
+          {uri === '' ? null : (
+            <button
+              className="btn sm"
+              onClick={() => {
+                void navigator.clipboard.writeText(uri);
+                setToast(t('commonCopied'));
+              }}
+              type="button"
+            >
+              <Copy size={13} /> {t('settingsCopyUri')}
+            </button>
+          )}
+        </div>
+        {uri === '' ? null : (
+          <p
+            className="hint"
+            style={{ fontFamily: 'var(--mono)', fontSize: 11, marginTop: 10, wordBreak: 'break-all' }}
+          >
+            {uri}
+          </p>
+        )}
+      </Section>
+
+      <Section title="About">
+        <dl className="kv">
+          <dt>{t('settingsAppVersion')}</dt>
+          <dd>{snapshot.appVersion}</dd>
+          <dt>platform</dt>
+          <dd>{snapshot.platform}</dd>
+          <dt>secrets</dt>
+          <dd>{snapshot.secretsEncrypted ? 'encrypted (safeStorage)' : 'plain text'}</dd>
+        </dl>
+        {snapshot.secretsEncrypted ? null : <p className="hint warn">{t('settingsSecretsPlain')}</p>}
+      </Section>
+    </>
+  );
+}
