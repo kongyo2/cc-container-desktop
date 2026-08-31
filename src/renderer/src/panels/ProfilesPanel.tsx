@@ -106,6 +106,10 @@ export function ProfilesPanel(): JSX.Element {
 
   const persist = async (activate: boolean): Promise<Profile | null> => {
     if (draft === null) return null;
+    if (envProblems.length > 0) {
+      setError(envProblems[0] ?? '');
+      return null;
+    }
     const profile: Profile = { ...draft, extraEnv: parseEnvText(envText).env };
     const saved = await run('profile', () => window.cc.profileUpsert(profile));
     if (saved === null) return null;
@@ -190,6 +194,10 @@ export function ProfilesPanel(): JSX.Element {
                   <button
                     className="btn sm"
                     onClick={() => {
+                      if (envProblems.length > 0) {
+                        setError(envProblems[0] ?? '');
+                        return;
+                      }
                       const copy: Profile = {
                         ...draft,
                         id: newProfileId(),

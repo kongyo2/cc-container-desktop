@@ -6,6 +6,8 @@ import { logInfo, logWarn } from '../logger.ts';
 
 const LOG_TAIL_LINES = 24;
 
+const INSTALL_TIMEOUT_SECONDS = 900;
+
 const ANSI = new RegExp(`${String.fromCodePoint(27)}\\[[0-?]*[ -/]*[@-~]`, 'gu');
 
 const USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/\s@]+@/gu;
@@ -53,7 +55,10 @@ export async function installSkills(entries: readonly SkillInstallConfig[]): Pro
     const argv = skillInstallArgv(entry);
     logInfo('provision', redact(formatArgv(argv)));
 
-    const result = await execCapture(argv, { workdir: CONTAINER_HOME, env: [`HOME=${CONTAINER_HOME}`] });
+    const result = await execCapture(['timeout', '-k', '10', String(INSTALL_TIMEOUT_SECONDS), ...argv], {
+      workdir: CONTAINER_HOME,
+      env: [`HOME=${CONTAINER_HOME}`],
+    });
     logOutput(`${result.stdout}\n${result.stderr}`, result.exitCode === 0 ? 'info' : 'warn');
 
     if (result.exitCode === 0) {
@@ -61,9 +66,11 @@ export async function installSkills(entries: readonly SkillInstallConfig[]): Pro
       continue;
     }
     failed += 1;
-    warnings.push(
-      `skill ${redact(entry.source.trim())}: 導入に失敗しました / install failed (exit ${result.exitCode})`,
-    );
+    const reason =
+      result.exitCode === 124 || result.exitCode === 137
+        ? `${INSTALL_TIMEOUT_SECONDS} 秒で打ち切りました / timed out after ${INSTALL_TIMEOUT_SECONDS}s`
+        : `exit ${result.exitCode}`;
+    warnings.push(`skill ${redact(entry.source.trim())}: 導入に失敗しました / install failed (${reason})`);
   }
   /* oxlint-enable no-await-in-loop */
 

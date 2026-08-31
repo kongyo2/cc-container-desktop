@@ -38,8 +38,16 @@ export function skillInstallArgv(entry: SkillInstallConfig): readonly string[] {
   ];
 }
 
+const SHELL_SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/u;
+
+function shellQuote(word: string): string {
+  if (word === '') return "''";
+  if (SHELL_SAFE.test(word)) return word;
+  return `'${word.replaceAll("'", String.raw`'\''`)}'`;
+}
+
 export function formatArgv(argv: readonly string[]): string {
-  return argv.map((word) => (/[\s"']/u.test(word) ? JSON.stringify(word) : word)).join(' ');
+  return argv.map(shellQuote).join(' ');
 }
 
 export function skillInstallCommand(entry: SkillInstallConfig): string {
