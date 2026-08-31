@@ -35,7 +35,8 @@ function readQuoted(source: string, start: number): Quoted {
     const char = source[index] ?? '';
     if (char === '\\' && quote === '"' && index + 1 < source.length) {
       const escaped = source[index + 1] ?? '';
-      value += ESCAPES[escaped] ?? escaped;
+      const known = ESCAPES[escaped];
+      value += known ?? (escaped === '\\' || escaped === '"' ? escaped : `\\${escaped}`);
       index += 2;
       continue;
     }

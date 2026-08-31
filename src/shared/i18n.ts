@@ -64,7 +64,7 @@ const ja = {
   extSkillNamesHint: '1 行に 1 つ。空にするとソース内の全部を入れます。',
   extSkillCommand: '実行されるコマンド',
   extSkillRemoveHint:
-    '一覧から消してもコンテナ内のスキルは残ります。外すときはシェルで npx -y skills@latest remove を実行するか、「新しいセッション」で作り直してください。',
+    'チェックを外しても一覧から消しても、入れたコマンドを次から実行しなくなるだけで、コンテナ内のスキルはそのまま残ります。消すときはシェルで npx -y skills@latest remove -g -a claude-code を実行するか、「新しいセッション」で作り直してください。',
 
   commonDelete: '削除',
   navSettings: '設定',
@@ -298,7 +298,7 @@ const en: Record<MessageKey, string> = {
   extSkillNamesHint: 'One per line. Leave it empty to install every skill in the source.',
   extSkillCommand: 'Command that runs',
   extSkillRemoveHint:
-    'Dropping an entry here leaves the installed skill in the container. Remove it with npx -y skills@latest remove in a shell, or start a new session.',
+    'Uncheck an entry or drop it and its command simply stops running; the skill it installed stays in the container. Remove it with npx -y skills@latest remove -g -a claude-code in a shell, or start a new session.',
 
   commonDelete: 'Delete',
   navSettings: 'Settings',

@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { useState } from 'react';
 
 import { formatEnvText, parseEnvText } from '../../../shared/env.ts';
 import { Field } from './ui.tsx';
@@ -16,6 +17,8 @@ export function PairEditor({
   value: Readonly<Record<string, string>>;
   onChange: (pairs: Record<string, string>) => void;
 }): JSX.Element {
+  const [problems, setProblems] = useState<readonly string[]>([]);
+
   return (
     <Field label={label} {...(hint === undefined ? {} : { hint })}>
       <textarea
@@ -23,8 +26,17 @@ export function PairEditor({
         spellCheck={false}
         placeholder={placeholder ?? 'KEY=VALUE'}
         defaultValue={formatEnvText(value)}
-        onBlur={(event) => onChange(parseEnvText(event.target.value).env)}
+        onBlur={(event) => {
+          const parsed = parseEnvText(event.target.value);
+          setProblems(parsed.problems);
+          if (parsed.problems.length === 0) onChange(parsed.env);
+        }}
       />
+      {problems.map((problem) => (
+        <p className="hint warn" key={problem}>
+          {problem}
+        </p>
+      ))}
     </Field>
   );
 }

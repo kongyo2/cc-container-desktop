@@ -178,6 +178,9 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
     next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
     next['plugins'] = keepValid(pluginSchema, next['plugins'], report);
     next['skillInstalls'] = keepValid(skillInstallSchema, next['skillInstalls'], report);
+    const written = next['skills'];
+    if (Array.isArray(written) && written.length > 0) report.dropped += written.length;
+    delete next['skills'];
     source['extensions'] = next;
   }
 

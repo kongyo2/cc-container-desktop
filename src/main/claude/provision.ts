@@ -215,9 +215,6 @@ export async function provisionContainer(): Promise<string> {
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  const skills = await installSkills(config.extensions.skillInstalls);
-  for (const warning of skills.warnings) logWarn('provision', warning);
-
   patchConfig({ managed: plan.managed });
 
   if (!(await fileExists(TMUX_CONF))) {
@@ -237,6 +234,9 @@ export async function provisionContainer(): Promise<string> {
       `post-create が exit ${postResult.exitCode} で終了しました / post-create exited ${postResult.exitCode}`,
     );
   }
+
+  const skills = await installSkills(config.extensions.skillInstalls);
+  for (const warning of skills.warnings) logWarn('provision', warning);
 
   const extras: string[] = [];
   if (plan.managed.mcpServers.length > 0) extras.push(`MCP ${plan.managed.mcpServers.length}`);
