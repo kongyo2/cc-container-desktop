@@ -600,6 +600,15 @@ code {
   border-radius: 3px;
 }
 
+code.command {
+  display: block;
+  padding: 8px 10px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
 .panel-host {
   flex: 1;
   min-height: 0;

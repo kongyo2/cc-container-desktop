@@ -7,6 +7,8 @@ const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
 const SCRATCH = process.env['CC_E2E_SCRATCH'] ?? '/tmp/cc-e2e-scratch';
 const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
 
+const LOCAL_SKILL_SOURCE = '/home/claude/workspace/deep-skill-source';
+
 let failures = 0;
 let step = 0;
 
@@ -74,8 +76,10 @@ try {
 
   await page.evaluate(() => {
     window.__ccBuildLogs = [];
+    window.__ccProvisionLogs = [];
     window.cc.onLog((line) => {
       if (line.stream === 'build') window.__ccBuildLogs.push(line.text);
+      if (line.stream === 'provision') window.__ccProvisionLogs.push(line.text);
     });
   });
 
@@ -635,7 +639,7 @@ try {
     await page.screenshot({ path: join(SHOT_DIR, 'deep-final.png') });
   }
 
-  console.log('\n[M] extensions: MCP, marketplaces, plugins, skills');
+  console.log('\n[M] extensions: MCP, marketplaces, plugins, skill installs');
 
   await ok(page, 'containerUp');
 
@@ -645,6 +649,19 @@ try {
         'bash',
         '-lc',
         'mkdir -p ~/.claude/skills/hand-written && echo "hand made" > ~/.claude/skills/hand-written/SKILL.md',
+      ],
+      asRoot: false,
+    },
+  ]);
+
+  await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        `mkdir -p ${LOCAL_SKILL_SOURCE}/deep-probe && printf '%s\\n' '---' 'name: deep-probe' ` +
+          `'description: A probe skill the end-to-end suite installs to prove the skills CLI ran.' '---' '' ` +
+          `'DEEP-SKILL-MARKER' > ${LOCAL_SKILL_SOURCE}/deep-probe/SKILL.md`,
       ],
       asRoot: false,
     },
@@ -742,28 +759,11 @@ try {
         { id: 'x-plg-on', plugin: 'formatter', marketplace: 'acme-tools', enabled: true },
         { id: 'x-plg-off', plugin: 'experimental', marketplace: 'acme-tools', enabled: false },
       ],
-      skills: [
-        {
-          id: 'x-skill',
-          enabled: true,
-          body: '---\nname: deep-probe\ndescription: A probe skill used by the end-to-end suite to prove skills are written.\n---\n\nDEEP-SKILL-MARKER\n',
-          files: [
-            { path: 'references/REFERENCE.md', content: 'DEEP-REFERENCE-MARKER\n' },
-            { path: 'scripts/probe.sh', content: '#!/bin/sh\necho probe\n' },
-          ],
-        },
-        {
-          id: 'x-skill-bad',
-          enabled: true,
-          body: '---\nname: Bad Name\n---\n\nnope\n',
-          files: [{ path: '../escape.txt', content: 'nope' }],
-        },
-        {
-          id: 'x-skill-ext',
-          enabled: true,
-          body: '---\nname: cc-only\ndescription: Uses a Claude Code-only frontmatter field, which claude.ai would reject.\nargument-hint: "[file]"\n---\n\nbody\n',
-          files: [],
-        },
+      skillInstalls: [
+        { id: 'x-skill-local', enabled: true, source: LOCAL_SKILL_SOURCE, skills: ['deep-probe'], note: '' },
+        { id: 'x-skill-remote', enabled: true, source: 'anthropics/skills', skills: ['frontend-design'], note: '' },
+        { id: 'x-skill-off', enabled: false, source: 'never/installed', skills: [], note: '' },
+        { id: 'x-skill-bad', enabled: true, source: '', skills: [], note: '' },
       ],
     },
   ]);
@@ -810,23 +810,32 @@ try {
     JSON.stringify(extSettings.enabledPlugins),
   );
 
-  const skillBody = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
-  check('the skill was written', skillBody.includes('DEEP-SKILL-MARKER'));
-  const skillRef = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/references/REFERENCE.md']);
-  check('a bundled reference file is written', skillRef.includes('DEEP-REFERENCE-MARKER'));
-  const scriptMode = await ok(page, 'containerExec', [
-    { command: ['stat', '-c', '%a', '/home/claude/.claude/skills/deep-probe/scripts/probe.sh'], asRoot: false },
-  ]);
-  check('a bundled script is executable', scriptMode.stdout.trim() === '755', scriptMode.stdout.trim());
-
-  const badSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/Bad Name/SKILL.md']);
-  check('a skill with an invalid name is refused', badSkill.ok === false);
-  const escaped = await call(page, 'fsRead', ['/home/claude/.claude/skills/escape.txt']);
-  check('a file path escaping the skill directory is refused', escaped.ok === false);
-  const ccOnly = await ok(page, 'fsRead', ['/home/claude/.claude/skills/cc-only/SKILL.md']);
-  check('a Claude Code-only field is still written', ccOnly.includes('argument-hint'));
+  const localSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  check('the skills CLI installed the named skill', localSkill.includes('DEEP-SKILL-MARKER'));
+  const remoteSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/frontend-design/SKILL.md']);
+  check(
+    'a skill named with -s is installed from a GitHub source',
+    remoteSkill.ok === true,
+    remoteSkill.ok ? '' : remoteSkill.error,
+  );
+  const ranCommand = await page.evaluate(() =>
+    window.__ccProvisionLogs.some((line) =>
+      line.includes('npx -y skills@latest add anthropics/skills -s frontend-design -g -a claude-code -y'),
+    ),
+  );
+  check('the command runs exactly as the panel shows it', ranCommand);
+  const notInstalled = await call(page, 'fsRead', ['/home/claude/.claude/skills/never-installed/SKILL.md']);
+  check('a disabled entry is not installed', notInstalled.ok === false);
+  const emptySourceWarned = await page.evaluate(() =>
+    window.__ccProvisionLogs.some((line) => line.includes('ソースが空です')),
+  );
+  check('an entry with no source is reported, not run', emptySourceWarned);
   const handSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
   check('a hand-written skill is left alone', handSkill.includes('hand made'));
+
+  await ok(page, 'containerProvision');
+  const stillThere = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  check('a second apply reinstalls over the same skill', stillThere.includes('DEEP-SKILL-MARKER'));
 
   const extBeforeBadEdit = (await ok(page, 'snapshot')).config.extensions;
   await ok(page, 'extensionsSave', [
@@ -877,7 +886,7 @@ try {
   );
   await ok(page, 'configSave', [{ autoOnboarding: true }]);
 
-  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skills: [] }]);
+  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }]);
   await ok(page, 'containerProvision');
   const afterRemoval = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
   check(
@@ -889,10 +898,8 @@ try {
   const settingsAfter = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
   check('removing a marketplace removes it', settingsAfter.extraKnownMarketplaces?.['acme-tools'] === undefined);
   check('removing a plugin removes it', settingsAfter.enabledPlugins?.['formatter@acme-tools'] === undefined);
-  const goneSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
-  check('removing a skill deletes its directory', goneSkill.ok === false);
-  const goneRef = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/references/REFERENCE.md']);
-  check('its bundled files go with it', goneRef.ok === false);
+  const keptSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  check('dropping an entry leaves the installed skill in the container', keptSkill.ok === true);
   const stillThereSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
   check('the hand-written skill is still there', stillThereSkill.ok === true);
 
@@ -1058,35 +1065,36 @@ try {
       ],
       marketplaces: [],
       plugins: [],
-      skills: [
-        {
-          id: 'skl_guard',
-          enabled: true,
-          body: `---\nname: ${protectedSkill}\ndescription: Tries to take a directory that already belongs to someone else in the container.\n---\n\nbody\n`,
-          files: [],
-        },
-        {
-          id: 'skl_dotslash',
-          enabled: true,
-          body: '---\nname: dotslash-guard\ndescription: Tries to overwrite its own validated SKILL.md through a ./ prefixed path.\n---\n\nreal body\n',
-          files: [{ path: './SKILL.md', content: '---\nname: impostor\ndescription: not the validated one\n---\n' }],
-        },
+      skillInstalls: [
+        { id: 'skl_dashed', enabled: true, source: '-rf', skills: [], note: '' },
+        { id: 'skl_spaced', enabled: true, source: 'has space/repo', skills: [], note: '' },
+        { id: 'skl_dashed_name', enabled: true, source: 'acme/skills', skills: ['-g'], note: '' },
       ],
     },
   ]);
   await ok(page, 'containerProvision');
 
   const handmade = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
-  check('a skill directory the app never created is left alone', handmade.trim() === 'MINE', handmade.trim());
+  check('a skill directory the app never installed is left alone', handmade.trim() === 'MINE', handmade.trim());
   await ok(page, 'containerProvision');
   const handmadeSecond = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
-  check('and a second provision still does not claim it', handmadeSecond.trim() === 'MINE', handmadeSecond.trim());
-  const dotslash = await call(page, 'fsRead', ['/home/claude/.claude/skills/dotslash-guard/SKILL.md']);
+  check('and a second provision still does not touch it', handmadeSecond.trim() === 'MINE', handmadeSecond.trim());
+  const refusedArgs = await page.evaluate(() => [
+    ...new Set(
+      window.__ccProvisionLogs.filter(
+        (line) => line.includes('- で始まっています') || line.includes('空白は使えません'),
+      ),
+    ),
+  ]);
   check(
-    'a ./SKILL.md bundled file cannot overwrite the validated frontmatter',
-    dotslash.ok === false || !dotslash.value.includes('impostor'),
-    dotslash.ok ? dotslash.value.slice(0, 80) : dotslash.error,
+    'a source or skill name that would be read as an option is refused',
+    refusedArgs.length === 3,
+    JSON.stringify(refusedArgs),
   );
+  const neverRan = await page.evaluate(() =>
+    window.__ccProvisionLogs.some((line) => line.includes('npx -y skills@latest add -rf')),
+  );
+  check('and its command never runs', neverRan === false);
 
   const withProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
   check(
@@ -1094,7 +1102,7 @@ try {
     Object.hasOwn(withProto.mcpServers ?? {}, 'constructor'),
     JSON.stringify(Object.keys(withProto.mcpServers ?? {})),
   );
-  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skills: [] }]);
+  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }]);
   await ok(page, 'containerProvision');
   const withoutProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
   check(

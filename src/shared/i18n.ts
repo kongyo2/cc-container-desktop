@@ -20,7 +20,8 @@ const ja = {
   navExtensions: '拡張',
 
   extTitle: 'セッションに注入する拡張',
-  extHint: 'MCP サーバ・プラグイン・スキルを、セッション作成時にコンテナへ書き込みます。',
+  extHint:
+    'MCP サーバとプラグインはコンテナに書き込み、スキルは skills CLI で入れます。どちらも反映のたびに実行します。',
   extManagedHint:
     'このアプリが書いたものだけを管理します。コンテナ内で claude mcp add や /plugin で足したものには触れません。',
   extSave: '保存',
@@ -54,14 +55,16 @@ const ja = {
   extPluginName: 'プラグイン名',
 
   extSkillTitle: 'スキル',
-  extSkillHint: '~/.claude/skills/<名前>/SKILL.md として書き込みます。/名前 で呼び出せます。',
+  extSkillHint:
+    'skills CLI (vercel-labs/skills) で入れます。反映するたびに、下のコマンドをコンテナの中でそのまま毎回実行します。',
   extSkillEmpty: 'スキルは登録されていません。',
-  extSkillName: 'スキル名',
-  extSkillInvalid: '(frontmatter が不正)',
-  extSkillFiles: '同梱ファイル',
-  extSkillFilePath: 'パス',
-  extSkillFilesHint:
-    'scripts/ references/ assets/ に置いたファイルは、必要になったときだけ読み込まれます。scripts/ 配下は実行可能になります。',
+  extSkillSource: 'ソース',
+  extSkillSourceHint: 'owner/repo・Git や HTTP の URL・コンテナ内のパス',
+  extSkillNames: 'スキル名 (-s)',
+  extSkillNamesHint: '1 行に 1 つ。空にするとソース内の全部を入れます。',
+  extSkillCommand: '実行されるコマンド',
+  extSkillRemoveHint:
+    '一覧から消してもコンテナ内のスキルは残ります。外すときはシェルで npx -y skills@latest remove を実行するか、「新しいセッション」で作り直してください。',
 
   commonDelete: '削除',
   navSettings: '設定',
@@ -149,7 +152,8 @@ const ja = {
   profileTimeout: 'API タイムアウト (ms)',
   profileNoTelemetry: 'テレメトリを無効化',
   profileNoNonEssential: '自動更新・不要な通信を無効化',
-  profileExtraEnv: '追加の環境変数 (KEY=VALUE を 1 行ずつ)',
+  profileExtraEnv: '環境変数',
+  profileExtraEnvHint: '# から始まる行はコメント。値に改行を入れるときは引用符で囲みます。',
   profileNote: 'メモ',
   profilePreset: 'プリセット',
   profileVerified: '動作確認済み',
@@ -250,7 +254,8 @@ const en: Record<MessageKey, string> = {
   navExtensions: 'Extensions',
 
   extTitle: 'What gets injected into a session',
-  extHint: 'MCP servers, plugins and skills, written into the container when the session is provisioned.',
+  extHint:
+    'MCP servers and plugins are written into the container; skills are installed with the skills CLI. Both run on every apply.',
   extManagedHint:
     'Only entries this app created are managed. Anything you added inside the container with claude mcp add or /plugin is left alone.',
   extSave: 'Save',
@@ -284,14 +289,16 @@ const en: Record<MessageKey, string> = {
   extPluginName: 'Plugin',
 
   extSkillTitle: 'Skills',
-  extSkillHint: 'Written to ~/.claude/skills/<name>/SKILL.md, so /name invokes it.',
+  extSkillHint:
+    'Installed with the skills CLI (vercel-labs/skills). Every apply runs the command below inside the container, as it reads.',
   extSkillEmpty: 'No skills yet.',
-  extSkillName: 'Skill name',
-  extSkillInvalid: '(invalid frontmatter)',
-  extSkillFiles: 'Bundled files',
-  extSkillFilePath: 'Path',
-  extSkillFilesHint:
-    'Files under scripts/, references/ and assets/ are loaded only when the task needs them. Anything in scripts/ is written executable.',
+  extSkillSource: 'Source',
+  extSkillSourceHint: 'owner/repo, a git or http URL, or a path inside the container',
+  extSkillNames: 'Skill names (-s)',
+  extSkillNamesHint: 'One per line. Leave it empty to install every skill in the source.',
+  extSkillCommand: 'Command that runs',
+  extSkillRemoveHint:
+    'Dropping an entry here leaves the installed skill in the container. Remove it with npx -y skills@latest remove in a shell, or start a new session.',
 
   commonDelete: 'Delete',
   navSettings: 'Settings',
@@ -379,7 +386,8 @@ const en: Record<MessageKey, string> = {
   profileTimeout: 'API timeout (ms)',
   profileNoTelemetry: 'Disable telemetry',
   profileNoNonEssential: 'Disable auto-update and nonessential traffic',
-  profileExtraEnv: 'Extra environment variables (one KEY=VALUE per line)',
+  profileExtraEnv: 'Environment variables',
+  profileExtraEnvHint: 'A line starting with # is a comment. Wrap a value in quotes to spread it over lines.',
   profileNote: 'Note',
   profilePreset: 'Preset',
   profileVerified: 'verified',

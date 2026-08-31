@@ -58,25 +58,25 @@ const pluginSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-const skillSchema = z.object({
+const skillInstallSchema = z.object({
   id: z.string().min(1),
   enabled: z.boolean().default(true),
-  body: z.string().default(''),
-  files: z.array(z.object({ path: z.string().default(''), content: z.string().default('') })).default([]),
+  source: z.string().default(''),
+  skills: z.array(z.string()).default([]),
+  note: z.string().default(''),
 });
 
 const extensionsSchema = z.object({
   mcpServers: z.array(mcpServerSchema).default([]),
   marketplaces: z.array(marketplaceSchema).default([]),
   plugins: z.array(pluginSchema).default([]),
-  skills: z.array(skillSchema).default([]),
+  skillInstalls: z.array(skillInstallSchema).default([]),
 });
 
 const managedSchema = z.object({
   mcpServers: z.array(z.string()).default([]),
   marketplaces: z.array(z.string()).default([]),
   plugins: z.array(z.string()).default([]),
-  skills: z.array(z.string()).default([]),
 });
 
 const appConfigSchema = z.object({
@@ -93,8 +93,8 @@ const appConfigSchema = z.object({
   tmuxSession: z.string().min(1).catch(DEFAULT_TMUX_SESSION).default(DEFAULT_TMUX_SESSION),
   lastExportDir: z.string().nullable().default(null),
   exportBeforeReset: z.boolean().default(true),
-  extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skills: [] }),
-  managed: managedSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skills: [] }),
+  extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }),
+  managed: managedSchema.default({ mcpServers: [], marketplaces: [], plugins: [] }),
 });
 
 export function starterProfile(): Profile {
@@ -119,11 +119,11 @@ export function starterProfile(): Profile {
 }
 
 export function emptyExtensions(): Extensions {
-  return { mcpServers: [], marketplaces: [], plugins: [], skills: [] };
+  return { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 }
 
 export function emptyManagedNames(): ManagedNames {
-  return { mcpServers: [], marketplaces: [], plugins: [], skills: [] };
+  return { mcpServers: [], marketplaces: [], plugins: [] };
 }
 
 export function defaultConfig(): AppConfig {
@@ -177,7 +177,7 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
     next['mcpServers'] = keepValid(mcpServerSchema, next['mcpServers'], report);
     next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
     next['plugins'] = keepValid(pluginSchema, next['plugins'], report);
-    next['skills'] = keepValid(skillSchema, next['skills'], report);
+    next['skillInstalls'] = keepValid(skillInstallSchema, next['skillInstalls'], report);
     source['extensions'] = next;
   }
 
