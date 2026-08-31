@@ -1,12 +1,7 @@
 import { CONTAINER_HOME } from '../../shared/presets.ts';
 import { validateMcpServer } from '../../shared/mcp.ts';
-import { nameProblem, normalizeSkillPath, validateSkill } from '../../shared/skill.ts';
 import type { Extensions, ManagedNames, McpServerConfig, McpServerStatus } from '../../shared/types.ts';
 import { execCapture } from '../docker/container.ts';
-import { writeFileText } from '../docker/files.ts';
-import { describeError, logWarn } from '../logger.ts';
-
-const SKILLS_DIR = `${CONTAINER_HOME}/.claude/skills`;
 
 function emptyMap(): Record<string, unknown> {
   return Object.create(null) as Record<string, unknown>;
@@ -102,21 +97,11 @@ function preserveInvalid(
   }
 }
 
-export interface PlannedSkill {
-  readonly name: string;
-  readonly body: string;
-  readonly files: readonly { readonly path: string; readonly content: string }[];
-}
-
 export interface ExtensionPlan {
   readonly claudeJson: Record<string, unknown>;
   readonly settings: Record<string, unknown>;
   readonly managed: ManagedNames;
   readonly warnings: readonly string[];
-  readonly skills: readonly PlannedSkill[];
-  readonly removedSkills: readonly string[];
-  readonly ownedSkills: readonly string[];
-  readonly preservedSkills: readonly string[];
 }
 
 export function planExtensions(
@@ -196,42 +181,6 @@ export function planExtensions(
       : {};
   const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins, 'plugin', warnings);
 
-  const skills: PlannedSkill[] = [];
-  const preservedSkills: string[] = [];
-  const claimed = new Set<string>();
-  for (const skill of extensions.skills) {
-    if (!skill.enabled) continue;
-    const check = validateSkill(skill.body, skill.files);
-    for (const problem of check.errors) warnings.push(`skill: ${problem}`);
-    for (const note of check.warnings) warnings.push(`skill ${check.name || '?'}: ${note}`);
-    if (check.errors.length > 0) {
-      if (check.name !== '' && managed.skills.includes(check.name) && !claimed.has(check.name)) {
-        claimed.add(check.name);
-        preservedSkills.push(check.name);
-        warnings.push(
-          `skill ${check.name}: 無効な編集は反映せず、直前に書き込んだスキルを残しました / the invalid edit was not applied; the skill last written was kept`,
-        );
-      }
-      continue;
-    }
-    if (claimed.has(check.name)) {
-      warnings.push(
-        `skill ${check.name}: 同じ名前のスキルが 2 つあります / two skills share this name; keeping the first`,
-      );
-      continue;
-    }
-    claimed.add(check.name);
-
-    const files: { path: string; content: string }[] = [];
-    for (const file of skill.files) {
-      const path = normalizeSkillPath(file.path);
-      if (path !== null) files.push({ path, content: file.content });
-    }
-    skills.push({ name: check.name, body: skill.body, files });
-  }
-  const skillNames = skills.map((skill) => skill.name);
-  const removedSkills = managed.skills.filter((name) => !skillNames.includes(name) && !preservedSkills.includes(name));
-
   const claudeJson: Record<string, unknown> = {};
   if (Object.keys(servers.merged).length > 0 || Object.hasOwn(currentClaudeJson, 'mcpServers')) {
     claudeJson['mcpServers'] = servers.merged;
@@ -252,121 +201,9 @@ export function planExtensions(
       mcpServers: servers.managed,
       marketplaces: markets.managed,
       plugins: plugins.managed,
-      skills: [...skillNames, ...preservedSkills],
-    },
-    warnings,
-    skills,
-    removedSkills,
-    ownedSkills: managed.skills,
-    preservedSkills,
-  };
-}
-
-export async function claimSkills(
-  plan: ExtensionPlan,
-): Promise<{ readonly plan: ExtensionPlan; readonly warnings: readonly string[] }> {
-  const owned = new Set(plan.ownedSkills);
-
-  const probes = await Promise.all(
-    plan.skills.map(async (skill): Promise<{ skill: PlannedSkill; keep: boolean; warning: string | null }> => {
-      if (owned.has(skill.name)) return { skill, keep: true, warning: null };
-      try {
-        const existing = await execCapture(['test', '-e', `${SKILLS_DIR}/${skill.name}`], { workdir: '/' });
-        if (existing.exitCode === 0) {
-          return {
-            skill,
-            keep: false,
-            warning: `skill ${skill.name}: 同名のスキルがコンテナ内に既にあります。別の name にしてください / a skill of this name already exists in the container and was left alone; rename yours`,
-          };
-        }
-        return { skill, keep: true, warning: null };
-      } catch (error) {
-        return {
-          skill,
-          keep: false,
-          warning: `skill ${skill.name}: 既存の確認ができなかったので書き込みません / could not check for an existing skill, so it was not written: ${describeError(error)}`,
-        };
-      }
-    }),
-  );
-
-  const skills = probes.filter((probe) => probe.keep).map((probe) => probe.skill);
-  const warnings = probes.map((probe) => probe.warning).filter((warning): warning is string => warning !== null);
-  return {
-    plan: {
-      ...plan,
-      skills,
-      managed: { ...plan.managed, skills: [...skills.map((skill) => skill.name), ...plan.preservedSkills] },
     },
     warnings,
   };
-}
-
-export interface SkillWriteResult {
-  readonly warnings: readonly string[];
-  readonly owned: readonly string[];
-}
-
-export async function writeSkills(plan: ExtensionPlan): Promise<SkillWriteResult> {
-  const warnings: string[] = [];
-
-  const removals = plan.removedSkills
-    .filter((name) => nameProblem(name) === null)
-    .map(async (name) => {
-      const result = await execCapture(['rm', '-rf', `${SKILLS_DIR}/${name}`], { workdir: '/' });
-      if (result.exitCode !== 0) {
-        logWarn('provision', `スキルを削除できませんでした / could not remove skill ${name}: ${result.stderr.trim()}`);
-      }
-    });
-
-  const writes = plan.skills.map(async (skill): Promise<string | null> => {
-    const root = `${SKILLS_DIR}/${skill.name}`;
-
-    const directories = new Set<string>();
-    for (const file of skill.files) {
-      const slash = file.path.lastIndexOf('/');
-      if (slash > 0) directories.add(`${root}/${file.path.slice(0, slash)}`);
-    }
-
-    const discard = async (reason: string): Promise<string | null> => {
-      warnings.push(`skill ${skill.name}: 書き込めませんでした / could not be written: ${reason}`);
-      try {
-        const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
-        if (cleared.exitCode === 0) return null;
-      } catch {}
-      return skill.name;
-    };
-
-    try {
-      const cleared = await execCapture(['rm', '-rf', root], { workdir: '/' });
-      if (cleared.exitCode !== 0) return await discard(cleared.stderr.trim() || `rm -rf → exit ${cleared.exitCode}`);
-
-      const made = await execCapture(['mkdir', '-p', root, ...directories], { workdir: '/' });
-      if (made.exitCode !== 0) return await discard(made.stderr.trim() || `mkdir -p → exit ${made.exitCode}`);
-
-      await writeFileText(`${root}/SKILL.md`, skill.body, 0o644);
-      /* oxlint-disable no-await-in-loop */
-      for (const file of skill.files) {
-        await writeFileText(`${root}/${file.path}`, file.content, file.path.startsWith('scripts/') ? 0o755 : 0o644);
-      }
-      /* oxlint-enable no-await-in-loop */
-    } catch (error) {
-      return await discard(describeError(error));
-    }
-    return skill.name;
-  });
-
-  const [removed, wrote] = await Promise.all([Promise.allSettled(removals), Promise.allSettled(writes)]);
-
-  const owned: string[] = [];
-  for (const result of [...removed, ...wrote]) {
-    if (result.status === 'rejected') {
-      warnings.push(`skill: ${describeError(result.reason)}`);
-      continue;
-    }
-    if (typeof result.value === 'string') owned.push(result.value);
-  }
-  return { warnings, owned };
 }
 
 interface RawMcpStatus {

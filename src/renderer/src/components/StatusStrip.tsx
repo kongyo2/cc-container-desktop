@@ -32,7 +32,7 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
   const { docker, image, container, config } = snapshot;
   const profile = config.profiles.find((candidate) => candidate.id === config.activeProfileId) ?? null;
   const mcpCount = config.extensions.mcpServers.filter((server) => server.enabled).length;
-  const skillCount = config.extensions.skills.filter((skill) => skill.enabled).length;
+  const skillCount = config.extensions.skillInstalls.filter((skill) => skill.enabled).length;
   const pluginCount = config.extensions.plugins.filter((plugin) => plugin.enabled).length;
 
   const short = (text: string, max = 22): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`);

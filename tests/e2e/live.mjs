@@ -6,6 +6,7 @@ const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
 const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
 const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
 const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
+const LIVE_SKILL_SOURCE = '/home/claude/workspace/live-skill-source';
 
 if (API_KEY === '') {
   console.error('CC_E2E_API_KEY is required');
@@ -201,6 +202,18 @@ try {
   /* oxlint-enable no-await-in-loop */
 
   console.log('\n[4b] MCP and skills reach the model');
+  await ok(page, 'containerExec', [
+    {
+      command: [
+        'bash',
+        '-lc',
+        `mkdir -p ${LIVE_SKILL_SOURCE}/live-probe && printf '%s\\n' '---' 'name: live-probe' ` +
+          `'description: Reveals the end-to-end probe marker. Use when asked for the live probe marker.' '---' '' ` +
+          `'The live probe marker is LIVE-SKILL-4417.' > ${LIVE_SKILL_SOURCE}/live-probe/SKILL.md`,
+      ],
+      asRoot: false,
+    },
+  ]);
   await ok(page, 'extensionsSave', [
     {
       mcpServers: [
@@ -220,14 +233,7 @@ try {
       ],
       marketplaces: [],
       plugins: [],
-      skills: [
-        {
-          id: 'live-skill',
-          enabled: true,
-          body: '---\nname: live-probe\ndescription: Reveals the end-to-end probe marker. Use when asked for the live probe marker.\n---\n\nThe live probe marker is LIVE-SKILL-4417.\n',
-          files: [],
-        },
-      ],
+      skillInstalls: [{ id: 'live-skill', enabled: true, source: LIVE_SKILL_SOURCE, skills: ['live-probe'], note: '' }],
     },
   ]);
   await ok(page, 'containerProvision');
@@ -262,7 +268,7 @@ try {
 
   const skillUse = await prompt(page, 'Use the live-probe skill and reply with only the marker string it contains.');
   check(
-    'the model used the injected skill',
+    'the model used the installed skill',
     `${skillUse.stdout}`.includes('LIVE-SKILL-4417'),
     `${skillUse.stdout}`.slice(0, 220),
   );

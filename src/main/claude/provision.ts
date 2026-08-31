@@ -7,7 +7,8 @@ import { execCapture, execChecked } from '../docker/container.ts';
 import { readFileRaw, writeFileText } from '../docker/files.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
 import { ensureImageSources } from '../docker/image.ts';
-import { claimSkills, planExtensions, writeSkills } from './extensions.ts';
+import { planExtensions } from './extensions.ts';
+import { installSkills } from './skills.ts';
 import { postCreatePath } from '../paths.ts';
 
 const CLAUDE_JSON = `${CONTAINER_HOME}/.claude.json`;
@@ -192,12 +193,8 @@ export async function provisionContainer(): Promise<string> {
 
   const existingClaudeJson = await readJsonFromContainer(CLAUDE_JSON);
   const existingSettings = await readJsonFromContainer(SETTINGS_JSON);
-  const rawPlan = planExtensions(config.extensions, config.managed, existingClaudeJson, existingSettings);
-  for (const warning of rawPlan.warnings) logWarn('provision', warning);
-
-  const claim = await claimSkills(rawPlan);
-  for (const warning of claim.warnings) logWarn('provision', warning);
-  const plan = claim.plan;
+  const plan = planExtensions(config.extensions, config.managed, existingClaudeJson, existingSettings);
+  for (const warning of plan.warnings) logWarn('provision', warning);
 
   const patch = config.autoOnboarding
     ? { ...onboardingPatch(config, profile, secret), ...plan.claudeJson }
@@ -218,12 +215,7 @@ export async function provisionContainer(): Promise<string> {
   }
   await writeFileText(SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  const skillWrite = await writeSkills(plan);
-  for (const warning of skillWrite.warnings) logWarn('provision', warning);
-
-  patchConfig({
-    managed: { ...plan.managed, skills: [...skillWrite.owned, ...plan.preservedSkills] },
-  });
+  patchConfig({ managed: plan.managed });
 
   if (!(await fileExists(TMUX_CONF))) {
     await writeFileText(TMUX_CONF, TMUX_CONF_SOURCE, 0o644);
@@ -243,10 +235,13 @@ export async function provisionContainer(): Promise<string> {
     );
   }
 
+  const skills = await installSkills(config.extensions.skillInstalls);
+  for (const warning of skills.warnings) logWarn('provision', warning);
+
   const extras: string[] = [];
   if (plan.managed.mcpServers.length > 0) extras.push(`MCP ${plan.managed.mcpServers.length}`);
   if (plan.managed.plugins.length > 0) extras.push(`plugins ${plan.managed.plugins.length}`);
-  if (skillWrite.owned.length > 0) extras.push(`skills ${skillWrite.owned.length}`);
+  if (skills.installed > 0) extras.push(`skills ${skills.installed}`);
 
   const summary =
     (profile === null

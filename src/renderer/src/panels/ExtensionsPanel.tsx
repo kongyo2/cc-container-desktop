@@ -1,4 +1,4 @@
-import { Plug, Plus, RefreshCw, Save, Trash2, Wrench } from 'lucide-react';
+import { Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -9,17 +9,16 @@ import type {
   McpServerStatus,
   McpTransport,
   PluginConfig,
-  SkillConfig,
+  SkillInstallConfig,
 } from '../../../shared/types.ts';
-import { skillTemplate, validateSkill } from '../../../shared/skill.ts';
+import { skillInstallCommand, skillInstallProblem } from '../../../shared/skillInstall.ts';
 import { validateMcpServer } from '../../../shared/mcp.ts';
-import { CodeEditor } from '../components/CodeEditor.tsx';
 import { ArgEditor, PairEditor } from '../components/PairEditor.tsx';
 import { Check, Field, Section, TextField } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
-const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skills: [] };
+const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -57,8 +56,8 @@ function newPlugin(): PluginConfig {
   return { id: newId('plg'), plugin: '', marketplace: '', enabled: true };
 }
 
-function newSkill(): SkillConfig {
-  return { id: newId('skl'), enabled: true, body: skillTemplate('my-skill'), files: [] };
+function newSkillInstall(): SkillInstallConfig {
+  return { id: newId('skl'), enabled: true, source: 'anthropics/skills', skills: ['frontend-design'], note: '' };
 }
 
 export function ExtensionsPanel(): JSX.Element {
@@ -76,7 +75,6 @@ export function ExtensionsPanel(): JSX.Element {
   const extensions = dirty && draft !== null ? draft.value : saved;
 
   const [statuses, setStatuses] = useState<readonly McpServerStatus[]>([]);
-  const [editingSkill, setEditingSkill] = useState<string | null>(null);
 
   const update = (patch: Partial<Extensions>): void => {
     setDraft({ base: savedKey, value: { ...extensions, ...patch } });
@@ -412,11 +410,7 @@ export function ExtensionsPanel(): JSX.Element {
         actions={
           <button
             className="btn sm"
-            onClick={() => {
-              const skill = newSkill();
-              update({ skills: [...extensions.skills, skill] });
-              setEditingSkill(skill.id);
-            }}
+            onClick={() => update({ skillInstalls: [...extensions.skillInstalls, newSkillInstall()] })}
             type="button"
           >
             <Plus size={13} /> {t('extAdd')}
@@ -424,30 +418,31 @@ export function ExtensionsPanel(): JSX.Element {
         }
       >
         <p className="hint">{t('extSkillHint')}</p>
-        {extensions.skills.length === 0 ? <p className="empty">{t('extSkillEmpty')}</p> : null}
+        <p className="hint">{t('extSkillRemoveHint')}</p>
+        {extensions.skillInstalls.length === 0 ? <p className="empty">{t('extSkillEmpty')}</p> : null}
 
-        {extensions.skills.map((skill, index) => {
-          const replace = (patch: Partial<SkillConfig>): void => {
-            update({ skills: extensions.skills.with(index, { ...skill, ...patch }) });
+        {extensions.skillInstalls.map((skill, index) => {
+          const replace = (patch: Partial<SkillInstallConfig>): void => {
+            update({ skillInstalls: extensions.skillInstalls.with(index, { ...skill, ...patch }) });
           };
-          const check = validateSkill(skill.body, skill.files);
-          const open = editingSkill === skill.id;
+          const problem = skill.enabled ? skillInstallProblem(skill) : null;
           return (
             <div className="entry-card" key={skill.id}>
               <div className="entry-head">
                 <Check label="" checked={skill.enabled} onChange={(enabled) => replace({ enabled })} />
-                <strong>{check.name === '' ? t('extSkillInvalid') : `/${check.name}`}</strong>
-                {check.errors.length > 0 ? <span className="tag err">{check.errors.length}</span> : null}
-                {check.errors.length === 0 && check.warnings.length > 0 ? (
-                  <span className="tag warn">{check.warnings.length}</span>
-                ) : null}
+                <strong>{skill.source.trim() === '' ? t('commonUnset') : skill.source.trim()}</strong>
+                {skill.skills
+                  .filter((name) => name.trim() !== '')
+                  .map((name, position) => (
+                    <span className="tag" key={`${skill.id}-${String(position)}`}>
+                      {name.trim()}
+                    </span>
+                  ))}
+                {problem === null ? null : <span className="tag err">!</span>}
                 <span className="spacer" />
-                <button className="btn ghost sm" onClick={() => setEditingSkill(open ? null : skill.id)} type="button">
-                  <Wrench size={13} /> {open ? t('commonClose') : t('extEdit')}
-                </button>
                 <button
                   className="btn ghost sm"
-                  onClick={() => update({ skills: extensions.skills.filter((c) => c.id !== skill.id) })}
+                  onClick={() => update({ skillInstalls: extensions.skillInstalls.filter((c) => c.id !== skill.id) })}
                   type="button"
                   aria-label={t('commonDelete')}
                 >
@@ -455,73 +450,31 @@ export function ExtensionsPanel(): JSX.Element {
                 </button>
               </div>
 
-              {check.name === '' ? null : (
-                <p className="hint" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
-                  {`~/.claude/skills/${check.name}/SKILL.md`}
-                </p>
-              )}
-              {check.errors.map((problem) => (
-                <p className="hint err" key={problem}>
-                  {problem}
-                </p>
-              ))}
-              {check.warnings.map((note) => (
-                <p className="hint warn" key={note}>
-                  {note}
-                </p>
-              ))}
+              <TextField
+                label={t('extSkillSource')}
+                value={skill.source}
+                onChange={(source) => replace({ source })}
+                hint={t('extSkillSourceHint')}
+                placeholder="anthropics/skills"
+              />
+              <ArgEditor
+                label={t('extSkillNames')}
+                value={skill.skills}
+                onChange={(skills) => replace({ skills })}
+                hint={t('extSkillNamesHint')}
+                placeholder={'frontend-design\nskill-creator'}
+              />
+              <TextField
+                label={t('profileNote')}
+                value={skill.note}
+                mono={false}
+                onChange={(note) => replace({ note })}
+              />
 
-              {open ? (
-                <>
-                  <div className="cm-fixed" style={{ marginTop: 8 }}>
-                    <CodeEditor value={skill.body} language="plain" onChange={(body) => replace({ body })} />
-                  </div>
-
-                  <div className="row" style={{ margin: '10px 0' }}>
-                    <span className="legend">{t('extSkillFiles')}</span>
-                    <button
-                      className="btn ghost sm"
-                      onClick={() =>
-                        replace({ files: [...skill.files, { path: 'references/REFERENCE.md', content: '' }] })
-                      }
-                      type="button"
-                    >
-                      <Plus size={13} /> {t('extAdd')}
-                    </button>
-                  </div>
-                  <p className="hint">{t('extSkillFilesHint')}</p>
-
-                  {skill.files.map((file, fileIndex) => (
-                    <div className="entry-card" key={`${skill.id}-${String(fileIndex)}`}>
-                      <div className="entry-head">
-                        <span>{file.path || '?'}</span>
-                        <span className="spacer" />
-                        <button
-                          className="btn ghost sm"
-                          onClick={() => replace({ files: skill.files.filter((_, other) => other !== fileIndex) })}
-                          type="button"
-                          aria-label={t('commonDelete')}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                      <TextField
-                        label={t('extSkillFilePath')}
-                        value={file.path}
-                        onChange={(path) => replace({ files: skill.files.with(fileIndex, { ...file, path }) })}
-                        hint="scripts/ · references/ · assets/"
-                      />
-                      <div className="cm-fixed" style={{ height: 180 }}>
-                        <CodeEditor
-                          value={file.content}
-                          language="plain"
-                          onChange={(content) => replace({ files: skill.files.with(fileIndex, { ...file, content }) })}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : null}
+              <Field label={t('extSkillCommand')}>
+                <code className="command">{skillInstallCommand(skill)}</code>
+              </Field>
+              {problem === null ? null : <p className="hint err">{problem}</p>}
             </div>
           );
         })}

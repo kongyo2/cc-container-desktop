@@ -2,6 +2,7 @@ import { Copy, ExternalLink, Eye, EyeOff, Plus, Save, Trash2, Upload } from 'luc
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
+import { envNameProblems, formatEnvText, parseEnvText } from '../../../shared/env.ts';
 import { ENDPOINT_PRESETS, MESSAGES_PATH, normalizeBaseUrl } from '../../../shared/presets.ts';
 import type { AuthMode, Profile } from '../../../shared/types.ts';
 import { Check, DeferredTextField, Field, Section, TextField } from '../components/ui.tsx';
@@ -34,23 +35,12 @@ function blankProfile(name: string): Profile {
   };
 }
 
-function envToText(env: Readonly<Record<string, string>>): string {
-  return Object.entries(env)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
-}
+const ENV_PLACEHOLDER = `NODE_ENV=production
+GIT_AUTHOR_NAME=Your Name
 
-function textToEnv(text: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) continue;
-    const index = trimmed.indexOf('=');
-    if (index <= 0) continue;
-    env[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1);
-  }
-  return env;
-}
+# Multiline values - wrap in quotes
+CONFIG="key1=val1
+key2=val2"`;
 
 interface Tagged<T> {
   readonly id: string;
@@ -81,7 +71,13 @@ export function ProfilesPanel(): JSX.Element {
 
   const draft = edits !== null && edits.id === effectiveId ? edits : source;
   const envText =
-    envEdit !== null && envEdit.id === effectiveId ? envEdit.value : source === null ? '' : envToText(source.extraEnv);
+    envEdit !== null && envEdit.id === effectiveId
+      ? envEdit.value
+      : source === null
+        ? ''
+        : formatEnvText(source.extraEnv);
+  const parsedEnv = parseEnvText(envText);
+  const envProblems = [...parsedEnv.problems, ...envNameProblems(parsedEnv.env)];
   const secret = secretEdit !== null && secretEdit.id === effectiveId ? secretEdit.value : null;
 
   useEffect(() => {
@@ -110,7 +106,11 @@ export function ProfilesPanel(): JSX.Element {
 
   const persist = async (activate: boolean): Promise<Profile | null> => {
     if (draft === null) return null;
-    const profile: Profile = { ...draft, extraEnv: textToEnv(envText) };
+    if (envProblems.length > 0) {
+      setError(envProblems[0] ?? '');
+      return null;
+    }
+    const profile: Profile = { ...draft, extraEnv: parseEnvText(envText).env };
     const saved = await run('profile', () => window.cc.profileUpsert(profile));
     if (saved === null) return null;
 
@@ -194,11 +194,15 @@ export function ProfilesPanel(): JSX.Element {
                   <button
                     className="btn sm"
                     onClick={() => {
+                      if (envProblems.length > 0) {
+                        setError(envProblems[0] ?? '');
+                        return;
+                      }
                       const copy: Profile = {
                         ...draft,
                         id: newProfileId(),
                         name: `${draft.name} copy`,
-                        extraEnv: textToEnv(envText),
+                        extraEnv: parseEnvText(envText).env,
                       };
                       void (async () => {
                         const saved = await run('profile', () => window.cc.profileUpsert(copy));
@@ -403,18 +407,23 @@ export function ProfilesPanel(): JSX.Element {
                 checked={draft.disableTelemetry}
                 onChange={(checked) => update({ disableTelemetry: checked })}
               />
-              <Field label={t('profileExtraEnv')}>
+              <Field label={t('profileExtraEnv')} hint={t('profileExtraEnvHint')}>
                 <textarea
                   value={envText}
                   spellCheck={false}
-                  rows={5}
-                  placeholder="CLAUDE_CODE_MAX_OUTPUT_TOKENS=32000"
+                  rows={8}
+                  placeholder={ENV_PLACEHOLDER}
                   onChange={(event) => {
                     if (effectiveId === null) return;
                     setEnvEdit({ id: effectiveId, value: event.target.value });
                   }}
                 />
               </Field>
+              {envProblems.map((problem) => (
+                <p className="hint warn" key={problem}>
+                  {problem}
+                </p>
+              ))}
               <TextField
                 label={t('profileNote')}
                 value={draft.note}

@@ -183,30 +183,25 @@ export interface PluginConfig {
   readonly enabled: boolean;
 }
 
-export interface SkillConfig {
+export interface SkillInstallConfig {
   readonly id: string;
   readonly enabled: boolean;
-  readonly body: string;
-  readonly files: readonly SkillFileConfig[];
-}
-
-export interface SkillFileConfig {
-  readonly path: string;
-  readonly content: string;
+  readonly source: string;
+  readonly skills: readonly string[];
+  readonly note: string;
 }
 
 export interface Extensions {
   readonly mcpServers: readonly McpServerConfig[];
   readonly marketplaces: readonly MarketplaceConfig[];
   readonly plugins: readonly PluginConfig[];
-  readonly skills: readonly SkillConfig[];
+  readonly skillInstalls: readonly SkillInstallConfig[];
 }
 
 export interface ManagedNames {
   readonly mcpServers: readonly string[];
   readonly marketplaces: readonly string[];
   readonly plugins: readonly string[];
-  readonly skills: readonly string[];
 }
 
 export interface McpServerStatus {
