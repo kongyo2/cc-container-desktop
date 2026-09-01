@@ -181,11 +181,16 @@ try {
   );
 
   await call(page, 'termClose', [term.id]);
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
   sessions = await call(page, 'tmuxList');
   check(
     'session still alive after closing the tab (reattach works)',
     sessions.some((s) => s.name === 'cc'),
+    JSON.stringify(sessions),
+  );
+  check(
+    'and its client was detached rather than left attached',
+    sessions.find((s) => s.name === 'cc')?.attached === false,
     JSON.stringify(sessions),
   );
 

@@ -322,6 +322,11 @@ try {
     sessionsAfterClose.some((session) => session.name === 'cc'),
     JSON.stringify(sessionsAfterClose),
   );
+  check(
+    'closing the tab detached its tmux client',
+    sessionsAfterClose.find((session) => session.name === 'cc')?.attached === false,
+    JSON.stringify(sessionsAfterClose),
+  );
   const noTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
   check('terminal tab is gone from the UI', noTabs === 0, String(noTabs));
 

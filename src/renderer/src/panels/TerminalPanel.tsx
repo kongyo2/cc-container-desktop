@@ -11,6 +11,7 @@ interface Tab {
   readonly key: string;
   readonly kind: TerminalKind;
   readonly sessionName: string;
+  readonly sessionId: string | undefined;
   readonly id: string | null;
   readonly exited: boolean;
 }
@@ -23,6 +24,7 @@ export function TerminalPanel(): JSX.Element {
   const t = useT();
   const language = useLanguage();
   const running = useApp((state) => state.snapshot?.container.running === true);
+  const visible = useApp((state) => state.tab === 'terminal');
   const defaultSession = useApp((state) => state.snapshot?.config.tmuxSession ?? 'cc');
   const setError = useApp((state) => state.setError);
   const setTab = useApp((state) => state.setTab);
@@ -36,10 +38,10 @@ export function TerminalPanel(): JSX.Element {
     if (result.ok) setSessions(result.value);
   };
 
-  const openTab = useCallback((kind: TerminalKind, sessionName: string) => {
+  const openTab = useCallback((kind: TerminalKind, sessionName: string, sessionId?: string) => {
     tabCounter += 1;
     const key = `t${tabCounter}`;
-    setTabs((current) => [...current, { key, kind, sessionName, id: null, exited: false }]);
+    setTabs((current) => [...current, { key, kind, sessionName, sessionId, id: null, exited: false }]);
     setActiveKey(key);
   }, []);
 
@@ -70,7 +72,7 @@ export function TerminalPanel(): JSX.Element {
   );
 
   useEffect(() => {
-    if (!running) return undefined;
+    if (!running || !visible) return undefined;
     let cancelled = false;
     const poll = async (): Promise<void> => {
       const result = await window.cc.tmuxList();
@@ -83,7 +85,7 @@ export function TerminalPanel(): JSX.Element {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [running]);
+  }, [running, visible]);
 
   const closeTab = (key: string): void => {
     setTabs((current) => {
@@ -168,6 +170,7 @@ export function TerminalPanel(): JSX.Element {
           key={tab.key}
           kind={tab.kind}
           sessionName={tab.sessionName}
+          sessionId={tab.sessionId}
           active={tab.key === activeKey}
           onOpened={(id, sessionName) => {
             setTabs((current) =>
@@ -203,14 +206,19 @@ export function TerminalPanel(): JSX.Element {
               />
               {session.name}
               <span className="tag">{`${session.windows}w`}</span>
-              <button className="btn ghost sm" onClick={() => openTab('attach', session.name)} type="button">
+              <button
+                className="btn ghost sm"
+                onClick={() => openTab('attach', session.name, session.id)}
+                type="button"
+              >
                 <Link2 size={12} /> {t('terminalAttach')}
               </button>
               <button
                 className="btn ghost sm"
                 onClick={() => {
                   void (async () => {
-                    await window.cc.tmuxKill(session.name);
+                    const result = await window.cc.tmuxKill(session.id, session.name);
+                    if (!result.ok) setError(result.error);
                     await refreshSessions();
                   })();
                 }}

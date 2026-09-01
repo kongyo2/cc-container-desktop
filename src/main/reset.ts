@@ -64,7 +64,7 @@ export async function resetContainer(request: ResetRequest, destination: string 
     );
   }
 
-  closeAllTerminals();
+  await closeAllTerminals();
 
   const before = await inspectContainer();
   logInfo(

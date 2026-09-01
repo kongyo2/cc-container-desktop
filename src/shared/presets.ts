@@ -111,6 +111,8 @@ export const CONTAINER_WORKSPACE = '/home/claude/workspace';
 
 export const CONTAINER_SCRIPT_DIR = '/opt/cc';
 
+export const CONTAINER_TERMINAL_RUNTIME = '/tmp/cc-terminals';
+
 export const CONTAINER_USER = 'claude';
 
 export const CONTAINER_UID = 1000;
@@ -120,3 +122,15 @@ export const DEFAULT_CONTAINER_NAME = 'cc-workbench';
 export const DEFAULT_IMAGE_TAG = 'cc-container-desktop:latest';
 export const DEFAULT_VOLUME_NAME = 'cc-workbench-home';
 export const DEFAULT_TMUX_SESSION = 'cc';
+
+const UNSAFE_SESSION_CHARS = /[\p{Cc}\p{Cf}\s.:#$@%*?[\]{}=~\\]/gu;
+const MAX_SESSION_NAME = 64;
+
+export function sanitizeSessionName(name: string): string {
+  const cleaned = name
+    .replaceAll(UNSAFE_SESSION_CHARS, '-')
+    .replaceAll(/-{2,}/gu, '-')
+    .replaceAll(/^-+|-+$/gu, '')
+    .slice(0, MAX_SESSION_NAME);
+  return cleaned === '' ? DEFAULT_TMUX_SESSION : cleaned;
+}

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { resolve, sep } from 'node:path';
 
 import { CHANNELS } from '../shared/ipc.ts';
@@ -51,6 +51,8 @@ import { closeTerminal, openTerminal, resizeTerminal, writeTerminal } from './do
 import { openInVscode, writeDevcontainer } from './integrations/vscode.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
 import { resetContainer } from './reset.ts';
+
+const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
 
 let appVersion = '0.0.0';
 
@@ -147,6 +149,11 @@ export function registerIpc(version: string): void {
     shell.openPath(target).catch(() => undefined);
     return null;
   });
+  handle<[string], null>(CHANNELS.clipboardWrite, (text) => {
+    if (typeof text !== 'string' || text === '') return null;
+    clipboard.writeText(text.slice(0, MAX_CLIPBOARD_CHARS));
+    return null;
+  });
 
   handle<[Partial<AppConfig>], AppConfig>(CHANNELS.configSave, (patch) => {
     const next = patchConfig(patch);
@@ -238,8 +245,8 @@ export function registerIpc(version: string): void {
   });
 
   handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
-  handle<[string], null>(CHANNELS.tmuxKill, async (name) => {
-    await withRunningContainer(() => killTmuxSession(name));
+  handle<[string, string | undefined], null>(CHANNELS.tmuxKill, async (target, expectedName) => {
+    await withRunningContainer(() => killTmuxSession(target, expectedName));
     return null;
   });
 
@@ -257,8 +264,8 @@ export function registerIpc(version: string): void {
     await resizeTerminal(id, cols, rows);
     return null;
   });
-  handle<[string], null>(CHANNELS.termClose, (id) => {
-    closeTerminal(id);
+  handle<[string], null>(CHANNELS.termClose, async (id) => {
+    await closeTerminal(id);
     return null;
   });
 

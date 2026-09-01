@@ -35,10 +35,23 @@ const THEME = {
 export interface TerminalViewProps {
   readonly kind: TerminalKind;
   readonly sessionName: string;
+  readonly sessionId?: string | undefined;
   readonly active: boolean;
   readonly onOpened: (id: string, sessionName: string) => void;
   readonly onExit: (exitCode: number | null) => void;
   readonly onError: (message: string) => void;
+}
+
+function handleClipboardOsc(payload: string): boolean {
+  const separator = payload.indexOf(';');
+  if (separator < 0) return false;
+  const encoded = payload.slice(separator + 1);
+  if (encoded === '' || encoded === '?') return true;
+  try {
+    const bytes = Uint8Array.from(atob(encoded), (char) => char.codePointAt(0) ?? 0);
+    void window.cc.clipboardWrite(new TextDecoder().decode(bytes));
+  } catch {}
+  return true;
 }
 
 export function TerminalView(props: TerminalViewProps): JSX.Element {
@@ -77,6 +90,7 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
     const unicode = new Unicode11Addon();
     term.loadAddon(unicode);
     term.unicode.activeVersion = '11';
+    const clipboardOsc = term.parser.registerOscHandler(52, handleClipboardOsc);
 
     term.open(mount);
 
@@ -99,6 +113,7 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
       const result = await window.cc.termOpen({
         kind: propsRef.current.kind,
         sessionName: propsRef.current.sessionName,
+        ...(propsRef.current.sessionId === undefined ? {} : { sessionId: propsRef.current.sessionId }),
         cols: term.cols,
         rows: term.rows,
       });
@@ -147,6 +162,7 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
       disposed = true;
       observer.disconnect();
       inputDisposable.dispose();
+      clipboardOsc.dispose();
       detach?.();
       const id = idRef.current;
       if (id !== null) void window.cc.termClose(id);

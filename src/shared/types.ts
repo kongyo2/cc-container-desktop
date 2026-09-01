@@ -66,6 +66,7 @@ export interface ContainerState {
 }
 
 export interface TmuxSession {
+  readonly id: string;
   readonly name: string;
   readonly windows: number;
   readonly attached: boolean;
@@ -121,6 +122,7 @@ export type TerminalKind = 'claude' | 'shell' | 'attach';
 export interface OpenTerminalRequest {
   readonly kind: TerminalKind;
   readonly sessionName: string;
+  readonly sessionId?: string;
   readonly cols: number;
   readonly rows: number;
 }
