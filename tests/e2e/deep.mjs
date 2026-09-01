@@ -560,6 +560,42 @@ try {
   ]);
   check('attaching to a session that has gone reports it instead of making a new one', attachGone.ok === false);
 
+  const doomed = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'doomed', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(2500);
+  const doomedEntry = (await ok(page, 'tmuxList')).find((session) => session.name === 'doomed');
+  await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', `tmux kill-session -t '${doomedEntry.id}'`], asRoot: false },
+  ]);
+  const killRaced = await call(page, 'tmuxKill', [doomedEntry.id]);
+  check('a session that ended between listing and kill is not reported as a failure', killRaced.ok === true);
+  await ok(page, 'termClose', [doomed.id]);
+
+  const firstTab = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'reused', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(2500);
+  await ok(page, 'containerExec', [{ command: ['bash', '-lc', "tmux detach-client -s 'reused'"], asRoot: false }]);
+  const reattached = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'reused', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(4000);
+  const afterReattach = await ok(page, 'tmuxList');
+  check(
+    'cleanup for a tab that ended on its own does not detach the tab that replaced it',
+    afterReattach.find((session) => session.name === 'reused')?.attached === true,
+    JSON.stringify(afterReattach),
+  );
+  await ok(page, 'termClose', [firstTab.id]);
+  await ok(page, 'termClose', [reattached.id]);
+  await ok(page, 'tmuxKill', ['reused']);
+
+  await ok(page, 'containerProvision');
+  await ok(page, 'containerProvision');
+  const features = await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'tmux show -g terminal-features 2>/dev/null | grep -cF "xterm*:RGB"'], asRoot: false },
+  ]);
+  check(
+    'reloading the managed config does not stack terminal-features entries',
+    features.stdout.trim() === '1',
+    features.stdout.trim(),
+  );
+
   console.log('\n[I] lifecycle and persistence');
 
   await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/persist.txt', content: 'survive me\n' }]);

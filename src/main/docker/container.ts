@@ -363,6 +363,8 @@ export async function execChecked(command: readonly string[], options: ExecOptio
 
 const NO_TMUX_SERVER = /no server running|error connecting to|no current (client|session)/iu;
 
+const GONE_TMUX_SESSION = /can't find session|session not found/iu;
+
 let lastListFailure = '';
 
 export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
@@ -406,6 +408,7 @@ export async function killTmuxSession(target: string): Promise<void> {
   const result = await execCapture(['tmux', 'kill-session', '-t', found.id]);
   if (result.exitCode !== 0) {
     const detail = `${result.stderr}${result.stdout}`.trim();
+    if (NO_TMUX_SERVER.test(detail) || GONE_TMUX_SESSION.test(detail)) return;
     throw new Error(
       `tmux セッションを終了できませんでした / could not kill session ${found.name}${detail === '' ? '' : `: ${detail}`}`,
     );

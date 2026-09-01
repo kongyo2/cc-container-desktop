@@ -68,8 +68,9 @@ done
 pid=$(sed -n 1p "$f" 2>/dev/null)
 tty=$(sed -n 2p "$f" 2>/dev/null)
 rm -f "$f"
-case "$tty" in /dev/*) tmux detach-client -t "$tty" >/dev/null 2>&1 ;; esac
 case "$pid" in ''|*[!0-9]*) exit 0 ;; esac
+[ "$(readlink -f "/proc/$pid/fd/0" 2>/dev/null)" = "$tty" ] || exit 0
+tmux detach-client -t "$tty" >/dev/null 2>&1
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   [ -e "/proc/$pid" ] || exit 0
   sleep 0.1

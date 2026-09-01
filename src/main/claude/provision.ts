@@ -158,7 +158,8 @@ if-shell 'infocmp tmux-256color >/dev/null 2>&1' \\
 
 # The app's terminal is xterm.js: truecolor, OSC 8 hyperlinks and DECSET 2026
 # synchronized output, none of which tmux assumes for xterm*.
-set -as terminal-features ",xterm*:RGB:hyperlinks:sync"
+if-shell "! tmux show -g terminal-features | grep -qF 'xterm*:RGB:hyperlinks:sync'" \\
+  'set -as terminal-features ",xterm*:RGB:hyperlinks:sync"'
 
 # Let copy-mode reach the desktop clipboard. tmux writes OSC 52 out to the
 # client, which the app forwards to the host.
