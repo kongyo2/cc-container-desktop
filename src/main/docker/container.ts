@@ -361,7 +361,7 @@ export async function execChecked(command: readonly string[], options: ExecOptio
   return result.stdout;
 }
 
-const NO_TMUX_SERVER = /no server running|error connecting to|no current (client|session)/iu;
+const NO_TMUX_SERVER = /no server running|error connecting to .*\(no such file or directory\)/iu;
 
 const GONE_TMUX_SESSION = /can't find session|session not found/iu;
 

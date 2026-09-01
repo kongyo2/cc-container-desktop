@@ -570,6 +570,10 @@ try {
     spared.some((session) => session.name === 'someone-elses-work'),
     spared.map((session) => session.name).join(', '),
   );
+  const staleAttach = await call(page, 'termOpen', [
+    { kind: 'attach', sessionName: 'renamed', sessionId: staleEntry.id, cols: 80, rows: 24 },
+  ]);
+  check('attaching by a stale id whose session now has another name is refused', staleAttach.ok === false);
   await ok(page, 'termClose', [staleRow.id]);
   await ok(page, 'tmuxKill', ['someone-elses-work']);
   const attachGone = await call(page, 'termOpen', [

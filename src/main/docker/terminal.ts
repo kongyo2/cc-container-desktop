@@ -98,7 +98,7 @@ async function resolveSessionId(request: OpenTerminalRequest): Promise<string | 
   if (request.kind !== 'attach' || request.sessionId === undefined) return null;
 
   const live = await listTmuxSessions();
-  const found = live.find((session) => session.id === request.sessionId);
+  const found = live.find((session) => session.id === request.sessionId && session.name === request.sessionName);
   if (found === undefined) {
     throw new Error(
       `セッション ${request.sessionName} はもう存在しません。一覧を更新してください / session ${request.sessionName} is gone — refresh the list`,
