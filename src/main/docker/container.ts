@@ -367,19 +367,25 @@ const GONE_TMUX_SESSION = /can't find session|session not found/iu;
 
 let lastListFailure = '';
 
-export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
+interface TmuxListing {
+  readonly sessions: readonly TmuxSession[];
+  readonly failure: string | null;
+}
+
+async function readTmuxSessions(): Promise<TmuxListing> {
   const state = await inspectContainer();
-  if (!state.running) return [];
+  if (!state.running) return { sessions: [], failure: null };
 
   const format = '#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}';
   const result = await execCapture(['tmux', 'list-sessions', '-F', format]);
   if (result.exitCode !== 0) {
     const detail = `${result.stderr}${result.stdout}`.trim();
-    if (detail !== '' && !NO_TMUX_SERVER.test(detail) && detail !== lastListFailure) {
+    if (detail === '' || NO_TMUX_SERVER.test(detail)) return { sessions: [], failure: null };
+    if (detail !== lastListFailure) {
       lastListFailure = detail;
       logWarn('app', `tmux セッションを一覧できませんでした / could not list tmux sessions: ${detail}`);
     }
-    return [];
+    return { sessions: [], failure: detail };
   }
   lastListFailure = '';
 
@@ -397,13 +403,28 @@ export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
       createdAt: Number.isFinite(createdSeconds) ? new Date(createdSeconds * 1000).toISOString() : '',
     });
   }
-  return sessions;
+  return { sessions, failure: null };
 }
 
-export async function killTmuxSession(target: string): Promise<void> {
-  const sessions = await listTmuxSessions();
-  const found = sessions.find((session) => session.id === target || session.name === target);
+export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
+  return (await readTmuxSessions()).sessions;
+}
+
+export async function killTmuxSession(target: string, expectedName?: string): Promise<void> {
+  const listing = await readTmuxSessions();
+  if (listing.failure !== null) {
+    throw new Error(
+      `tmux セッションを一覧できないので終了しませんでした / did not kill anything because the session list could not be read: ${listing.failure}`,
+    );
+  }
+
+  const found = listing.sessions.find((session) => session.id === target || session.name === target);
   if (found === undefined) return;
+  if (expectedName !== undefined && found.name !== expectedName) {
+    throw new Error(
+      `${expectedName} はもう存在しません。一覧を更新してください / ${expectedName} is gone — refresh the list`,
+    );
+  }
 
   const result = await execCapture(['tmux', 'kill-session', '-t', found.id]);
   if (result.exitCode !== 0) {

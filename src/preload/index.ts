@@ -44,7 +44,7 @@ const api: Api = {
   mcpStatus: () => ipcRenderer.invoke(CHANNELS.mcpStatus),
 
   tmuxList: () => ipcRenderer.invoke(CHANNELS.tmuxList),
-  tmuxKill: (target) => ipcRenderer.invoke(CHANNELS.tmuxKill, target),
+  tmuxKill: (target, expectedName) => ipcRenderer.invoke(CHANNELS.tmuxKill, target, expectedName),
 
   termOpen: (request) => ipcRenderer.invoke(CHANNELS.termOpen, request),
   termWrite: (id, data) => ipcRenderer.invoke(CHANNELS.termWrite, id, data),

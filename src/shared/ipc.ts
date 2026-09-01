@@ -137,7 +137,7 @@ export interface Api {
   mcpStatus(): Promise<Result<readonly McpServerStatus[]>>;
 
   tmuxList(): Promise<Result<readonly TmuxSession[]>>;
-  tmuxKill(target: string): Promise<Result<null>>;
+  tmuxKill(target: string, expectedName?: string): Promise<Result<null>>;
 
   termOpen(request: OpenTerminalRequest): Promise<Result<OpenTerminalResult>>;
   termWrite(id: string, data: string): Promise<Result<null>>;

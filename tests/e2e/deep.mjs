@@ -555,6 +555,23 @@ try {
   );
   const killMissing = await call(page, 'tmuxKill', ['never-existed']);
   check('killing a missing session is not an error', killMissing.ok === true);
+
+  const staleRow = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'renamed', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(2500);
+  const staleEntry = (await ok(page, 'tmuxList')).find((session) => session.name === 'renamed');
+  await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', `tmux rename-session -t '${staleEntry.id}' someone-elses-work`], asRoot: false },
+  ]);
+  const staleKill = await call(page, 'tmuxKill', [staleEntry.id, 'renamed']);
+  check('killing by a stale id whose session now has another name is refused', staleKill.ok === false);
+  const spared = await ok(page, 'tmuxList');
+  check(
+    'and that session is left running',
+    spared.some((session) => session.name === 'someone-elses-work'),
+    spared.map((session) => session.name).join(', '),
+  );
+  await ok(page, 'termClose', [staleRow.id]);
+  await ok(page, 'tmuxKill', ['someone-elses-work']);
   const attachGone = await call(page, 'termOpen', [
     { kind: 'attach', sessionName: 'ghost', sessionId: '$999', cols: 80, rows: 24 },
   ]);

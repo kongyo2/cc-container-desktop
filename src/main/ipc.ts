@@ -245,8 +245,8 @@ export function registerIpc(version: string): void {
   });
 
   handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
-  handle<[string], null>(CHANNELS.tmuxKill, async (target) => {
-    await withRunningContainer(() => killTmuxSession(target));
+  handle<[string, string | undefined], null>(CHANNELS.tmuxKill, async (target, expectedName) => {
+    await withRunningContainer(() => killTmuxSession(target, expectedName));
     return null;
   });
 

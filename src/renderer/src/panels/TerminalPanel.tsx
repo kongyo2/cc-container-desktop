@@ -217,7 +217,7 @@ export function TerminalPanel(): JSX.Element {
                 className="btn ghost sm"
                 onClick={() => {
                   void (async () => {
-                    const result = await window.cc.tmuxKill(session.id);
+                    const result = await window.cc.tmuxKill(session.id, session.name);
                     if (!result.ok) setError(result.error);
                     await refreshSessions();
                   })();
