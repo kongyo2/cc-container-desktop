@@ -576,6 +576,20 @@ try {
   check('attaching by a stale id whose session now has another name is refused', staleAttach.ok === false);
   await ok(page, 'termClose', [staleRow.id]);
   await ok(page, 'tmuxKill', ['someone-elses-work']);
+
+  const pinned = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'pinned', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(2500);
+  await ok(page, 'configSave', [{ containerName: 'cc-workbench-renamed-away' }]);
+  await ok(page, 'termClose', [pinned.id]);
+  await page.waitForTimeout(3000);
+  await ok(page, 'configSave', [{ containerName: 'cc-workbench' }]);
+  const afterRename = await ok(page, 'tmuxList');
+  check(
+    'closing after a container rename still detaches in the original container',
+    afterRename.find((session) => session.name === 'pinned')?.attached === false,
+    JSON.stringify(afterRename),
+  );
+  await ok(page, 'tmuxKill', ['pinned']);
   const attachGone = await call(page, 'termOpen', [
     { kind: 'attach', sessionName: 'ghost', sessionId: '$999', cols: 80, rows: 24 },
   ]);

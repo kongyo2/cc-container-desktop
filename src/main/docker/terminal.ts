@@ -1,5 +1,5 @@
 import { StringDecoder } from 'node:string_decoder';
-import type { Exec } from 'dockerode';
+import type { Container, Exec } from 'dockerode';
 import { randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 
@@ -15,11 +15,14 @@ interface Session {
   readonly id: string;
   readonly stream: Duplex;
   readonly exec: Exec;
+  readonly container: Container;
   cols: number;
   rows: number;
 }
 
 const sessions = new Map<string, Session>();
+
+const closing = new Set<Promise<void>>();
 let target: BrowserWindow | null = null;
 
 export function setTerminalTarget(window: BrowserWindow | null): void {
@@ -51,7 +54,10 @@ function runFilePath(id: string): string {
 function wrapCommand(id: string, command: string): readonly string[] {
   const dir = shellQuote(CONTAINER_TERMINAL_RUNTIME);
   const file = shellQuote(runFilePath(id));
-  const record = `mkdir -p ${dir} 2>/dev/null; printf '%s\\n%s\\n' "$$" "$(tty)" > ${file} 2>/dev/null`;
+  const partial = shellQuote(`${runFilePath(id)}.partial`);
+  const record =
+    `mkdir -p ${dir} 2>/dev/null; ` +
+    `printf '%s\\n%s\\n' "$$" "$(tty)" > ${partial} 2>/dev/null && mv -f ${partial} ${file} 2>/dev/null`;
   return ['bash', '-lc', `${record}; exec ${command}`];
 }
 
@@ -80,9 +86,9 @@ exit 0
 `;
 }
 
-async function releaseInContainer(id: string): Promise<void> {
+async function releaseInContainer(container: Container, id: string): Promise<void> {
   try {
-    await execCapture(['bash', '-c', closeScript(id)], { workdir: '/' });
+    await execCapture(['bash', '-c', closeScript(id)], { workdir: '/', container });
   } catch (error) {
     logWarn('app', `ターミナルの後始末をスキップしました / terminal cleanup skipped: ${describeError(error)}`);
   }
@@ -115,7 +121,8 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
 
   const command = request.kind === 'shell' ? 'bash -l' : tmuxCommandFor(request, sessionName, sessionId);
 
-  const exec = await containerHandle().exec({
+  const container = containerHandle();
+  const exec = await container.exec({
     Cmd: [...wrapCommand(id, command)],
     AttachStdin: true,
     AttachStdout: true,
@@ -127,7 +134,7 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   });
 
   const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-  sessions.set(id, { id, stream, exec, cols: 0, rows: 0 });
+  sessions.set(id, { id, stream, exec, container, cols: 0, rows: 0 });
 
   const decoder = new StringDecoder('utf8');
   stream.on('data', (chunk: Buffer) => {
@@ -146,7 +153,7 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
       } catch {
         send(EVENTS.termExit, { id, exitCode: null });
       }
-      await releaseInContainer(id);
+      await releaseInContainer(container, id);
     })();
   };
 
@@ -191,15 +198,24 @@ export async function closeTerminal(id: string): Promise<void> {
   if (session === undefined) return;
   sessions.delete(id);
 
-  await releaseInContainer(id);
-
-  session.stream.end();
-  session.stream.destroy();
+  const work = (async () => {
+    await releaseInContainer(session.container, id);
+    session.stream.end();
+    session.stream.destroy();
+  })();
+  closing.add(work);
+  try {
+    await work;
+  } finally {
+    closing.delete(work);
+  }
 }
 
 export async function closeAllTerminals(): Promise<void> {
-  const ids = [...sessions.keys()];
-  if (ids.length === 0) return;
-  await Promise.all(ids.map((id) => closeTerminal(id)));
-  send(EVENTS.terminalsReset, null);
+  const had = sessions.size;
+  for (const id of [...sessions.keys()]) {
+    void closeTerminal(id).catch(() => undefined);
+  }
+  if (closing.size > 0) await Promise.all([...closing].map((work) => work.catch(() => undefined)));
+  if (had > 0) send(EVENTS.terminalsReset, null);
 }

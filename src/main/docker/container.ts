@@ -266,10 +266,11 @@ export interface ExecOptions {
   readonly workdir?: string;
   readonly env?: readonly string[];
   readonly stdin?: string;
+  readonly container?: Container;
 }
 
 export async function execCapture(command: readonly string[], options: ExecOptions = {}): Promise<ExecResult> {
-  const container = containerHandle();
+  const container = options.container ?? containerHandle();
   const wantsStdin = options.stdin !== undefined;
   const exec = await container.exec({
     Cmd: [...command],
