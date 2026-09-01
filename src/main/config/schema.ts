@@ -6,6 +6,7 @@ import {
   DEFAULT_TMUX_SESSION,
   DEFAULT_VOLUME_NAME,
   ENDPOINT_PRESETS,
+  sanitizeSessionName,
 } from '../../shared/presets.ts';
 import type { AppConfig, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
 
@@ -222,7 +223,7 @@ function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
     autoOnboarding: value.autoOnboarding,
     autoApproveApiKey: value.autoApproveApiKey,
     skipPermissions: value.skipPermissions,
-    tmuxSession: value.tmuxSession,
+    tmuxSession: sanitizeSessionName(value.tmuxSession),
     lastExportDir: value.lastExportDir,
     exportBeforeReset: value.exportBeforeReset,
     extensions: value.extensions,

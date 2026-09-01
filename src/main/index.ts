@@ -9,6 +9,8 @@ import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
 
 const isDev = !app.isPackaged;
 
+const QUIT_CLEANUP_MS = 3000;
+
 function isOpenable(url: string): boolean {
   try {
     const protocol = new URL(url).protocol;
@@ -136,8 +138,19 @@ if (!app.requestSingleInstanceLock()) {
     logError('app', describeError(error));
   });
 
-  app.on('before-quit', () => {
-    closeAllTerminals();
+  let terminalsReleased = false;
+  app.on('before-quit', (event) => {
+    if (terminalsReleased) return;
+    event.preventDefault();
+    const deadline = new Promise<void>((resolve) => {
+      setTimeout(resolve, QUIT_CLEANUP_MS);
+    });
+    void Promise.race([closeAllTerminals(), deadline])
+      .catch(() => undefined)
+      .finally(() => {
+        terminalsReleased = true;
+        app.quit();
+      });
   });
 
   app.on('window-all-closed', () => {

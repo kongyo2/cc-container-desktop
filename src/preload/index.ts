@@ -15,6 +15,7 @@ const api: Api = {
   setLanguage: (language) => ipcRenderer.invoke(CHANNELS.setLanguage, language),
   openExternal: (url) => ipcRenderer.invoke(CHANNELS.openExternal, url),
   revealPath: (path) => ipcRenderer.invoke(CHANNELS.revealPath, path),
+  clipboardWrite: (text) => ipcRenderer.invoke(CHANNELS.clipboardWrite, text),
 
   configSave: (patch) => ipcRenderer.invoke(CHANNELS.configSave, patch),
   profileUpsert: (profile) => ipcRenderer.invoke(CHANNELS.profileUpsert, profile),
@@ -43,7 +44,7 @@ const api: Api = {
   mcpStatus: () => ipcRenderer.invoke(CHANNELS.mcpStatus),
 
   tmuxList: () => ipcRenderer.invoke(CHANNELS.tmuxList),
-  tmuxKill: (name) => ipcRenderer.invoke(CHANNELS.tmuxKill, name),
+  tmuxKill: (target) => ipcRenderer.invoke(CHANNELS.tmuxKill, target),
 
   termOpen: (request) => ipcRenderer.invoke(CHANNELS.termOpen, request),
   termWrite: (id, data) => ipcRenderer.invoke(CHANNELS.termWrite, id, data),

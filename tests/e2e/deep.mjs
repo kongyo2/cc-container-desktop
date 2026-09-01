@@ -474,17 +474,78 @@ try {
     sessions.some((session) => session.name === 'has-spaces-and-colons'),
     sessions.map((session) => session.name).join(', '),
   );
+  check(
+    'the listing carries tmux session ids',
+    sessions.every((session) => /^\$\d+$/u.test(session.id)),
+    sessions.map((session) => session.id).join(', '),
+  );
+  check(
+    'an open tab shows as attached',
+    sessions.find((session) => session.name === 'has-spaces-and-colons')?.attached === true,
+  );
+
   await ok(page, 'termClose', [named.id]);
-  await ok(page, 'tmuxKill', ['has-spaces-and-colons']);
+  await page.waitForTimeout(2500);
+  const afterDetach = await ok(page, 'tmuxList');
+  const detached = afterDetach.find((session) => session.name === 'has-spaces-and-colons');
+  check('closing the tab leaves the session running', detached !== undefined);
+  check('and detaches its client instead of leaking one', detached?.attached === false, JSON.stringify(afterDetach));
+
+  const leaked = await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'tmux list-clients 2>/dev/null | wc -l'], asRoot: false },
+  ]);
+  check('no tmux client is left behind', leaked.stdout.trim() === '0', leaked.stdout.trim());
+
+  const injected = await ok(page, 'termOpen', [
+    { kind: 'attach', sessionName: 'pwn#(touch /tmp/cc-pwned)#{pid}*x', cols: 80, rows: 24 },
+  ]);
+  check(
+    'tmux format and glob characters never reach tmux',
+    !/[#{}*?[\]$@%:.=~\\\s]/u.test(injected.sessionName),
+    injected.sessionName,
+  );
+  await page.waitForTimeout(2500);
+  const injectedList = await ok(page, 'tmuxList');
+  check(
+    'tmux agrees on the name we reported back',
+    injectedList.some((session) => session.name === injected.sessionName),
+    injectedList.map((session) => session.name).join(', '),
+  );
+  const pwned = await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'test -e /tmp/cc-pwned && echo yes || echo no'], asRoot: false },
+  ]);
+  check('a session name cannot run a command in the container', pwned.stdout.trim() === 'no', pwned.stdout.trim());
+  await ok(page, 'termClose', [injected.id]);
+  await page.waitForTimeout(1500);
+
+  await ok(page, 'tmuxKill', [injected.sessionName]);
+  await page.waitForTimeout(800);
+
+  const prefixKill = await call(page, 'tmuxKill', ['has']);
+  check('killing a mere prefix of a session name is a no-op', prefixKill.ok === true);
+  await page.waitForTimeout(800);
+  const afterPrefixKill = await ok(page, 'tmuxList');
+  check(
+    'and the session sharing that prefix is still there',
+    afterPrefixKill.some((session) => session.name === 'has-spaces-and-colons'),
+    afterPrefixKill.map((session) => session.name).join(', '),
+  );
+
+  const killTarget = afterPrefixKill.find((session) => session.name === 'has-spaces-and-colons');
+  await ok(page, 'tmuxKill', [killTarget.id]);
   await page.waitForTimeout(800);
   const afterKill = await ok(page, 'tmuxList');
   check(
-    'killed session is gone',
+    'killing by session id works',
     !afterKill.some((session) => session.name === 'has-spaces-and-colons'),
     afterKill.map((session) => session.name).join(', '),
   );
   const killMissing = await call(page, 'tmuxKill', ['never-existed']);
   check('killing a missing session is not an error', killMissing.ok === true);
+  const attachGone = await call(page, 'termOpen', [
+    { kind: 'attach', sessionName: 'ghost', sessionId: '$999', cols: 80, rows: 24 },
+  ]);
+  check('attaching to a session that has gone reports it instead of making a new one', attachGone.ok === false);
 
   console.log('\n[I] lifecycle and persistence');
 

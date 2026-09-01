@@ -23,6 +23,7 @@ export const CHANNELS = {
   setLanguage: 'app:setLanguage',
   openExternal: 'app:openExternal',
   revealPath: 'app:revealPath',
+  clipboardWrite: 'app:clipboardWrite',
 
   configSave: 'config:save',
   profileUpsert: 'profile:upsert',
@@ -105,6 +106,7 @@ export interface Api {
   setLanguage(language: Language): Promise<Result<AppConfig>>;
   openExternal(url: string): Promise<Result<null>>;
   revealPath(path: string): Promise<Result<null>>;
+  clipboardWrite(text: string): Promise<Result<null>>;
 
   configSave(patch: Partial<AppConfig>): Promise<Result<AppConfig>>;
   profileUpsert(profile: Profile): Promise<Result<AppConfig>>;
@@ -135,7 +137,7 @@ export interface Api {
   mcpStatus(): Promise<Result<readonly McpServerStatus[]>>;
 
   tmuxList(): Promise<Result<readonly TmuxSession[]>>;
-  tmuxKill(name: string): Promise<Result<null>>;
+  tmuxKill(target: string): Promise<Result<null>>;
 
   termOpen(request: OpenTerminalRequest): Promise<Result<OpenTerminalResult>>;
   termWrite(id: string, data: string): Promise<Result<null>>;

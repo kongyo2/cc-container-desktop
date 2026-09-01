@@ -361,21 +361,34 @@ export async function execChecked(command: readonly string[], options: ExecOptio
   return result.stdout;
 }
 
+const NO_TMUX_SERVER = /no server running|error connecting to|no current (client|session)/iu;
+
+let lastListFailure = '';
+
 export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
   const state = await inspectContainer();
   if (!state.running) return [];
 
-  const format = '#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}';
+  const format = '#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}';
   const result = await execCapture(['tmux', 'list-sessions', '-F', format]);
-  if (result.exitCode !== 0) return [];
+  if (result.exitCode !== 0) {
+    const detail = `${result.stderr}${result.stdout}`.trim();
+    if (detail !== '' && !NO_TMUX_SERVER.test(detail) && detail !== lastListFailure) {
+      lastListFailure = detail;
+      logWarn('app', `tmux セッションを一覧できませんでした / could not list tmux sessions: ${detail}`);
+    }
+    return [];
+  }
+  lastListFailure = '';
 
   const sessions: TmuxSession[] = [];
   for (const line of result.stdout.split('\n')) {
     if (line.trim() === '') continue;
-    const [name, windows, attached, created] = line.split('\t');
-    if (name === undefined) continue;
+    const [id, name, windows, attached, created] = line.split('\t');
+    if (id === undefined || name === undefined) continue;
     const createdSeconds = Number.parseInt(created ?? '', 10);
     sessions.push({
+      id,
       name,
       windows: Number.parseInt(windows ?? '1', 10) || 1,
       attached: attached !== undefined && attached !== '0',
@@ -385,11 +398,19 @@ export async function listTmuxSessions(): Promise<readonly TmuxSession[]> {
   return sessions;
 }
 
-export async function killTmuxSession(name: string): Promise<void> {
-  const result = await execCapture(['tmux', 'kill-session', '-t', name]);
+export async function killTmuxSession(target: string): Promise<void> {
+  const sessions = await listTmuxSessions();
+  const found = sessions.find((session) => session.id === target || session.name === target);
+  if (found === undefined) return;
+
+  const result = await execCapture(['tmux', 'kill-session', '-t', found.id]);
   if (result.exitCode !== 0) {
-    logWarn('app', `tmux セッションを終了できませんでした / could not kill session ${name}: ${result.stderr.trim()}`);
+    const detail = `${result.stderr}${result.stdout}`.trim();
+    throw new Error(
+      `tmux セッションを終了できませんでした / could not kill session ${found.name}${detail === '' ? '' : `: ${detail}`}`,
+    );
   }
+  logInfo('app', `tmux セッションを終了しました / killed tmux session: ${found.name}`);
 }
 
 export const NOT_RUNNING_MESSAGE =

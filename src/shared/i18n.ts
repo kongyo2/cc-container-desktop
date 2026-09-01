@@ -169,7 +169,8 @@ const ja = {
   terminalAttach: '接続',
   terminalKill: '終了',
   terminalNoSessions: '実行中のセッションはありません。',
-  terminalDetachHint: 'Ctrl+B → D でデタッチ（中のプロセスは動き続けます）。',
+  terminalDetachHint:
+    'Ctrl+B → D でデタッチ（中のプロセスは動き続けます）。同じセッションを開き直すと、そのタブに引き継がれます。',
   terminalNeedsContainer: 'コンテナが起動していません。「接続」タブから起動してください。',
 
   filesRefresh: '再読み込み',
@@ -403,7 +404,7 @@ const en: Record<MessageKey, string> = {
   terminalAttach: 'Attach',
   terminalKill: 'Kill',
   terminalNoSessions: 'No running sessions.',
-  terminalDetachHint: 'Ctrl+B then D detaches; the process keeps running.',
+  terminalDetachHint: 'Ctrl+B then D detaches; the process keeps running. Reopening a session hands it to the new tab.',
   terminalNeedsContainer: 'The container is not running. Start it from the Connect tab.',
 
   filesRefresh: 'Reload',
