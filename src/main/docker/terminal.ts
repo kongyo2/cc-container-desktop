@@ -59,6 +59,11 @@ function closeScript(id: string): string {
   const file = shellQuote(runFilePath(id));
   return `
 f=${file}
+i=0
+while [ ! -f "$f" ] && [ "$i" -lt 30 ]; do
+  i=$((i + 1))
+  sleep 0.1
+done
 [ -f "$f" ] || exit 0
 pid=$(sed -n 1p "$f" 2>/dev/null)
 tty=$(sed -n 2p "$f" 2>/dev/null)
@@ -166,11 +171,16 @@ export async function resizeTerminal(id: string, cols: number, rows: number): Pr
   if (session === undefined) return;
   if (cols <= 0 || rows <= 0) return;
   if (session.cols === cols && session.rows === rows) return;
+
+  const previousCols = session.cols;
+  const previousRows = session.rows;
   session.cols = cols;
   session.rows = rows;
   try {
     await session.exec.resize({ w: cols, h: rows });
   } catch (error) {
+    session.cols = previousCols;
+    session.rows = previousRows;
     logWarn('app', `リサイズできませんでした / resize failed: ${describeError(error)}`);
   }
 }

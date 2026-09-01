@@ -496,6 +496,19 @@ try {
   ]);
   check('no tmux client is left behind', leaked.stdout.trim() === '0', leaked.stdout.trim());
 
+  const raced = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'raced', cols: 80, rows: 24 }]);
+  await ok(page, 'termClose', [raced.id]);
+  await page.waitForTimeout(4000);
+  const afterRace = await ok(page, 'containerExec', [
+    { command: ['bash', '-lc', 'tmux list-clients 2>/dev/null | wc -l'], asRoot: false },
+  ]);
+  check(
+    'closing a tab the instant it opens still detaches its client',
+    afterRace.stdout.trim() === '0',
+    afterRace.stdout.trim(),
+  );
+  await ok(page, 'tmuxKill', ['raced']);
+
   const injected = await ok(page, 'termOpen', [
     { kind: 'attach', sessionName: 'pwn#(touch /tmp/cc-pwned)#{pid}*x', cols: 80, rows: 24 },
   ]);
