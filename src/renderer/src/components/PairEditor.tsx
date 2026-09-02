@@ -4,11 +4,6 @@ import { useState } from 'react';
 import { formatEnvText, parseEnvText } from '../../../shared/env.ts';
 import { Field, hintProps } from './ui.tsx';
 
-/**
- * A textarea the user edits freely and that only reports back on blur, so a
- * half-typed line is never parsed. `children` is for whatever the caller wants
- * to show underneath — parse problems, usually.
- */
 function TextAreaField({
   label,
   hint,

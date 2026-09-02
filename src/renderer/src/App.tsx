@@ -29,11 +29,6 @@ const NAV: ReadonlyArray<{ id: TabId; icon: JSX.Element; key: NavKey }> = [
 
 type NavKey = 'navConnect' | 'navTerminal' | 'navFiles' | 'navProfiles' | 'navExtensions' | 'navImage' | 'navSettings';
 
-/**
- * The error and toast lines above the panel. Both float over a panel that
- * manages its own padding when it runs edge to edge, so the inset comes from
- * here rather than from the banner.
- */
 function Notice({
   kind,
   text,

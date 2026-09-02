@@ -144,11 +144,6 @@ function staleReason(state: ContainerState, config: AppConfig): string | null {
   return null;
 }
 
-/**
- * The three checks every lifecycle command runs before it touches anything:
- * the name must point at a container we made, its home must be a volume we
- * made, and starting is a no-op when it is already up.
- */
 async function assertOurContainer(): Promise<void> {
   if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
 }
@@ -369,7 +364,6 @@ export async function execChecked(command: readonly string[], options: ExecOptio
   return result.stdout;
 }
 
-/** Whatever tmux had to say about a failure, from whichever stream it used. */
 function execDetail(result: ExecResult): string {
   return `${result.stderr}${result.stdout}`.trim();
 }

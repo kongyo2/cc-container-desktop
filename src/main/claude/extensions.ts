@@ -97,17 +97,11 @@ function preserveInvalid(
   }
 }
 
-/** The section under `key`, or an empty map when the file has no usable one. */
 function recordAt(source: Record<string, unknown>, key: string): Record<string, unknown> {
   const value = source[key];
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
-/**
- * Writes a merged section back only when it holds something or the file already
- * carried the key, so provisioning never introduces an empty section into a
- * config that did not have one.
- */
 function assignMerged(
   target: Record<string, unknown>,
   key: string,

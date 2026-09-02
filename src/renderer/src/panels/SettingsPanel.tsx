@@ -22,9 +22,6 @@ export function SettingsPanel(): JSX.Element {
     void run('config', () => window.cc.configSave(patch));
   };
 
-  /* The four name fields all refuse an empty value rather than saving one:
-     a container or volume with no name is not something the app can recover
-     from through the UI. */
   const saveName =
     (patch: (name: string) => Partial<AppConfig>) =>
     (value: string): void => {

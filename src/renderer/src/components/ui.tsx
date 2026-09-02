@@ -5,11 +5,6 @@ import { useT } from '../i18n.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'idle';
 
-/**
- * Spread helper for the optional `hint`. exactOptionalPropertyTypes draws a
- * line between "no hint" and "hint is undefined", so an absent hint has to be
- * an absent prop rather than an undefined one.
- */
 export function hintProps(hint: string | undefined): { hint?: string } {
   return hint === undefined ? {} : { hint };
 }
@@ -149,11 +144,6 @@ export function Check({
   );
 }
 
-/**
- * A number the config stores as "a value or nothing at all": an empty box means
- * null, and so does anything that is not a positive number, so a half-typed
- * entry never lands in the config as 0 or NaN.
- */
 export function NumberField({
   label,
   hint,
@@ -204,11 +194,6 @@ export function Banner({
   );
 }
 
-/**
- * The "are you sure?" strip every destructive button expands into. `spaced` is
- * for the panels that show it below a row of buttons rather than at the top of
- * a section.
- */
 export function ConfirmBanner({
   message,
   onConfirm,

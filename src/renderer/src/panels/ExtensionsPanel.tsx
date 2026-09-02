@@ -21,10 +21,6 @@ import { useApp } from '../store.ts';
 
 const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 
-/**
- * The title row every entry card opens with: an enable switch, a name, room for
- * whatever badges the section wants, and a delete button pushed to the right.
- */
 function EntryHead({
   title,
   enabled,

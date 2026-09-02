@@ -32,12 +32,6 @@ export function setupPath(): string {
   return join(userDockerDir(), 'setup.sh');
 }
 
-/**
- * True when `target` is `root` itself or sits under it. Both must already be
- * resolved: this is the containment test that keeps "reveal this folder" and
- * tar extraction from following a path back out of the directory they were
- * handed.
- */
 export function isInside(root: string, target: string): boolean {
   return target === root || target.startsWith(root + sep);
 }

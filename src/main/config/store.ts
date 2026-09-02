@@ -60,11 +60,6 @@ function keepAside(path: string): string | null {
   }
 }
 
-/**
- * Backs the file up and returns the tail every "we could not read this" message
- * carries, so a reader is told where their old file went — or nothing at all
- * when there was no file to keep, or keeping it failed.
- */
 function keptCopyNote(path: string): string {
   const backup = keepAside(path);
   return backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`;

@@ -67,7 +67,6 @@ function handle<A extends readonly unknown[], T>(channel: string, fn: (...args: 
   });
 }
 
-/** A command with nothing to report back; the renderer only cares that it worked. */
 function handleVoid<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<void> | void): void {
   handle<A, null>(channel, async (...args) => {
     await fn(...args);
@@ -75,7 +74,6 @@ function handleVoid<A extends readonly unknown[]>(channel: string, fn: (...args:
   });
 }
 
-/** An edit to the stored config: apply it, then let every window redraw. */
 function handleConfigEdit<A extends readonly unknown[]>(channel: string, fn: (...args: A) => AppConfig): void {
   handle<A, AppConfig>(channel, (...args) => {
     const next = fn(...args);
@@ -84,7 +82,6 @@ function handleConfigEdit<A extends readonly unknown[]>(channel: string, fn: (..
   });
 }
 
-/** A Docker command: run it, let every window redraw, and answer with fresh state. */
 function handleDockerAction<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<void>): void {
   handle<A, Snapshot>(channel, async (...args) => {
     await fn(...args);
