@@ -3,7 +3,7 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
 import { CodeEditor } from '../components/CodeEditor.tsx';
-import { Section } from '../components/ui.tsx';
+import { ConfirmBanner, Section } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -71,33 +71,24 @@ export function ImagePanel(): JSX.Element {
         </p>
 
         {confirmReset ? (
-          <div className="banner error">
-            <span>{t('imageResetConfirm')}</span>
-            <span className="spacer" />
-            <button
-              className="btn danger sm"
-              onClick={() => {
-                setConfirmReset(false);
-                void (async () => {
-                  const result = await window.cc.imageSourcesReset();
-                  if (!result.ok) {
-                    setError(result.error);
-                    return;
-                  }
-                  setDockerfile(result.value.dockerfile);
-                  setSetup(result.value.setup);
-                  setPostCreate(result.value.postCreate);
-                  setDirty(false);
-                })();
-              }}
-              type="button"
-            >
-              {t('commonYes')}
-            </button>
-            <button className="btn sm" onClick={() => setConfirmReset(false)} type="button">
-              {t('commonCancel')}
-            </button>
-          </div>
+          <ConfirmBanner
+            message={t('imageResetConfirm')}
+            onConfirm={() => {
+              setConfirmReset(false);
+              void (async () => {
+                const result = await window.cc.imageSourcesReset();
+                if (!result.ok) {
+                  setError(result.error);
+                  return;
+                }
+                setDockerfile(result.value.dockerfile);
+                setSetup(result.value.setup);
+                setPostCreate(result.value.postCreate);
+                setDirty(false);
+              })();
+            }}
+            onCancel={() => setConfirmReset(false)}
+          />
         ) : null}
 
         <div className="row" style={{ marginBottom: 12 }}>

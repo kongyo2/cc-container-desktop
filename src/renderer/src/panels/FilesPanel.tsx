@@ -12,7 +12,7 @@ import type { JSX } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { CONTAINER_HOME, CONTAINER_WORKSPACE } from '../../../shared/presets.ts';
-import type { FileEntry } from '../../../shared/types.ts';
+import type { FileEntry, Result } from '../../../shared/types.ts';
 import { CodeEditor } from '../components/CodeEditor.tsx';
 import type { EditorLanguage } from '../components/CodeEditor.tsx';
 import { formatBytes } from '../components/ui.tsx';
@@ -62,25 +62,29 @@ export function FilesPanel(): JSX.Element {
     setPathInput(path);
   };
 
+  const showListing = useCallback(
+    (result: Result<readonly FileEntry[]>): void => {
+      if (result.ok) setEntries(result.value);
+      else setError(result.error);
+    },
+    [setError],
+  );
+
   const reload = useCallback(async (): Promise<void> => {
-    const result = await window.cc.fsList(dir);
-    if (result.ok) setEntries(result.value);
-    else setError(result.error);
-  }, [dir, setError]);
+    showListing(await window.cc.fsList(dir));
+  }, [dir, showListing]);
 
   useEffect(() => {
     if (!running) return undefined;
     let cancelled = false;
     void (async () => {
       const result = await window.cc.fsList(dir);
-      if (cancelled) return;
-      if (result.ok) setEntries(result.value);
-      else setError(result.error);
+      if (!cancelled) showListing(result);
     })();
     return () => {
       cancelled = true;
     };
-  }, [running, dir, setError]);
+  }, [running, dir, showListing]);
 
   const openFile = useCallback(
     async (path: string) => {

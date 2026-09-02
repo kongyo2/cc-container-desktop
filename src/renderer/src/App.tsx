@@ -2,6 +2,7 @@ import { Boxes, Container, FileCode2, Files, Plug, Puzzle, Settings, SquareTermi
 import type { JSX } from 'react';
 import { useEffect } from 'react';
 
+import { activeProfileOf } from '../../shared/profiles.ts';
 import { Banner } from './components/ui.tsx';
 import { StatusStrip } from './components/StatusStrip.tsx';
 import { useT } from './i18n.ts';
@@ -27,6 +28,32 @@ const NAV: ReadonlyArray<{ id: TabId; icon: JSX.Element; key: NavKey }> = [
 ];
 
 type NavKey = 'navConnect' | 'navTerminal' | 'navFiles' | 'navProfiles' | 'navExtensions' | 'navImage' | 'navSettings';
+
+/**
+ * The error and toast lines above the panel. Both float over a panel that
+ * manages its own padding when it runs edge to edge, so the inset comes from
+ * here rather than from the banner.
+ */
+function Notice({
+  kind,
+  text,
+  flush,
+  onDismiss,
+}: {
+  kind: 'error' | 'info';
+  text: string | null;
+  flush: boolean;
+  onDismiss: () => void;
+}): JSX.Element | null {
+  if (text === null) return null;
+  return (
+    <div style={flush ? { padding: '10px 12px 0' } : undefined}>
+      <Banner kind={kind} onDismiss={onDismiss}>
+        {text}
+      </Banner>
+    </div>
+  );
+}
 
 function Panel({ tab }: { tab: Exclude<TabId, 'terminal'> }): JSX.Element {
   switch (tab) {
@@ -75,8 +102,7 @@ export function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [toast, setToast]);
 
-  const activeProfile =
-    snapshot?.config.profiles.find((profile) => profile.id === snapshot.config.activeProfileId) ?? null;
+  const activeProfile = snapshot === null ? null : activeProfileOf(snapshot.config);
 
   const flush = tab === 'terminal' || tab === 'files';
 
@@ -120,20 +146,8 @@ export function App(): JSX.Element {
 
       <main className={flush ? 'content flush' : 'content'}>
         {busy === null ? null : <div className="busybar" />}
-        {error === null ? null : (
-          <div style={flush ? { padding: '10px 12px 0' } : undefined}>
-            <Banner kind="error" onDismiss={() => setError(null)}>
-              {error}
-            </Banner>
-          </div>
-        )}
-        {toast === null ? null : (
-          <div style={flush ? { padding: '10px 12px 0' } : undefined}>
-            <Banner kind="info" onDismiss={() => setToast(null)}>
-              {toast}
-            </Banner>
-          </div>
-        )}
+        <Notice kind="error" text={error} flush={flush} onDismiss={() => setError(null)} />
+        <Notice kind="info" text={toast} flush={flush} onDismiss={() => setToast(null)} />
         <div className="panel-host" style={{ display: tab === 'terminal' ? 'flex' : 'none' }}>
           <TerminalPanel />
         </div>

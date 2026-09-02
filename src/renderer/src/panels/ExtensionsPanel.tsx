@@ -1,5 +1,5 @@
 import { Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
 import type {
@@ -12,16 +12,53 @@ import type {
   SkillInstallConfig,
 } from '../../../shared/types.ts';
 import { skillInstallCommand, skillInstallProblem } from '../../../shared/skillInstall.ts';
+import { newId } from '../../../shared/id.ts';
 import { validateMcpServer } from '../../../shared/mcp.ts';
 import { ArgEditor, PairEditor } from '../components/PairEditor.tsx';
-import { Check, Field, Section, TextField } from '../components/ui.tsx';
+import { Check, Field, NumberField, Section, TextField } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
 const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 
-function newId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+/**
+ * The title row every entry card opens with: an enable switch, a name, room for
+ * whatever badges the section wants, and a delete button pushed to the right.
+ */
+function EntryHead({
+  title,
+  enabled,
+  onToggle,
+  onDelete,
+  children,
+}: {
+  title: ReactNode;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  onDelete: () => void;
+  children?: ReactNode;
+}): JSX.Element {
+  const t = useT();
+  return (
+    <div className="entry-head">
+      <Check label="" checked={enabled} onChange={onToggle} />
+      <strong>{title}</strong>
+      {children}
+      <span className="spacer" />
+      <button className="btn ghost sm" onClick={onDelete} type="button" aria-label={t('commonDelete')}>
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
+function AddButton({ onClick }: { onClick: () => void }): JSX.Element {
+  const t = useT();
+  return (
+    <button className="btn sm" onClick={onClick} type="button">
+      <Plus size={13} /> {t('extAdd')}
+    </button>
+  );
 }
 
 function newMcpServer(): McpServerConfig {
@@ -150,13 +187,7 @@ export function ExtensionsPanel(): JSX.Element {
             >
               <RefreshCw size={13} /> {t('extMcpStatus')}
             </button>
-            <button
-              className="btn sm"
-              onClick={() => update({ mcpServers: [...extensions.mcpServers, newMcpServer()] })}
-              type="button"
-            >
-              <Plus size={13} /> {t('extAdd')}
-            </button>
+            <AddButton onClick={() => update({ mcpServers: [...extensions.mcpServers, newMcpServer()] })} />
           </>
         }
       >
@@ -171,26 +202,20 @@ export function ExtensionsPanel(): JSX.Element {
           };
           return (
             <div className="entry-card" key={server.id}>
-              <div className="entry-head">
-                <Check label="" checked={server.enabled} onChange={(enabled) => replace({ enabled })} />
-                <strong>{server.name || t('commonUnset')}</strong>
+              <EntryHead
+                title={server.name || t('commonUnset')}
+                enabled={server.enabled}
+                onToggle={(enabled) => replace({ enabled })}
+                onDelete={() =>
+                  update({ mcpServers: extensions.mcpServers.filter((candidate) => candidate.id !== server.id) })
+                }
+              >
                 <span className="tag">{server.transport}</span>
                 {problem === null ? null : <span className="tag err">!</span>}
                 {status === undefined ? null : (
                   <span className={`tag ${status.healthy ? 'ok' : ''}`}>{status.status}</span>
                 )}
-                <span className="spacer" />
-                <button
-                  className="btn ghost sm"
-                  onClick={() =>
-                    update({ mcpServers: extensions.mcpServers.filter((candidate) => candidate.id !== server.id) })
-                  }
-                  type="button"
-                  aria-label={t('commonDelete')}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              </EntryHead>
 
               <div className="grid2">
                 <TextField label={t('extName')} value={server.name} onChange={(name) => replace({ name })} />
@@ -249,18 +274,12 @@ export function ExtensionsPanel(): JSX.Element {
               )}
 
               <div className="grid2">
-                <Field label={t('extTimeout')} hint="timeout (ms)">
-                  <input
-                    type="number"
-                    min={1000}
-                    value={server.timeoutMs ?? ''}
-                    placeholder={t('commonUnset')}
-                    onChange={(event) => {
-                      const parsed = Number.parseInt(event.target.value, 10);
-                      replace({ timeoutMs: Number.isFinite(parsed) && parsed > 0 ? parsed : null });
-                    }}
-                  />
-                </Field>
+                <NumberField
+                  label={t('extTimeout')}
+                  hint="timeout (ms)"
+                  value={server.timeoutMs}
+                  onChange={(timeoutMs) => replace({ timeoutMs })}
+                />
                 <TextField
                   label={t('profileNote')}
                   value={server.note}
@@ -278,15 +297,7 @@ export function ExtensionsPanel(): JSX.Element {
 
       <Section
         title={t('extMarketTitle')}
-        actions={
-          <button
-            className="btn sm"
-            onClick={() => update({ marketplaces: [...extensions.marketplaces, newMarketplace()] })}
-            type="button"
-          >
-            <Plus size={13} /> {t('extAdd')}
-          </button>
-        }
+        actions={<AddButton onClick={() => update({ marketplaces: [...extensions.marketplaces, newMarketplace()] })} />}
       >
         <p className="hint">{t('extMarketHint')}</p>
         {extensions.marketplaces.length === 0 ? <p className="empty">{t('extMarketEmpty')}</p> : null}
@@ -297,24 +308,18 @@ export function ExtensionsPanel(): JSX.Element {
           };
           return (
             <div className="entry-card" key={market.id}>
-              <div className="entry-head">
-                <Check label="" checked={market.enabled} onChange={(enabled) => replace({ enabled })} />
-                <strong>{market.name || t('commonUnset')}</strong>
+              <EntryHead
+                title={market.name || t('commonUnset')}
+                enabled={market.enabled}
+                onToggle={(enabled) => replace({ enabled })}
+                onDelete={() =>
+                  update({
+                    marketplaces: extensions.marketplaces.filter((candidate) => candidate.id !== market.id),
+                  })
+                }
+              >
                 <span className="tag">{market.sourceKind}</span>
-                <span className="spacer" />
-                <button
-                  className="btn ghost sm"
-                  onClick={() =>
-                    update({
-                      marketplaces: extensions.marketplaces.filter((candidate) => candidate.id !== market.id),
-                    })
-                  }
-                  type="button"
-                  aria-label={t('commonDelete')}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              </EntryHead>
               <div className="grid2">
                 <TextField label={t('extName')} value={market.name} onChange={(name) => replace({ name })} />
                 <Field label={t('extSource')}>
@@ -354,15 +359,7 @@ export function ExtensionsPanel(): JSX.Element {
 
       <Section
         title={t('extPluginTitle')}
-        actions={
-          <button
-            className="btn sm"
-            onClick={() => update({ plugins: [...extensions.plugins, newPlugin()] })}
-            type="button"
-          >
-            <Plus size={13} /> {t('extAdd')}
-          </button>
-        }
+        actions={<AddButton onClick={() => update({ plugins: [...extensions.plugins, newPlugin()] })} />}
       >
         <p className="hint">{t('extPluginHint')}</p>
         {extensions.plugins.length === 0 ? <p className="empty">{t('extPluginEmpty')}</p> : null}
@@ -373,21 +370,16 @@ export function ExtensionsPanel(): JSX.Element {
           };
           return (
             <div className="entry-card" key={plugin.id}>
-              <div className="entry-head">
-                <Check label="" checked={plugin.enabled} onChange={(enabled) => replace({ enabled })} />
-                <strong>
-                  {plugin.plugin || '?'}@{plugin.marketplace || '?'}
-                </strong>
-                <span className="spacer" />
-                <button
-                  className="btn ghost sm"
-                  onClick={() => update({ plugins: extensions.plugins.filter((c) => c.id !== plugin.id) })}
-                  type="button"
-                  aria-label={t('commonDelete')}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              <EntryHead
+                title={
+                  <>
+                    {plugin.plugin || '?'}@{plugin.marketplace || '?'}
+                  </>
+                }
+                enabled={plugin.enabled}
+                onToggle={(enabled) => replace({ enabled })}
+                onDelete={() => update({ plugins: extensions.plugins.filter((c) => c.id !== plugin.id) })}
+              />
               <div className="grid2">
                 <TextField
                   label={t('extPluginName')}
@@ -408,13 +400,7 @@ export function ExtensionsPanel(): JSX.Element {
       <Section
         title={t('extSkillTitle')}
         actions={
-          <button
-            className="btn sm"
-            onClick={() => update({ skillInstalls: [...extensions.skillInstalls, newSkillInstall()] })}
-            type="button"
-          >
-            <Plus size={13} /> {t('extAdd')}
-          </button>
+          <AddButton onClick={() => update({ skillInstalls: [...extensions.skillInstalls, newSkillInstall()] })} />
         }
       >
         <p className="hint">{t('extSkillHint')}</p>
@@ -428,9 +414,12 @@ export function ExtensionsPanel(): JSX.Element {
           const problem = skill.enabled ? skillInstallProblem(skill) : null;
           return (
             <div className="entry-card" key={skill.id}>
-              <div className="entry-head">
-                <Check label="" checked={skill.enabled} onChange={(enabled) => replace({ enabled })} />
-                <strong>{skill.source.trim() === '' ? t('commonUnset') : skill.source.trim()}</strong>
+              <EntryHead
+                title={skill.source.trim() === '' ? t('commonUnset') : skill.source.trim()}
+                enabled={skill.enabled}
+                onToggle={(enabled) => replace({ enabled })}
+                onDelete={() => update({ skillInstalls: extensions.skillInstalls.filter((c) => c.id !== skill.id) })}
+              >
                 {skill.skills
                   .filter((name) => name.trim() !== '')
                   .map((name, position) => (
@@ -439,16 +428,7 @@ export function ExtensionsPanel(): JSX.Element {
                     </span>
                   ))}
                 {problem === null ? null : <span className="tag err">!</span>}
-                <span className="spacer" />
-                <button
-                  className="btn ghost sm"
-                  onClick={() => update({ skillInstalls: extensions.skillInstalls.filter((c) => c.id !== skill.id) })}
-                  type="button"
-                  aria-label={t('commonDelete')}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              </EntryHead>
 
               <TextField
                 label={t('extSkillSource')}

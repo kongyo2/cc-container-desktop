@@ -1,5 +1,5 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
-import { resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 
 import { CHANNELS } from '../shared/ipc.ts';
 import type { BuildRequest, ExecRequest, ResetRequest, VscodeAttachResult, WriteFileRequest } from '../shared/ipc.ts';
@@ -28,7 +28,7 @@ import {
   getConfig,
   getSecret,
   patchConfig,
-  saveConfig,
+  rememberExportDir,
   secretsAreEncrypted,
   setSecret,
   upsertProfile,
@@ -50,6 +50,7 @@ import { buildImage, readImageSources, resetImageSources, writeImageSources } fr
 import { closeTerminal, openTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
 import { openInVscode, writeDevcontainer } from './integrations/vscode.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
+import { isInside } from './paths.ts';
 import { resetContainer } from './reset.ts';
 
 const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
@@ -63,6 +64,32 @@ function handle<A extends readonly unknown[], T>(channel: string, fn: (...args: 
     } catch (error) {
       return { ok: false, error: describeError(error) };
     }
+  });
+}
+
+/** A command with nothing to report back; the renderer only cares that it worked. */
+function handleVoid<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<void> | void): void {
+  handle<A, null>(channel, async (...args) => {
+    await fn(...args);
+    return null;
+  });
+}
+
+/** An edit to the stored config: apply it, then let every window redraw. */
+function handleConfigEdit<A extends readonly unknown[]>(channel: string, fn: (...args: A) => AppConfig): void {
+  handle<A, AppConfig>(channel, (...args) => {
+    const next = fn(...args);
+    notifyStateChanged();
+    return next;
+  });
+}
+
+/** A Docker command: run it, let every window redraw, and answer with fresh state. */
+function handleDockerAction<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<void>): void {
+  handle<A, Snapshot>(channel, async (...args) => {
+    await fn(...args);
+    notifyStateChanged();
+    return snapshot();
   });
 }
 
@@ -122,12 +149,8 @@ export function registerIpc(version: string): void {
   appVersion = version;
 
   handle<[], Snapshot>(CHANNELS.snapshot, snapshot);
-  handle<[Language], AppConfig>(CHANNELS.setLanguage, (language) => {
-    const next = patchConfig({ language });
-    notifyStateChanged();
-    return next;
-  });
-  handle<[string], null>(CHANNELS.openExternal, async (url) => {
+  handleConfigEdit<[Language]>(CHANNELS.setLanguage, (language) => patchConfig({ language }));
+  handleVoid<[string]>(CHANNELS.openExternal, async (url) => {
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -138,54 +161,31 @@ export function registerIpc(version: string): void {
       throw new Error(`http か https のリンクだけ開けます / only http and https links can be opened: ${url}`);
     }
     await shell.openExternal(parsed.toString());
-    return null;
   });
-  handle<[string], null>(CHANNELS.revealPath, (path) => {
+  handleVoid<[string]>(CHANNELS.revealPath, (path) => {
     const root = resolve(appDataDir());
     const target = resolve(path);
-    if (target !== root && !target.startsWith(root + sep)) {
+    if (!isInside(root, target)) {
       throw new Error(`このフォルダは開けません / that folder is outside the app's own data: ${path}`);
     }
     shell.openPath(target).catch(() => undefined);
-    return null;
   });
-  handle<[string], null>(CHANNELS.clipboardWrite, (text) => {
-    if (typeof text !== 'string' || text === '') return null;
+  handleVoid<[string]>(CHANNELS.clipboardWrite, (text) => {
+    if (typeof text !== 'string' || text === '') return;
     clipboard.writeText(text.slice(0, MAX_CLIPBOARD_CHARS));
-    return null;
   });
 
-  handle<[Partial<AppConfig>], AppConfig>(CHANNELS.configSave, (patch) => {
-    const next = patchConfig(patch);
-    notifyStateChanged();
-    return next;
-  });
-  handle<[Profile], AppConfig>(CHANNELS.profileUpsert, (profile) => {
-    const next = upsertProfile(profile);
-    notifyStateChanged();
-    return next;
-  });
-  handle<[string], AppConfig>(CHANNELS.profileDelete, (id) => {
-    const next = deleteProfile(id);
-    notifyStateChanged();
-    return next;
-  });
-  handle<[string], AppConfig>(CHANNELS.profileActivate, (id) => {
-    const next = activateProfile(id);
-    notifyStateChanged();
-    return next;
-  });
+  handleConfigEdit<[Partial<AppConfig>]>(CHANNELS.configSave, (patch) => patchConfig(patch));
+  handleConfigEdit<[Profile]>(CHANNELS.profileUpsert, (profile) => upsertProfile(profile));
+  handleConfigEdit<[string]>(CHANNELS.profileDelete, (id) => deleteProfile(id));
+  handleConfigEdit<[string]>(CHANNELS.profileActivate, (id) => activateProfile(id));
   handle<[string], string>(CHANNELS.secretGet, (profileId) => getSecret(profileId));
-  handle<[string, string], null>(CHANNELS.secretSet, (profileId, secret) => {
-    setSecret(profileId, secret);
-    return null;
-  });
+  handleVoid<[string, string]>(CHANNELS.secretSet, (profileId, secret) => setSecret(profileId, secret));
 
   handle<[], Snapshot>(CHANNELS.dockerProbe, snapshot);
-  handle<[BuildRequest], null>(CHANNELS.imageBuild, async (request) => {
+  handleVoid<[BuildRequest]>(CHANNELS.imageBuild, async (request) => {
     await buildImage(getConfig().imageTag, request.noCache);
     notifyStateChanged();
-    return null;
   });
   handle<[], ImageSources>(CHANNELS.imageSourcesGet, readImageSources);
   handle<[Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>], ImageSources>(
@@ -194,27 +194,19 @@ export function registerIpc(version: string): void {
   );
   handle<[], ImageSources>(CHANNELS.imageSourcesReset, resetImageSources);
 
-  handle<[], Snapshot>(CHANNELS.containerUp, async () => {
+  handleDockerAction<[]>(CHANNELS.containerUp, async () => {
     await startContainer();
     await provisionContainer();
-    notifyStateChanged();
-    return snapshot();
   });
-  handle<[], Snapshot>(CHANNELS.containerStop, async () => {
+  handleDockerAction<[]>(CHANNELS.containerStop, async () => {
     await stopContainer();
-    notifyStateChanged();
-    return snapshot();
   });
-  handle<[], Snapshot>(CHANNELS.containerRestart, async () => {
+  handleDockerAction<[]>(CHANNELS.containerRestart, async () => {
     await restartContainer();
     await provisionContainer();
-    notifyStateChanged();
-    return snapshot();
   });
-  handle<[boolean], Snapshot>(CHANNELS.containerRemove, async (removeVolume) => {
+  handleDockerAction<[boolean]>(CHANNELS.containerRemove, async (removeVolume) => {
     await removeContainer(removeVolume);
-    notifyStateChanged();
-    return snapshot();
   });
   handle<[], Snapshot>(CHANNELS.containerState, snapshot);
   handle<[ExecRequest], ExecResult>(CHANNELS.containerExec, (request) =>
@@ -226,11 +218,7 @@ export function registerIpc(version: string): void {
     return summary;
   });
   handle<[], VscodeAttachResult>(CHANNELS.containerVscode, openInVscode);
-  handle<[Extensions], AppConfig>(CHANNELS.extensionsSave, (extensions) => {
-    const next = patchConfig({ extensions });
-    notifyStateChanged();
-    return next;
-  });
+  handleConfigEdit<[Extensions]>(CHANNELS.extensionsSave, (extensions) => patchConfig({ extensions }));
   handle<[], readonly McpServerStatus[]>(CHANNELS.mcpStatus, () => withRunningContainer(readMcpStatus));
 
   handle<[ResetRequest], ResetSummary>(CHANNELS.containerReset, async (request) => {
@@ -245,10 +233,9 @@ export function registerIpc(version: string): void {
   });
 
   handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
-  handle<[string, string | undefined], null>(CHANNELS.tmuxKill, async (target, expectedName) => {
-    await withRunningContainer(() => killTmuxSession(target, expectedName));
-    return null;
-  });
+  handleVoid<[string, string | undefined]>(CHANNELS.tmuxKill, (target, expectedName) =>
+    withRunningContainer(() => killTmuxSession(target, expectedName)),
+  );
 
   handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, (request) =>
     withRunningContainer(async () => {
@@ -256,34 +243,21 @@ export function registerIpc(version: string): void {
       return openTerminal(request);
     }),
   );
-  handle<[string, string], null>(CHANNELS.termWrite, (id, data) => {
-    writeTerminal(id, data);
-    return null;
-  });
-  handle<[string, number, number], null>(CHANNELS.termResize, async (id, cols, rows) => {
-    await resizeTerminal(id, cols, rows);
-    return null;
-  });
-  handle<[string], null>(CHANNELS.termClose, async (id) => {
-    await closeTerminal(id);
-    return null;
-  });
+  handleVoid<[string, string]>(CHANNELS.termWrite, (id, data) => writeTerminal(id, data));
+  handleVoid<[string, number, number]>(CHANNELS.termResize, (id, cols, rows) => resizeTerminal(id, cols, rows));
+  handleVoid<[string]>(CHANNELS.termClose, (id) => closeTerminal(id));
 
   handle<[string], readonly FileEntry[]>(CHANNELS.fsList, (path) => withRunningContainer(() => listDirectory(path)));
   handle<[string], string>(CHANNELS.fsRead, (path) => withRunningContainer(() => readFileText(path)));
-  handle<[WriteFileRequest], null>(CHANNELS.fsWrite, async (request) => {
-    await withRunningContainer(() => writeFileText(request.path, request.content));
-    return null;
-  });
-  handle<[string], null>(CHANNELS.fsMkdir, async (path) => {
-    await withRunningContainer(() => makeDirectory(path));
-    return null;
-  });
+  handleVoid<[WriteFileRequest]>(CHANNELS.fsWrite, (request) =>
+    withRunningContainer(() => writeFileText(request.path, request.content)),
+  );
+  handleVoid<[string]>(CHANNELS.fsMkdir, (path) => withRunningContainer(() => makeDirectory(path)));
 
   handle<[], string | null>(CHANNELS.workspaceExport, async () => {
     const destination = await pickDirectory(getConfig().lastExportDir);
     if (destination === null) return null;
-    saveConfig({ ...getConfig(), lastExportDir: destination });
+    rememberExportDir(destination);
     const result = await withRunningContainer(() => exportWorkspace(destination));
     return result.skipped.length === 0
       ? result.path

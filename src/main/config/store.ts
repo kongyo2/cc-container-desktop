@@ -1,10 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { app, safeStorage } from 'electron';
+import { safeStorage } from 'electron';
 
+import { activeProfileOf } from '../../shared/profiles.ts';
 import type { AppConfig, Profile } from '../../shared/types.ts';
 import { describeError, logError, logWarn } from '../logger.ts';
+import { userDataDir } from '../paths.ts';
 import { defaultConfig, readConfig } from './schema.ts';
 
 type SecretEncoding = 'safeStorage' | 'plain';
@@ -21,12 +23,6 @@ interface SecretFile {
 
 let cache: AppConfig | null = null;
 let secretCache: SecretFile | null = null;
-
-function userDataDir(): string {
-  const dir = app.getPath('userData');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 function configPath(): string {
   return join(userDataDir(), 'config.json');
@@ -64,6 +60,16 @@ function keepAside(path: string): string | null {
   }
 }
 
+/**
+ * Backs the file up and returns the tail every "we could not read this" message
+ * carries, so a reader is told where their old file went — or nothing at all
+ * when there was no file to keep, or keeping it failed.
+ */
+function keptCopyNote(path: string): string {
+  const backup = keepAside(path);
+  return backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`;
+}
+
 export function getConfig(): AppConfig {
   if (cache !== null) return cache;
   const raw = readJson(configPath());
@@ -74,18 +80,16 @@ export function getConfig(): AppConfig {
 
   const result = readConfig(raw);
   if (result.reset) {
-    const backup = keepAside(configPath());
     logError(
       'app',
       `設定を読めなかったので初期設定に戻します / config could not be read and was replaced by defaults` +
-        `${backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`}`,
+        keptCopyNote(configPath()),
     );
   } else if (result.dropped > 0) {
-    const backup = keepAside(configPath());
     logWarn(
       'app',
       `設定の ${result.dropped} 件を読み飛ばしました / dropped ${result.dropped} unreadable config entr` +
-        `${result.dropped === 1 ? 'y' : 'ies'}${backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`}`,
+        `${result.dropped === 1 ? 'y' : 'ies'}${keptCopyNote(configPath())}`,
     );
   }
   cache = result.config;
@@ -93,11 +97,10 @@ export function getConfig(): AppConfig {
 }
 
 function loadUnreadable(): AppConfig {
-  const backup = keepAside(configPath());
   logError(
     'app',
     `設定ファイルが壊れています。初期設定で起動します / the config file is unreadable; starting from defaults` +
-      `${backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`}`,
+      keptCopyNote(configPath()),
   );
   return defaultConfig();
 }
@@ -114,9 +117,11 @@ export function patchConfig(patch: Partial<AppConfig>): AppConfig {
 }
 
 export function getActiveProfile(): Profile | null {
-  const config = getConfig();
-  if (config.activeProfileId === null) return null;
-  return config.profiles.find((profile) => profile.id === config.activeProfileId) ?? null;
+  return activeProfileOf(getConfig());
+}
+
+export function rememberExportDir(directory: string): AppConfig {
+  return saveConfig({ ...getConfig(), lastExportDir: directory });
 }
 
 export function upsertProfile(profile: Profile): AppConfig {
@@ -173,11 +178,9 @@ function readSecretFile(): SecretFile {
   const parsed = parseSecretFile(readJson(secretsPath()));
   if (parsed === null) {
     if (existsSync(secretsPath())) {
-      const backup = keepAside(secretsPath());
       logError(
         'app',
-        `API キーのファイルを読めませんでした / the stored credentials could not be read` +
-          `${backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`}`,
+        `API キーのファイルを読めませんでした / the stored credentials could not be read` + keptCopyNote(secretsPath()),
       );
     }
     secretCache = { version: 2, entries: {} };

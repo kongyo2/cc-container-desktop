@@ -1,7 +1,18 @@
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 
+import { useT } from '../i18n.ts';
+
 export type Tone = 'ok' | 'warn' | 'err' | 'idle';
+
+/**
+ * Spread helper for the optional `hint`. exactOptionalPropertyTypes draws a
+ * line between "no hint" and "hint is undefined", so an absent hint has to be
+ * an absent prop rather than an undefined one.
+ */
+export function hintProps(hint: string | undefined): { hint?: string } {
+  return hint === undefined ? {} : { hint };
+}
 
 export function Pill({ tone, children }: { tone: Tone; children: ReactNode }): JSX.Element {
   const lamp = tone === 'ok' ? 'live' : tone === 'warn' ? 'hold' : tone === 'err' ? 'fault' : 'off';
@@ -62,7 +73,7 @@ export function TextField({
   mono?: boolean;
 }): JSX.Element {
   return (
-    <Field label={label} {...(hint === undefined ? {} : { hint })}>
+    <Field label={label} {...hintProps(hint)}>
       <input
         type={type}
         value={value}
@@ -103,7 +114,7 @@ export function DeferredTextField({
   };
 
   return (
-    <Field label={label} {...(hint === undefined ? {} : { hint })}>
+    <Field label={label} {...hintProps(hint)}>
       <input
         type={type}
         value={shown}
@@ -138,6 +149,39 @@ export function Check({
   );
 }
 
+/**
+ * A number the config stores as "a value or nothing at all": an empty box means
+ * null, and so does anything that is not a positive number, so a half-typed
+ * entry never lands in the config as 0 or NaN.
+ */
+export function NumberField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+}): JSX.Element {
+  const t = useT();
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        type="number"
+        min={1000}
+        value={value ?? ''}
+        placeholder={t('commonUnset')}
+        onChange={(event) => {
+          const parsed = Number.parseInt(event.target.value, 10);
+          onChange(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+        }}
+      />
+    </Field>
+  );
+}
+
 export function Banner({
   kind,
   children,
@@ -156,6 +200,37 @@ export function Banner({
           ×
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The "are you sure?" strip every destructive button expands into. `spaced` is
+ * for the panels that show it below a row of buttons rather than at the top of
+ * a section.
+ */
+export function ConfirmBanner({
+  message,
+  onConfirm,
+  onCancel,
+  spaced = false,
+}: {
+  message: ReactNode;
+  onConfirm: () => void;
+  onCancel: () => void;
+  spaced?: boolean;
+}): JSX.Element {
+  const t = useT();
+  return (
+    <div className="banner error" style={spaced ? { marginTop: 12 } : undefined}>
+      <span>{message}</span>
+      <span className="spacer" />
+      <button className="btn danger sm" onClick={onConfirm} type="button">
+        {t('commonYes')}
+      </button>
+      <button className="btn sm" onClick={onCancel} type="button">
+        {t('commonCancel')}
+      </button>
     </div>
   );
 }

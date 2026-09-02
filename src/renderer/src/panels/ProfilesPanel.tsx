@@ -3,21 +3,18 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
 import { envNameProblems, formatEnvText, parseEnvText } from '../../../shared/env.ts';
+import { newId } from '../../../shared/id.ts';
 import { ENDPOINT_PRESETS, MESSAGES_PATH, normalizeBaseUrl } from '../../../shared/presets.ts';
 import type { AuthMode, Profile } from '../../../shared/types.ts';
-import { Check, DeferredTextField, Field, Section, TextField } from '../components/ui.tsx';
+import { Check, ConfirmBanner, DeferredTextField, Field, NumberField, Section, TextField } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
 const NO_PROFILES: readonly Profile[] = [];
 
-function newProfileId(): string {
-  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
 function blankProfile(name: string): Profile {
   return {
-    id: newProfileId(),
+    id: newId('p'),
     name,
     baseUrl: '',
     authMode: 'authToken',
@@ -200,7 +197,7 @@ export function ProfilesPanel(): JSX.Element {
                       }
                       const copy: Profile = {
                         ...draft,
-                        id: newProfileId(),
+                        id: newId('p'),
                         name: `${draft.name} copy`,
                         extraEnv: parseEnvText(envText).env,
                       };
@@ -222,26 +219,17 @@ export function ProfilesPanel(): JSX.Element {
               }
             >
               {confirmDelete ? (
-                <div className="banner error">
-                  <span>{t('profileDeleteConfirm')}</span>
-                  <span className="spacer" />
-                  <button
-                    className="btn danger sm"
-                    onClick={() => {
-                      setConfirmDelete(false);
-                      setChosenId(null);
-                      setEdits(null);
-                      setEnvEdit(null);
-                      void run('profile', () => window.cc.profileDelete(draft.id));
-                    }}
-                    type="button"
-                  >
-                    {t('commonYes')}
-                  </button>
-                  <button className="btn sm" onClick={() => setConfirmDelete(false)} type="button">
-                    {t('commonCancel')}
-                  </button>
-                </div>
+                <ConfirmBanner
+                  message={t('profileDeleteConfirm')}
+                  onConfirm={() => {
+                    setConfirmDelete(false);
+                    setChosenId(null);
+                    setEdits(null);
+                    setEnvEdit(null);
+                    void run('profile', () => window.cc.profileDelete(draft.id));
+                  }}
+                  onCancel={() => setConfirmDelete(false)}
+                />
               ) : null}
 
               <div className="grid2">
@@ -373,30 +361,18 @@ export function ProfilesPanel(): JSX.Element {
             </Section>
 
             <Section title={pick(language, 'その他', 'Other')}>
-              <Field label={t('profileTimeout')} hint="API_TIMEOUT_MS">
-                <input
-                  type="number"
-                  min={1000}
-                  value={draft.apiTimeoutMs ?? ''}
-                  placeholder={t('commonUnset')}
-                  onChange={(event) => {
-                    const parsed = Number.parseInt(event.target.value, 10);
-                    update({ apiTimeoutMs: Number.isFinite(parsed) && parsed > 0 ? parsed : null });
-                  }}
-                />
-              </Field>
-              <Field label={t('profileContextTokens')} hint="CLAUDE_CODE_MAX_CONTEXT_TOKENS">
-                <input
-                  type="number"
-                  min={1000}
-                  value={draft.contextTokens ?? ''}
-                  placeholder={t('commonUnset')}
-                  onChange={(event) => {
-                    const parsed = Number.parseInt(event.target.value, 10);
-                    update({ contextTokens: Number.isFinite(parsed) && parsed > 0 ? parsed : null });
-                  }}
-                />
-              </Field>
+              <NumberField
+                label={t('profileTimeout')}
+                hint="API_TIMEOUT_MS"
+                value={draft.apiTimeoutMs}
+                onChange={(apiTimeoutMs) => update({ apiTimeoutMs })}
+              />
+              <NumberField
+                label={t('profileContextTokens')}
+                hint="CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+                value={draft.contextTokens}
+                onChange={(contextTokens) => update({ contextTokens })}
+              />
               <Check
                 label={t('profileNoNonEssential')}
                 checked={draft.disableNonEssentialTraffic}

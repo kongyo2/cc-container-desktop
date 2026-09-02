@@ -1,5 +1,6 @@
 import type { JSX } from 'react';
 
+import { activeProfileOf } from '../../../shared/profiles.ts';
 import type { Snapshot } from '../../../shared/types.ts';
 import { useT } from '../i18n.ts';
 import type { MessageKey } from '../../../shared/i18n.ts';
@@ -30,7 +31,7 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
   }
 
   const { docker, image, container, config } = snapshot;
-  const profile = config.profiles.find((candidate) => candidate.id === config.activeProfileId) ?? null;
+  const profile = activeProfileOf(config);
   const mcpCount = config.extensions.mcpServers.filter((server) => server.enabled).length;
   const skillCount = config.extensions.skillInstalls.filter((skill) => skill.enabled).length;
   const pluginCount = config.extensions.plugins.filter((plugin) => plugin.enabled).length;

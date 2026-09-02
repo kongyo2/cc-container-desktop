@@ -144,12 +144,31 @@ function staleReason(state: ContainerState, config: AppConfig): string | null {
   return null;
 }
 
+/**
+ * The three checks every lifecycle command runs before it touches anything:
+ * the name must point at a container we made, its home must be a volume we
+ * made, and starting is a no-op when it is already up.
+ */
+async function assertOurContainer(): Promise<void> {
+  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+}
+
+async function assertOurHomeVolume(state: ContainerState): Promise<void> {
+  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
+    throw foreignVolumeError(state.homeVolume);
+  }
+}
+
+async function startIfStopped(state: ContainerState): Promise<void> {
+  if (state.running) return;
+  await containerHandle().start();
+  logInfo('app', 'コンテナを起動しました / container started');
+}
+
 export async function startContainer(): Promise<ContainerState> {
   let state = await inspectContainer();
 
-  if (state.exists && !(await containerIsOurs())) {
-    throw foreignContainerError(getConfig().containerName);
-  }
+  if (state.exists) await assertOurContainer();
 
   const stale = staleReason(state, getConfig());
   if (stale !== null) {
@@ -162,35 +181,23 @@ export async function startContainer(): Promise<ContainerState> {
     await createContainer();
     state = await inspectContainer();
   }
-  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
-    throw foreignVolumeError(state.homeVolume);
-  }
-  if (!state.running) {
-    await containerHandle().start();
-    logInfo('app', 'コンテナを起動しました / container started');
-  }
+  await assertOurHomeVolume(state);
+  await startIfStopped(state);
   return inspectContainer();
 }
 
 export async function startExistingContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
-  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
-  if (state.homeVolume !== null && !(await volumeIsOurs(state.homeVolume))) {
-    throw foreignVolumeError(state.homeVolume);
-  }
-  if (!state.running) {
-    await containerHandle().start();
-    logInfo('app', 'コンテナを起動しました / container started');
-  }
+  await assertOurContainer();
+  await assertOurHomeVolume(state);
+  await startIfStopped(state);
   return inspectContainer();
 }
 
 export async function stopContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
-  if (state.exists && !(await containerIsOurs())) {
-    throw foreignContainerError(getConfig().containerName);
-  }
+  if (state.exists) await assertOurContainer();
   if (state.running) {
     await containerHandle().stop({ t: 5 });
     logInfo('app', 'コンテナを停止しました / container stopped');
@@ -201,7 +208,7 @@ export async function stopContainer(): Promise<ContainerState> {
 export async function restartContainer(): Promise<ContainerState> {
   const state = await inspectContainer();
   if (!state.exists) return startContainer();
-  if (!(await containerIsOurs())) throw foreignContainerError(getConfig().containerName);
+  await assertOurContainer();
   if (staleReason(state, getConfig()) !== null) return startContainer();
   await containerHandle().restart({ t: 5 });
   logInfo('app', 'コンテナを再起動しました / container restarted');
@@ -362,6 +369,11 @@ export async function execChecked(command: readonly string[], options: ExecOptio
   return result.stdout;
 }
 
+/** Whatever tmux had to say about a failure, from whichever stream it used. */
+function execDetail(result: ExecResult): string {
+  return `${result.stderr}${result.stdout}`.trim();
+}
+
 const NO_TMUX_SERVER = /no server running|error connecting to .*\(no such file or directory\)/iu;
 
 const GONE_TMUX_SESSION = /can't find session|session not found/iu;
@@ -380,7 +392,7 @@ async function readTmuxSessions(): Promise<TmuxListing> {
   const format = '#{session_id}\t#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}';
   const result = await execCapture(['tmux', 'list-sessions', '-F', format]);
   if (result.exitCode !== 0) {
-    const detail = `${result.stderr}${result.stdout}`.trim();
+    const detail = execDetail(result);
     if (detail === '' || NO_TMUX_SERVER.test(detail)) return { sessions: [], failure: null };
     if (detail !== lastListFailure) {
       lastListFailure = detail;
@@ -429,7 +441,7 @@ export async function killTmuxSession(target: string, expectedName?: string): Pr
 
   const result = await execCapture(['tmux', 'kill-session', '-t', found.id]);
   if (result.exitCode !== 0) {
-    const detail = `${result.stderr}${result.stdout}`.trim();
+    const detail = execDetail(result);
     if (NO_TMUX_SERVER.test(detail) || GONE_TMUX_SESSION.test(detail)) return;
     throw new Error(
       `tmux セッションを終了できませんでした / could not kill session ${found.name}${detail === '' ? '' : `: ${detail}`}`,

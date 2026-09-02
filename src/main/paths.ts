@@ -1,16 +1,23 @@
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import { app } from 'electron';
+
+function ensureDir(dir: string): string {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 export function bundledDockerDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'docker') : join(app.getAppPath(), 'docker');
 }
 
+export function userDataDir(): string {
+  return ensureDir(app.getPath('userData'));
+}
+
 export function userDockerDir(): string {
-  const dir = join(app.getPath('userData'), 'docker');
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  return dir;
+  return ensureDir(join(app.getPath('userData'), 'docker'));
 }
 
 export function dockerfilePath(): string {
@@ -23,4 +30,14 @@ export function postCreatePath(): string {
 
 export function setupPath(): string {
   return join(userDockerDir(), 'setup.sh');
+}
+
+/**
+ * True when `target` is `root` itself or sits under it. Both must already be
+ * resolved: this is the containment test that keeps "reveal this folder" and
+ * tar extraction from following a path back out of the directory they were
+ * handed.
+ */
+export function isInside(root: string, target: string): boolean {
+  return target === root || target.startsWith(root + sep);
 }
