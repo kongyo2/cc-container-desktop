@@ -23,12 +23,16 @@ export function ensureImageSources(force = false): void {
   }
 }
 
+function readTextOr(path: string, fallback: string): string {
+  return existsSync(path) ? readFileSync(path, 'utf8') : fallback;
+}
+
 export function readImageSources(): ImageSources {
   ensureImageSources();
   return {
-    dockerfile: existsSync(dockerfilePath()) ? readFileSync(dockerfilePath(), 'utf8') : '',
-    setup: existsSync(setupPath()) ? readFileSync(setupPath(), 'utf8') : '',
-    postCreate: existsSync(postCreatePath()) ? readFileSync(postCreatePath(), 'utf8') : '',
+    dockerfile: readTextOr(dockerfilePath(), ''),
+    setup: readTextOr(setupPath(), ''),
+    postCreate: readTextOr(postCreatePath(), ''),
     dir: userDockerDir(),
   };
 }

@@ -2,6 +2,7 @@ import type { BrowserWindow } from 'electron';
 
 import { EVENTS } from '../shared/ipc.ts';
 import type { LogLine } from '../shared/types.ts';
+import { sendToWindow } from './window.ts';
 
 let target: BrowserWindow | null = null;
 
@@ -26,9 +27,7 @@ export function log(stream: LogLine['stream'], level: LogLine['level'], text: st
   else if (level === 'warn') console.warn(prefix, text);
   else console.log(prefix, text);
 
-  if (target !== null && !target.isDestroyed()) {
-    target.webContents.send(EVENTS.log, line);
-  }
+  sendToWindow(target, EVENTS.log, line);
 }
 
 export function logInfo(stream: LogLine['stream'], text: string): void {
@@ -44,9 +43,7 @@ export function logError(stream: LogLine['stream'], text: string): void {
 }
 
 export function notifyStateChanged(): void {
-  if (target !== null && !target.isDestroyed()) {
-    target.webContents.send(EVENTS.stateChanged);
-  }
+  sendToWindow(target, EVENTS.stateChanged);
 }
 
 export function describeError(error: unknown): string {

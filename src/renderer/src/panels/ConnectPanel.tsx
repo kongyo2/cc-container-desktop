@@ -13,7 +13,8 @@ import {
 import type { JSX } from 'react';
 import { useState } from 'react';
 
-import { Check, formatBytes, formatTime, Section } from '../components/ui.tsx';
+import { activeProfileOf } from '../../../shared/profiles.ts';
+import { Check, ConfirmBanner, formatBytes, formatTime, Section } from '../components/ui.tsx';
 import { LogPane } from '../components/LogPane.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
@@ -37,7 +38,7 @@ export function ConnectPanel(): JSX.Element {
 
   const { docker, image, container, config } = snapshot;
   const working = busy !== null;
-  const activeProfile = config.profiles.find((profile) => profile.id === config.activeProfileId) ?? null;
+  const activeProfile = activeProfileOf(config);
 
   return (
     <>
@@ -152,9 +153,10 @@ export function ConnectPanel(): JSX.Element {
         </div>
 
         {confirmRemove === 'none' ? null : (
-          <div className="banner error" style={{ marginTop: 12 }}>
-            <span>
-              {confirmRemove === 'volume'
+          <ConfirmBanner
+            spaced
+            message={
+              confirmRemove === 'volume'
                 ? pick(
                     language,
                     'ボリュームごと削除すると、コンテナ内の設定とワークスペースが完全に消えます。先に取り出しましたか？',
@@ -164,24 +166,15 @@ export function ConnectPanel(): JSX.Element {
                     language,
                     'コンテナを削除します。ボリュームは残るので、設定とワークスペースは維持されます。',
                     'This removes the container. The volume stays, so settings and the workspace survive.',
-                  )}
-            </span>
-            <span className="spacer" />
-            <button
-              className="btn danger sm"
-              onClick={() => {
-                const withVolume = confirmRemove === 'volume';
-                setConfirmRemove('none');
-                void run('container', () => window.cc.containerRemove(withVolume));
-              }}
-              type="button"
-            >
-              {t('commonYes')}
-            </button>
-            <button className="btn sm" onClick={() => setConfirmRemove('none')} type="button">
-              {t('commonCancel')}
-            </button>
-          </div>
+                  )
+            }
+            onConfirm={() => {
+              const withVolume = confirmRemove === 'volume';
+              setConfirmRemove('none');
+              void run('container', () => window.cc.containerRemove(withVolume));
+            }}
+            onCancel={() => setConfirmRemove('none')}
+          />
         )}
       </Section>
 
@@ -266,39 +259,33 @@ export function ConnectPanel(): JSX.Element {
         </div>
 
         {confirmReset ? (
-          <div className="banner error" style={{ marginTop: 12 }}>
-            <span>
-              {t('resetConfirm')}
-              {config.exportBeforeReset ? '' : ` ${t('resetWarnNoExport')}`}
-            </span>
-            <span className="spacer" />
-            <button
-              className="btn danger sm"
-              onClick={() => {
-                setConfirmReset(false);
-                void (async () => {
-                  const summary = await run('reset', () =>
-                    window.cc.containerReset({
-                      exportFirst: config.exportBeforeReset,
-                      rebuildImage: rebuildOnReset,
-                    }),
-                  );
-                  if (summary === null) return;
-                  setToast(
-                    summary.exportedTo === null
-                      ? t('resetDone')
-                      : `${t('resetDone')} — ${t('resetExported')}: ${summary.exportedTo}`,
-                  );
-                })();
-              }}
-              type="button"
-            >
-              {t('commonYes')}
-            </button>
-            <button className="btn sm" onClick={() => setConfirmReset(false)} type="button">
-              {t('commonCancel')}
-            </button>
-          </div>
+          <ConfirmBanner
+            spaced
+            message={
+              <>
+                {t('resetConfirm')}
+                {config.exportBeforeReset ? '' : ` ${t('resetWarnNoExport')}`}
+              </>
+            }
+            onConfirm={() => {
+              setConfirmReset(false);
+              void (async () => {
+                const summary = await run('reset', () =>
+                  window.cc.containerReset({
+                    exportFirst: config.exportBeforeReset,
+                    rebuildImage: rebuildOnReset,
+                  }),
+                );
+                if (summary === null) return;
+                setToast(
+                  summary.exportedTo === null
+                    ? t('resetDone')
+                    : `${t('resetDone')} — ${t('resetExported')}: ${summary.exportedTo}`,
+                );
+              })();
+            }}
+            onCancel={() => setConfirmReset(false)}
+          />
         ) : null}
       </Section>
 

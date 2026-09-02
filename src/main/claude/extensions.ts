@@ -97,6 +97,20 @@ function preserveInvalid(
   }
 }
 
+function recordAt(source: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = source[key];
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function assignMerged(
+  target: Record<string, unknown>,
+  key: string,
+  merged: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  if (Object.keys(merged).length > 0 || Object.hasOwn(source, key)) target[key] = merged;
+}
+
 export interface ExtensionPlan {
   readonly claudeJson: Record<string, unknown>;
   readonly settings: Record<string, unknown>;
@@ -124,10 +138,7 @@ export function planExtensions(
     }
     nextServers[server.name] = mcpEntry(server);
   }
-  const existingServers =
-    typeof currentClaudeJson['mcpServers'] === 'object' && currentClaudeJson['mcpServers'] !== null
-      ? (currentClaudeJson['mcpServers'] as Record<string, unknown>)
-      : {};
+  const existingServers = recordAt(currentClaudeJson, 'mcpServers');
   preserveInvalid(nextServers, existingServers, managed.mcpServers, invalidServerNames, warnings);
   const servers = reconcile(existingServers, nextServers, managed.mcpServers, 'mcp', warnings);
 
@@ -156,10 +167,7 @@ export function planExtensions(
     }
     nextMarkets[name] = market.autoUpdate ? { source, autoUpdate: true } : { source };
   }
-  const existingMarkets =
-    typeof currentSettings['extraKnownMarketplaces'] === 'object' && currentSettings['extraKnownMarketplaces'] !== null
-      ? (currentSettings['extraKnownMarketplaces'] as Record<string, unknown>)
-      : {};
+  const existingMarkets = recordAt(currentSettings, 'extraKnownMarketplaces');
   preserveInvalid(nextMarkets, existingMarkets, managed.marketplaces, invalidMarketNames, warnings);
   const markets = reconcile(existingMarkets, nextMarkets, managed.marketplaces, 'marketplace', warnings);
 
@@ -175,24 +183,15 @@ export function planExtensions(
     }
     nextPlugins[`${name}@${market}`] = plugin.enabled;
   }
-  const existingPlugins =
-    typeof currentSettings['enabledPlugins'] === 'object' && currentSettings['enabledPlugins'] !== null
-      ? (currentSettings['enabledPlugins'] as Record<string, unknown>)
-      : {};
+  const existingPlugins = recordAt(currentSettings, 'enabledPlugins');
   const plugins = reconcile(existingPlugins, nextPlugins, managed.plugins, 'plugin', warnings);
 
   const claudeJson: Record<string, unknown> = {};
-  if (Object.keys(servers.merged).length > 0 || Object.hasOwn(currentClaudeJson, 'mcpServers')) {
-    claudeJson['mcpServers'] = servers.merged;
-  }
+  assignMerged(claudeJson, 'mcpServers', servers.merged, currentClaudeJson);
 
   const settings: Record<string, unknown> = {};
-  if (Object.keys(markets.merged).length > 0 || Object.hasOwn(currentSettings, 'extraKnownMarketplaces')) {
-    settings['extraKnownMarketplaces'] = markets.merged;
-  }
-  if (Object.keys(plugins.merged).length > 0 || Object.hasOwn(currentSettings, 'enabledPlugins')) {
-    settings['enabledPlugins'] = plugins.merged;
-  }
+  assignMerged(settings, 'extraKnownMarketplaces', markets.merged, currentSettings);
+  assignMerged(settings, 'enabledPlugins', plugins.merged, currentSettings);
 
   return {
     claudeJson,

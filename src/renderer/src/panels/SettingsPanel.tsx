@@ -2,7 +2,7 @@ import { Code2, Copy, FileCode2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 
-import type { Language } from '../../../shared/types.ts';
+import type { AppConfig, Language } from '../../../shared/types.ts';
 import { Check, DeferredTextField, Field, Section } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
@@ -17,6 +17,17 @@ export function SettingsPanel(): JSX.Element {
 
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
   const { config } = snapshot;
+
+  const save = (patch: Partial<AppConfig>): void => {
+    void run('config', () => window.cc.configSave(patch));
+  };
+
+  const saveName =
+    (patch: (name: string) => Partial<AppConfig>) =>
+    (value: string): void => {
+      const name = value.trim();
+      if (name !== '') save(patch(name));
+    };
 
   return (
     <>
@@ -34,51 +45,39 @@ export function SettingsPanel(): JSX.Element {
         <Check
           label={t('settingsAutoOnboarding')}
           checked={config.autoOnboarding}
-          onChange={(checked) => void run('config', () => window.cc.configSave({ autoOnboarding: checked }))}
+          onChange={(autoOnboarding) => save({ autoOnboarding })}
         />
         <Check
           label={t('settingsAutoApprove')}
           checked={config.autoApproveApiKey}
-          onChange={(checked) => void run('config', () => window.cc.configSave({ autoApproveApiKey: checked }))}
+          onChange={(autoApproveApiKey) => save({ autoApproveApiKey })}
         />
         <Check
           label={t('settingsSkipPermissions')}
           checked={config.skipPermissions}
-          onChange={(checked) => void run('config', () => window.cc.configSave({ skipPermissions: checked }))}
+          onChange={(skipPermissions) => save({ skipPermissions })}
         />
 
         <div className="grid2" style={{ marginTop: 10 }}>
           <DeferredTextField
             label={t('settingsTmuxSession')}
             value={config.tmuxSession}
-            onCommit={(value) => {
-              if (value.trim() === '') return;
-              void run('config', () => window.cc.configSave({ tmuxSession: value.trim() }));
-            }}
+            onCommit={saveName((tmuxSession) => ({ tmuxSession }))}
           />
           <DeferredTextField
             label={t('settingsContainerName')}
             value={config.containerName}
-            onCommit={(value) => {
-              if (value.trim() === '') return;
-              void run('config', () => window.cc.configSave({ containerName: value.trim() }));
-            }}
+            onCommit={saveName((containerName) => ({ containerName }))}
           />
           <DeferredTextField
             label={t('settingsImageTag')}
             value={config.imageTag}
-            onCommit={(value) => {
-              if (value.trim() === '') return;
-              void run('config', () => window.cc.configSave({ imageTag: value.trim() }));
-            }}
+            onCommit={saveName((imageTag) => ({ imageTag }))}
           />
           <DeferredTextField
             label={t('settingsVolumeName')}
             value={config.volumeName}
-            onCommit={(value) => {
-              if (value.trim() === '') return;
-              void run('config', () => window.cc.configSave({ volumeName: value.trim() }));
-            }}
+            onCommit={saveName((volumeName) => ({ volumeName }))}
           />
         </div>
         <p className="hint">

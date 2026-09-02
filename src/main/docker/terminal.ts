@@ -9,6 +9,7 @@ import type { OpenTerminalRequest, OpenTerminalResult } from '../../shared/types
 import { claudeLaunchCommand } from '../claude/provision.ts';
 import { describeError, logWarn } from '../logger.ts';
 import { containerHandle, execCapture, listTmuxSessions } from './container.ts';
+import { sendToWindow } from '../window.ts';
 import type { BrowserWindow } from 'electron';
 
 interface Session {
@@ -30,7 +31,7 @@ export function setTerminalTarget(window: BrowserWindow | null): void {
 }
 
 function send(channel: string, payload: unknown): void {
-  if (target !== null && !target.isDestroyed()) target.webContents.send(channel, payload);
+  sendToWindow(target, channel, payload);
 }
 
 function shellQuote(value: string): string {

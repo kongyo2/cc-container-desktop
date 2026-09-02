@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 import * as tarFs from 'tar-fs';
@@ -9,6 +9,7 @@ import * as tarStream from 'tar-stream';
 import { CONTAINER_GID, CONTAINER_UID, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import type { FileEntry, FileKind } from '../../shared/types.ts';
 import { logInfo, logWarn } from '../logger.ts';
+import { isInside } from '../paths.ts';
 import { containerHandle, execCapture } from './container.ts';
 
 const LIST_SCRIPT = `
@@ -200,7 +201,7 @@ function escapes(root: string, name: string, header: { type?: string; linkname?:
   const link = header.linkname ?? '';
   if (link === '') return true;
   const target = header.type === 'link' ? resolve(root, link.replace(/^\/+/u, '')) : resolve(dirname(name), link);
-  return target !== root && !target.startsWith(root + sep);
+  return !isInside(root, target);
 }
 
 export interface ExportResult {

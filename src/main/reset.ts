@@ -1,7 +1,7 @@
 import type { ResetRequest } from '../shared/ipc.ts';
 import type { ResetSummary } from '../shared/types.ts';
 import { provisionContainer } from './claude/provision.ts';
-import { getConfig, saveConfig } from './config/store.ts';
+import { getConfig, rememberExportDir } from './config/store.ts';
 import {
   inspectContainer,
   removeContainer,
@@ -52,7 +52,7 @@ export async function resetContainer(request: ResetRequest, destination: string 
 
   const exported = request.exportFirst ? await exportFirst(destination) : null;
   if (exported !== null && exported.path !== '' && destination !== null) {
-    saveConfig({ ...getConfig(), lastExportDir: destination });
+    rememberExportDir(destination);
   }
 
   if (request.rebuildImage) {

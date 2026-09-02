@@ -1,7 +1,13 @@
 import type { JSX, ReactNode } from 'react';
 import { useState } from 'react';
 
+import { useT } from '../i18n.ts';
+
 export type Tone = 'ok' | 'warn' | 'err' | 'idle';
+
+export function hintProps(hint: string | undefined): { hint?: string } {
+  return hint === undefined ? {} : { hint };
+}
 
 export function Pill({ tone, children }: { tone: Tone; children: ReactNode }): JSX.Element {
   const lamp = tone === 'ok' ? 'live' : tone === 'warn' ? 'hold' : tone === 'err' ? 'fault' : 'off';
@@ -62,7 +68,7 @@ export function TextField({
   mono?: boolean;
 }): JSX.Element {
   return (
-    <Field label={label} {...(hint === undefined ? {} : { hint })}>
+    <Field label={label} {...hintProps(hint)}>
       <input
         type={type}
         value={value}
@@ -103,7 +109,7 @@ export function DeferredTextField({
   };
 
   return (
-    <Field label={label} {...(hint === undefined ? {} : { hint })}>
+    <Field label={label} {...hintProps(hint)}>
       <input
         type={type}
         value={shown}
@@ -138,6 +144,34 @@ export function Check({
   );
 }
 
+export function NumberField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+}): JSX.Element {
+  const t = useT();
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        type="number"
+        min={1000}
+        value={value ?? ''}
+        placeholder={t('commonUnset')}
+        onChange={(event) => {
+          const parsed = Number.parseInt(event.target.value, 10);
+          onChange(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+        }}
+      />
+    </Field>
+  );
+}
+
 export function Banner({
   kind,
   children,
@@ -156,6 +190,32 @@ export function Banner({
           ×
         </button>
       )}
+    </div>
+  );
+}
+
+export function ConfirmBanner({
+  message,
+  onConfirm,
+  onCancel,
+  spaced = false,
+}: {
+  message: ReactNode;
+  onConfirm: () => void;
+  onCancel: () => void;
+  spaced?: boolean;
+}): JSX.Element {
+  const t = useT();
+  return (
+    <div className="banner error" style={spaced ? { marginTop: 12 } : undefined}>
+      <span>{message}</span>
+      <span className="spacer" />
+      <button className="btn danger sm" onClick={onConfirm} type="button">
+        {t('commonYes')}
+      </button>
+      <button className="btn sm" onClick={onCancel} type="button">
+        {t('commonCancel')}
+      </button>
     </div>
   );
 }
