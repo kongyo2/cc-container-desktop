@@ -1,11 +1,28 @@
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { _electron as electron } from 'playwright';
+// The interactive path against a live endpoint: Claude Code's TUI inside a task,
+// a conversation that survives a closed tab, and MCP + skills reaching the
+// model. Needs Docker, a built image and CC_E2E_API_KEY.
+
+import {
+  call,
+  check,
+  finish,
+  harnessFailure,
+  isTransient,
+  launchIsolated,
+  ok,
+  readContainerFile,
+  selectTask,
+  sh,
+  shellQuote,
+  shoot,
+  taskById,
+  TASK_PREFIX,
+  writeContainerFile,
+} from './helpers.mjs';
 
 const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
 const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
 const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
-const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
 const LIVE_SKILL_SOURCE = '/home/claude/workspace/live-skill-source';
 
 if (API_KEY === '') {
@@ -13,56 +30,13 @@ if (API_KEY === '') {
   process.exit(2);
 }
 
-let failures = 0;
-let step = 0;
-
-function check(label, condition, detail = '') {
-  step += 1;
-  const tag = String(step).padStart(2, '0');
-  if (condition) console.log(`  ✓ ${tag} ${label}${detail === '' ? '' : ` — ${detail}`}`);
-  else {
-    failures += 1;
-    console.error(`  ✗ ${tag} ${label} — ${detail === '' ? 'assertion failed' : detail}`);
-  }
-  return condition;
-}
-
-async function call(page, method, args = []) {
-  const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
-  if (result === null || typeof result !== 'object' || !('ok' in result)) {
-    throw new Error(`${method}: unexpected reply ${JSON.stringify(result)}`);
-  }
-  return result;
-}
-
-async function ok(page, method, args = []) {
-  const result = await call(page, method, args);
-  if (!result.ok) throw new Error(`${method}: ${result.error}`);
-  return result.value;
-}
-
-function isTransient(text) {
-  return /rate.?limit|429|50[234]|overloaded|temporarily|empty or malformed response|Provider returned error/iu.test(
-    text,
-  );
-}
-
-function shellQuote(value) {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
 /* oxlint-disable no-await-in-loop -- retry and polling loops are sequential by nature */
 
-async function prompt(page, text, { model = '', attempts = 4 } = {}) {
+async function prompt(page, taskId, text, { model = '', attempts = 4 } = {}) {
   const modelFlag = model === '' ? '' : ` --model ${model}`;
   let last = { exitCode: -1, stdout: '', stderr: '' };
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    last = await ok(page, 'containerExec', [
-      {
-        command: ['bash', '-lc', `claude --dangerously-skip-permissions${modelFlag} -p ${shellQuote(text)}`],
-        asRoot: false,
-      },
-    ]);
+    last = await sh(page, taskId, `claude --dangerously-skip-permissions${modelFlag} -p ${shellQuote(text)}`);
     const combined = `${last.stdout}${last.stderr}`;
     if (last.exitCode === 0 || !isTransient(combined)) return last;
     console.log(`    … upstream busy, retrying (${attempt}/${attempts})`);
@@ -104,22 +78,14 @@ async function waitForTerminal(page, predicate, timeoutMs) {
 
 /* oxlint-enable no-await-in-loop */
 
-async function shoot(page, name) {
-  if (SHOT_DIR === '') return;
-  mkdirSync(SHOT_DIR, { recursive: true });
-  await page.screenshot({ path: join(SHOT_DIR, `${name}.png`) });
-}
-
-const app = await electron.launch({ args: ['.', '--no-sandbox', '--disable-gpu'] });
+const session = await launchIsolated();
+const { page } = session;
 
 try {
-  const page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
-  await page.waitForTimeout(800);
-
-  console.log('\n[1] set up the endpoint');
+  console.log('\n[1] set up the endpoint and a task');
   const snapshot = await ok(page, 'snapshot');
+  if (!snapshot.docker.available) throw new Error('docker is not available');
+  if (!snapshot.image.exists) throw new Error('the image is not built; run the workbench suite first');
   const profile = {
     ...snapshot.config.profiles[0],
     id: 'live-profile',
@@ -138,41 +104,43 @@ try {
     note: 'live suite',
   };
   await ok(page, 'profileUpsert', [profile]);
-  await ok(page, 'profileActivate', [profile.id]);
   await ok(page, 'secretSet', [profile.id, API_KEY]);
-  await ok(page, 'containerUp');
-  await ok(page, 'containerProvision');
-  check('container ready', (await ok(page, 'snapshot')).container.running === true);
+  const created = await session.createTask({ name: `${TASK_PREFIX}live`, profileId: profile.id });
+  const task = created.task;
+  check('task ready', taskById(await ok(page, 'snapshot'), task.id)?.container.running === true);
 
   console.log('\n[2] the model answers at all');
   const marker = `LIVE-${Date.now().toString(36).toUpperCase()}`;
-  const echo = await prompt(page, `Reply with exactly this token and nothing else: ${marker}`);
+  const echo = await prompt(page, task.id, `Reply with exactly this token and nothing else: ${marker}`);
   check('headless prompt exited 0', echo.exitCode === 0, `${echo.stderr}`.slice(0, 300));
   check('model echoed the token', `${echo.stdout}`.includes(marker), `${echo.stdout}`.slice(0, 300));
 
   console.log('\n[3] Claude Code can use its tools inside the container');
-  await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'rm -f ~/workspace/live-tool-check.txt'], asRoot: false },
-  ]);
+  await sh(page, task.id, 'rm -f ~/workspace/live-tool-check.txt');
   const toolRun = await prompt(
     page,
+    task.id,
     'Create a file at /home/claude/workspace/live-tool-check.txt whose entire content is the single line ' +
       'TOOL-WRITE-OK. Use your file tools. Reply with DONE when the file exists.',
   );
   check('tool-use prompt exited 0', toolRun.exitCode === 0, `${toolRun.stderr}`.slice(0, 300));
-  const written = await call(page, 'fsRead', ['/home/claude/workspace/live-tool-check.txt']);
+  const written = await sh(page, task.id, 'cat ~/workspace/live-tool-check.txt');
   check(
     'Claude Code wrote the file through its own tools',
-    written.ok === true && written.value.includes('TOOL-WRITE-OK'),
-    written.ok ? JSON.stringify(written.value).slice(0, 200) : written.error,
+    written.exitCode === 0 && written.stdout.includes('TOOL-WRITE-OK'),
+    written.stdout.slice(0, 200),
   );
 
   const readBackMarker = `READ-${Date.now().toString(36).toUpperCase()}`;
-  await ok(page, 'fsWrite', [
-    { path: '/home/claude/workspace/live-read-check.txt', content: `secret token: ${readBackMarker}\n` },
-  ]);
+  await writeContainerFile(
+    page,
+    task.id,
+    '/home/claude/workspace/live-read-check.txt',
+    `secret token: ${readBackMarker}\n`,
+  );
   const readRun = await prompt(
     page,
+    task.id,
     'Read /home/claude/workspace/live-read-check.txt and reply with only the token it contains.',
   );
   check(
@@ -181,7 +149,7 @@ try {
     `${readRun.stdout}`.slice(0, 300),
   );
 
-  const bashRun = await prompt(page, 'Run the shell command `id -un` and reply with only its output.');
+  const bashRun = await prompt(page, task.id, 'Run the shell command `id -un` and reply with only its output.');
   check(
     'Claude Code can run shell commands in the container',
     `${bashRun.stdout}`.includes('claude'),
@@ -192,7 +160,7 @@ try {
   /* oxlint-disable no-await-in-loop */
   for (const alias of ['sonnet', 'haiku']) {
     const aliasMarker = `ALIAS-${alias.toUpperCase()}`;
-    const aliasRun = await prompt(page, `Reply with exactly: ${aliasMarker}`, { model: alias });
+    const aliasRun = await prompt(page, task.id, `Reply with exactly: ${aliasMarker}`, { model: alias });
     check(
       `--model ${alias} resolves and answers`,
       aliasRun.exitCode === 0 && `${aliasRun.stdout}`.includes(aliasMarker),
@@ -201,19 +169,14 @@ try {
   }
   /* oxlint-enable no-await-in-loop */
 
-  console.log('\n[4b] MCP and skills reach the model');
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        `mkdir -p ${LIVE_SKILL_SOURCE}/live-probe && printf '%s\\n' '---' 'name: live-probe' ` +
-          `'description: Reveals the end-to-end probe marker. Use when asked for the live probe marker.' '---' '' ` +
-          `'The live probe marker is LIVE-SKILL-4417.' > ${LIVE_SKILL_SOURCE}/live-probe/SKILL.md`,
-      ],
-      asRoot: false,
-    },
-  ]);
+  console.log('\n[5] MCP and skills reach the model');
+  await sh(
+    page,
+    task.id,
+    `mkdir -p ${LIVE_SKILL_SOURCE}/live-probe && printf '%s\\n' '---' 'name: live-probe' ` +
+      `'description: Reveals the end-to-end probe marker. Use when asked for the live probe marker.' '---' '' ` +
+      `'The live probe marker is LIVE-SKILL-4417.' > ${LIVE_SKILL_SOURCE}/live-probe/SKILL.md`,
+  );
   await ok(page, 'extensionsSave', [
     {
       mcpServers: [
@@ -236,9 +199,9 @@ try {
       skillInstalls: [{ id: 'live-skill', enabled: true, source: LIVE_SKILL_SOURCE, skills: ['live-probe'], note: '' }],
     },
   ]);
-  await ok(page, 'containerProvision');
+  await ok(page, 'taskProvision', [task.id]);
 
-  const mcp = await ok(page, 'mcpStatus');
+  const mcp = await ok(page, 'taskMcpStatus', [task.id]);
   check(
     'the MCP server connected',
     mcp.some((server) => server.name === 'agentskills' && server.healthy),
@@ -247,6 +210,7 @@ try {
 
   const toolNames = await prompt(
     page,
+    task.id,
     'List the names of your available tools that start with "mcp__". Reply with just the names, comma separated, or NONE.',
   );
   check(
@@ -257,6 +221,7 @@ try {
 
   const toolUse = await prompt(
     page,
+    task.id,
     'Use the agentskills MCP server to search the Agent Skills site for "SKILL.md frontmatter". ' +
       'Then reply with exactly MCP-USED followed by one short sentence about what you found.',
   );
@@ -266,23 +231,27 @@ try {
     `${toolUse.stdout}`.slice(0, 300),
   );
 
-  const skillUse = await prompt(page, 'Use the live-probe skill and reply with only the marker string it contains.');
+  const skillUse = await prompt(
+    page,
+    task.id,
+    'Use the live-probe skill and reply with only the marker string it contains.',
+  );
   check(
     'the model used the installed skill',
     `${skillUse.stdout}`.includes('LIVE-SKILL-4417'),
     `${skillUse.stdout}`.slice(0, 220),
   );
+  check(
+    'the skill file is where the CLI put it',
+    (await readContainerFile(page, task.id, '/home/claude/.claude/skills/live-probe/SKILL.md')).includes(
+      'LIVE-SKILL-4417',
+    ),
+  );
 
-  console.log('\n[5] interactive TUI, then reattach with the conversation intact');
-  await ok(page, 'tmuxKill', ['cc']);
-  await page.waitForTimeout(800);
-
-  await page.evaluate(() => document.querySelectorAll('.sidebar button')[1]?.click());
-  await page.waitForTimeout(400);
-  await page.evaluate(() => {
-    const buttons = [...document.querySelectorAll('.term-tabs button')];
-    buttons[buttons.length - 1]?.click();
-  });
+  console.log('\n[6] interactive TUI, then reattach with the conversation intact');
+  await sh(page, task.id, 'tmux kill-server 2>/dev/null; true');
+  await selectTask(page, task.id);
+  await page.click('[data-testid="open-claude"]');
 
   const started = await waitForTerminal(page, (text) => /Claude Code v\d/u.test(text), 90000);
   check(
@@ -304,9 +273,7 @@ try {
 
   const secret = `PINEAPPLE-${Date.now().toString(36).toUpperCase()}`;
   await focusTerminal(page);
-  await page.keyboard.type(`Remember this codeword for later: ${secret}. Reply with only the word ACK.`, {
-    delay: 12,
-  });
+  await page.keyboard.type(`Remember this codeword for later: ${secret}. Reply with only the word ACK.`, { delay: 12 });
   const echoed = await waitForTerminal(page, (text) => text.includes(secret), 15000);
   check('typed text reached the terminal', echoed.matched, echoed.text.replace(/\s+/gu, ' ').slice(-200));
   await page.keyboard.press('Enter');
@@ -316,24 +283,13 @@ try {
 
   await page.evaluate(() => document.querySelector('.term-tabs .tab .x')?.click());
   await page.waitForTimeout(2500);
-  const sessionsAfterClose = await ok(page, 'tmuxList');
-  check(
-    'tmux session outlived the closed tab',
-    sessionsAfterClose.some((session) => session.name === 'cc'),
-    JSON.stringify(sessionsAfterClose),
-  );
-  check(
-    'closing the tab detached its tmux client',
-    sessionsAfterClose.find((session) => session.name === 'cc')?.attached === false,
-    JSON.stringify(sessionsAfterClose),
-  );
+  const afterClose = await sh(page, task.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  check('tmux session outlived the closed tab', /^cc /mu.test(afterClose.stdout), afterClose.stdout.trim());
+  check('closing the tab detached its tmux client', /^cc 0$/mu.test(afterClose.stdout), afterClose.stdout.trim());
   const noTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
   check('terminal tab is gone from the UI', noTabs === 0, String(noTabs));
 
-  await page.evaluate(() => {
-    const buttons = [...document.querySelectorAll('.term-tabs button')];
-    buttons[buttons.length - 1]?.click();
-  });
+  await page.click('[data-testid="open-claude"]');
   const reattached = await waitForTerminal(page, (text) => text.includes(secret), 90000);
   check(
     'reattached terminal still shows the earlier conversation',
@@ -360,15 +316,22 @@ try {
     recalled.text.replace(/\s+/gu, ' ').slice(-300),
   );
   await shoot(page, 'live-03-recall');
-} catch (error) {
-  step += 1;
-  failures += 1;
-  console.error(
-    `  ✗ ${String(step).padStart(2, '0')} harness — ${error instanceof Error ? error.stack : String(error)}`,
+
+  console.log('\n[7] the task survives the app itself');
+  await page.evaluate(() => document.querySelector('.term-tabs .tab .x')?.click());
+  await page.waitForTimeout(1500);
+  const stillRunning = await call(page, 'taskExec', [
+    task.id,
+    { command: ['tmux', 'has-session', '-t', 'cc'], asRoot: false },
+  ]);
+  check(
+    'the tmux session is still there for the next attach',
+    stillRunning.ok === true && stillRunning.value.exitCode === 0,
   );
+} catch (error) {
+  harnessFailure(error);
 } finally {
-  await app.close().catch(() => undefined);
+  await session.close();
 }
 
-console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`} (${step} checks)\n`);
-process.exit(failures === 0 ? 0 : 1);
+finish();

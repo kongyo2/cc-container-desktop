@@ -4,12 +4,12 @@
 #
 # This is the equivalent of a Claude Code cloud environment's setup script: what
 # it installs is baked into the image, which then acts as the snapshot every new
-# session starts from. Put slow, stable things here — toolchains, language
-# runtimes, package managers — and they survive "New session" for free.
+# task's container starts from. Put slow, stable things here — toolchains,
+# language runtimes, package managers — and every task gets them for free.
 #
 #   Dockerfile      the base image
-#   setup.sh        runs at BUILD time  -> baked in, survives a reset   (this file)
-#   post-create.sh  runs at START time  -> re-applied on every session
+#   setup.sh        runs at BUILD time  -> baked in, shared by every task   (this file)
+#   post-create.sh  runs at START time  -> re-applied whenever a task starts
 #
 # Editing this file marks the image stale; rebuild it from the Image tab.
 
@@ -22,8 +22,8 @@ set -euxo pipefail
 
 # --- global npm packages -----------------------------------------------------
 # Installed as root into /usr, deliberately outside /home/claude: the home
-# directory is a volume, and anything installed there would be frozen at
-# whatever first populated it and lost on a reset.
+# directory is a per-task volume, and anything installed there would be frozen
+# at whatever first populated it and missing from every other task.
 # npm install -g pnpm yarn typescript
 
 # --- python tooling ----------------------------------------------------------

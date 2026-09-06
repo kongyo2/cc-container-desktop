@@ -1,13 +1,16 @@
 import type { StoreApi, UseBoundStore } from 'zustand';
 import { create } from 'zustand';
 
-import type { LogLine, Result, Snapshot, TerminalKind } from '../../shared/types.ts';
+import type { LogLine, Result, Snapshot, TaskView, TerminalKind } from '../../shared/types.ts';
 
-export type TabId = 'connect' | 'terminal' | 'files' | 'profiles' | 'extensions' | 'image' | 'settings';
+export type View = 'tasks' | 'newTask' | 'profiles' | 'extensions' | 'image' | 'log' | 'settings';
 
-export interface PendingTerminal {
+export interface TerminalTab {
+  readonly key: string;
+  readonly taskId: string;
   readonly kind: TerminalKind;
-  readonly nonce: number;
+  readonly id: string | null;
+  readonly exited: boolean;
 }
 
 export interface LogEntry extends LogLine {
@@ -15,48 +18,73 @@ export interface LogEntry extends LogLine {
 }
 
 let logSeq = 0;
+let tabSeq = 0;
 
 const LOG_LIMIT = 800;
 
 export interface UiState {
   snapshot: Snapshot | null;
-  tab: TabId;
+  view: View;
+  selectedTaskId: string | null;
   busy: string | null;
   error: string | null;
   toast: string | null;
   logs: LogEntry[];
-  pendingTerminal: PendingTerminal | null;
+  tabs: TerminalTab[];
+  activeTab: Record<string, string>;
 
-  setTab: (tab: TabId) => void;
+  setView: (view: View) => void;
+  selectTask: (id: string) => void;
   setError: (error: string | null) => void;
   setToast: (toast: string | null) => void;
   appendLog: (line: LogLine) => void;
   clearLogs: () => void;
-  requestTerminal: (kind: TerminalKind) => void;
-  clearPendingTerminal: () => void;
+  openTab: (taskId: string, kind: TerminalKind) => void;
+  closeTab: (key: string) => void;
+  activateTab: (taskId: string, key: string) => void;
+  markTabOpened: (key: string, id: string) => void;
+  markTabExited: (key: string) => void;
+  dropTaskTabs: (taskId: string) => void;
   refresh: () => Promise<void>;
   run: <T>(label: string, call: () => Promise<Result<T>>) => Promise<T | null>;
 }
 
+function nextActive(
+  tabs: readonly TerminalTab[],
+  active: Record<string, string>,
+  taskId: string,
+): Record<string, string> {
+  const remaining = tabs.filter((tab) => tab.taskId === taskId);
+  const current = active[taskId];
+  if (current !== undefined && remaining.some((tab) => tab.key === current)) return active;
+  const next = { ...active };
+  const last = remaining[remaining.length - 1];
+  if (last === undefined) delete next[taskId];
+  else next[taskId] = last.key;
+  return next;
+}
+
+/** Keeps the selection on a task that still exists, falling back to the first one. */
+function reconcileSelection(snapshot: Snapshot, selectedTaskId: string | null): string | null {
+  if (selectedTaskId !== null && snapshot.tasks.some((view) => view.task.id === selectedTaskId)) return selectedTaskId;
+  return snapshot.tasks[0]?.task.id ?? null;
+}
+
 export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, get) => ({
   snapshot: null,
-  tab: 'connect',
+  view: 'tasks',
+  selectedTaskId: null,
   busy: null,
   error: null,
   toast: null,
   logs: [],
-  pendingTerminal: null,
+  tabs: [],
+  activeTab: {},
 
-  setTab: (tab) => set({ tab }),
+  setView: (view) => set({ view }),
+  selectTask: (id) => set({ selectedTaskId: id, view: 'tasks' }),
   setError: (error) => set({ error }),
   setToast: (toast) => set({ toast }),
-
-  requestTerminal: (kind) =>
-    set((state) => ({
-      tab: 'terminal',
-      pendingTerminal: { kind, nonce: (state.pendingTerminal?.nonce ?? 0) + 1 },
-    })),
-  clearPendingTerminal: () => set({ pendingTerminal: null }),
 
   appendLog: (line) =>
     set((state) => {
@@ -67,10 +95,51 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
 
   clearLogs: () => set({ logs: [] }),
 
+  openTab: (taskId, kind) =>
+    set((state) => {
+      tabSeq += 1;
+      const key = `t${tabSeq}`;
+      return {
+        tabs: [...state.tabs, { key, taskId, kind, id: null, exited: false }],
+        activeTab: { ...state.activeTab, [taskId]: key },
+        selectedTaskId: taskId,
+        view: 'tasks',
+      };
+    }),
+
+  closeTab: (key) =>
+    set((state) => {
+      const closing = state.tabs.find((tab) => tab.key === key);
+      if (closing === undefined) return {};
+      const tabs = state.tabs.filter((tab) => tab.key !== key);
+      return { tabs, activeTab: nextActive(tabs, state.activeTab, closing.taskId) };
+    }),
+
+  activateTab: (taskId, key) => set((state) => ({ activeTab: { ...state.activeTab, [taskId]: key } })),
+
+  markTabOpened: (key, id) =>
+    set((state) => ({ tabs: state.tabs.map((tab) => (tab.key === key ? { ...tab, id } : tab)) })),
+
+  markTabExited: (key) =>
+    set((state) => ({ tabs: state.tabs.map((tab) => (tab.key === key ? { ...tab, exited: true } : tab)) })),
+
+  dropTaskTabs: (taskId) =>
+    set((state) => {
+      const activeTab = { ...state.activeTab };
+      delete activeTab[taskId];
+      return { tabs: state.tabs.filter((tab) => tab.taskId !== taskId), activeTab };
+    }),
+
   refresh: async () => {
     const result = await window.cc.snapshot();
-    if (result.ok) set({ snapshot: result.value });
-    else set({ error: result.error });
+    if (result.ok) {
+      set((state) => ({
+        snapshot: result.value,
+        selectedTaskId: reconcileSelection(result.value, state.selectedTaskId),
+      }));
+    } else {
+      set({ error: result.error });
+    }
   },
 
   run: async (label, call) => {
@@ -91,3 +160,8 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
     }
   },
 }));
+
+export function selectedTaskView(state: UiState): TaskView | null {
+  if (state.snapshot === null || state.selectedTaskId === null) return null;
+  return state.snapshot.tasks.find((view) => view.task.id === state.selectedTaskId) ?? null;
+}

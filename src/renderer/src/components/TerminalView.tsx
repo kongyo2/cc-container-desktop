@@ -33,11 +33,10 @@ const THEME = {
 };
 
 export interface TerminalViewProps {
+  readonly taskId: string;
   readonly kind: TerminalKind;
-  readonly sessionName: string;
-  readonly sessionId?: string | undefined;
   readonly active: boolean;
-  readonly onOpened: (id: string, sessionName: string) => void;
+  readonly onOpened: (id: string) => void;
   readonly onExit: (exitCode: number | null) => void;
   readonly onError: (message: string) => void;
 }
@@ -111,9 +110,8 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
 
     void (async () => {
       const result = await window.cc.termOpen({
+        taskId: propsRef.current.taskId,
         kind: propsRef.current.kind,
-        sessionName: propsRef.current.sessionName,
-        ...(propsRef.current.sessionId === undefined ? {} : { sessionId: propsRef.current.sessionId }),
         cols: term.cols,
         rows: term.rows,
       });
@@ -125,12 +123,12 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
         return;
       }
       if (!result.ok) {
-        term.writeln(`\r\n[31m${result.error}[0m`);
+        term.writeln(`\r\n\u001b[31m${result.error}\u001b[0m`);
         propsRef.current.onError(result.error);
         return;
       }
       idRef.current = result.value.id;
-      propsRef.current.onOpened(result.value.id, result.value.sessionName);
+      propsRef.current.onOpened(result.value.id);
       if (pendingInput.length > 0) {
         const buffered = pendingInput.join('');
         pendingInput.length = 0;

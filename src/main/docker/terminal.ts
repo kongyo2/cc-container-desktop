@@ -3,17 +3,19 @@ import type { Container, Exec } from 'dockerode';
 import { randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
 
-import { CONTAINER_TERMINAL_RUNTIME, CONTAINER_WORKSPACE, sanitizeSessionName } from '../../shared/presets.ts';
+import { CLAUDE_TMUX_SESSION, CONTAINER_TERMINAL_RUNTIME, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import { EVENTS } from '../../shared/ipc.ts';
-import type { OpenTerminalRequest, OpenTerminalResult } from '../../shared/types.ts';
+import type { OpenTerminalRequest, OpenTerminalResult, TerminalsReset } from '../../shared/types.ts';
 import { claudeLaunchCommand } from '../claude/provision.ts';
 import { describeError, logWarn } from '../logger.ts';
-import { containerHandle, execCapture, listTmuxSessions } from './container.ts';
+import { containerHandle, execCapture } from './container.ts';
+import type { ContainerRef } from './container.ts';
 import { sendToWindow } from '../window.ts';
 import type { BrowserWindow } from 'electron';
 
 interface Session {
   readonly id: string;
+  readonly ref: ContainerRef;
   readonly stream: Duplex;
   readonly exec: Exec;
   readonly container: Container;
@@ -38,14 +40,10 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function tmuxCommandFor(request: OpenTerminalRequest, sessionName: string, sessionId: string | null): string {
+function commandFor(kind: OpenTerminalRequest['kind']): string {
+  if (kind === 'shell') return 'bash -l';
   const workspace = shellQuote(CONTAINER_WORKSPACE);
-
-  if (sessionId !== null) return `tmux attach-session -d -t ${shellQuote(sessionId)}`;
-
-  const attachOrCreate = `tmux new-session -A -D -s ${shellQuote(sessionName)} -c ${workspace}`;
-  if (request.kind === 'claude') return `${attachOrCreate} ${shellQuote(claudeLaunchCommand())}`;
-  return attachOrCreate;
+  return `tmux new-session -A -D -s ${shellQuote(CLAUDE_TMUX_SESSION)} -c ${workspace} ${shellQuote(claudeLaunchCommand())}`;
 }
 
 function runFilePath(id: string): string {
@@ -87,9 +85,12 @@ exit 0
 `;
 }
 
-async function releaseInContainer(container: Container, id: string): Promise<void> {
+async function releaseInContainer(session: Session): Promise<void> {
   try {
-    await execCapture(['bash', '-c', closeScript(id)], { workdir: '/', container });
+    await execCapture(session.ref, ['bash', '-c', closeScript(session.id)], {
+      workdir: '/',
+      container: session.container,
+    });
   } catch (error) {
     logWarn('app', `ターミナルの後始末をスキップしました / terminal cleanup skipped: ${describeError(error)}`);
   }
@@ -101,28 +102,12 @@ function sizeOf(request: OpenTerminalRequest): { cols: number; rows: number } {
   return { cols, rows };
 }
 
-async function resolveSessionId(request: OpenTerminalRequest): Promise<string | null> {
-  if (request.kind !== 'attach' || request.sessionId === undefined) return null;
-
-  const live = await listTmuxSessions();
-  const found = live.find((session) => session.id === request.sessionId && session.name === request.sessionName);
-  if (found === undefined) {
-    throw new Error(
-      `セッション ${request.sessionName} はもう存在しません。一覧を更新してください / session ${request.sessionName} is gone — refresh the list`,
-    );
-  }
-  return found.id;
-}
-
-export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTerminalResult> {
-  const sessionId = await resolveSessionId(request);
-  const sessionName = sessionId === null ? sanitizeSessionName(request.sessionName) : request.sessionName;
+export async function openTerminal(ref: ContainerRef, request: OpenTerminalRequest): Promise<OpenTerminalResult> {
   const { cols, rows } = sizeOf(request);
   const id = randomUUID();
+  const command = commandFor(request.kind);
 
-  const command = request.kind === 'shell' ? 'bash -l' : tmuxCommandFor(request, sessionName, sessionId);
-
-  const container = containerHandle();
+  const container = containerHandle(ref);
   const exec = await container.exec({
     Cmd: [...wrapCommand(id, command)],
     AttachStdin: true,
@@ -135,7 +120,8 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   });
 
   const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-  sessions.set(id, { id, stream, exec, container, cols: 0, rows: 0 });
+  const session: Session = { id, ref, stream, exec, container, cols: 0, rows: 0 };
+  sessions.set(id, session);
 
   const decoder = new StringDecoder('utf8');
   stream.on('data', (chunk: Buffer) => {
@@ -154,7 +140,7 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
       } catch {
         send(EVENTS.termExit, { id, exitCode: null });
       }
-      await releaseInContainer(container, id);
+      await releaseInContainer(session);
     })();
   };
 
@@ -166,7 +152,7 @@ export async function openTerminal(request: OpenTerminalRequest): Promise<OpenTe
   });
 
   await resizeTerminal(id, cols, rows);
-  return { id, sessionName };
+  return { id };
 }
 
 export function writeTerminal(id: string, data: string): void {
@@ -200,7 +186,7 @@ export async function closeTerminal(id: string): Promise<void> {
   sessions.delete(id);
 
   const work = (async () => {
-    await releaseInContainer(session.container, id);
+    await releaseInContainer(session);
     session.stream.end();
     session.stream.destroy();
   })();
@@ -212,11 +198,23 @@ export async function closeTerminal(id: string): Promise<void> {
   }
 }
 
-export async function closeAllTerminals(): Promise<void> {
-  const had = sessions.size;
-  for (const id of [...sessions.keys()]) {
+async function closeMatching(predicate: (session: Session) => boolean): Promise<number> {
+  const ids = [...sessions.values()].filter(predicate).map((session) => session.id);
+  for (const id of ids) {
     void closeTerminal(id).catch(() => undefined);
   }
   if (closing.size > 0) await Promise.all([...closing].map((work) => work.catch(() => undefined)));
-  if (had > 0) send(EVENTS.terminalsReset, null);
+  return ids.length;
+}
+
+/** Drops every terminal attached to a task's container, before that container is stopped or removed. */
+export async function closeTaskTerminals(taskId: string): Promise<void> {
+  const closed = await closeMatching((session) => session.ref.taskId === taskId);
+  if (closed > 0) send(EVENTS.terminalsReset, { taskId } satisfies TerminalsReset);
+}
+
+export async function closeAllTerminals(): Promise<void> {
+  const taskIds = new Set([...sessions.values()].map((session) => session.ref.taskId));
+  await closeMatching(() => true);
+  for (const taskId of taskIds) send(EVENTS.terminalsReset, { taskId } satisfies TerminalsReset);
 }

@@ -1,4 +1,4 @@
-import { Copy, ExternalLink, Eye, EyeOff, Plus, Save, Trash2, Upload } from 'lucide-react';
+import { Copy, ExternalLink, Eye, EyeOff, Plus, Save, Star, Trash2, Upload } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -48,8 +48,7 @@ export function ProfilesPanel(): JSX.Element {
   const t = useT();
   const language = useLanguage();
   const profiles = useApp((state) => state.snapshot?.config.profiles) ?? NO_PROFILES;
-  const activeId = useApp((state) => state.snapshot?.config.activeProfileId ?? null);
-  const containerRunning = useApp((state) => state.snapshot?.container.running === true);
+  const defaultId = useApp((state) => state.snapshot?.config.defaultProfileId ?? null);
   const secretsEncrypted = useApp((state) => state.snapshot?.secretsEncrypted === true);
   const run = useApp((state) => state.run);
   const setToast = useApp((state) => state.setToast);
@@ -63,7 +62,7 @@ export function ProfilesPanel(): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const has = (id: string | null): boolean => id !== null && profiles.some((profile) => profile.id === id);
-  const effectiveId = has(chosenId) ? chosenId : has(activeId) ? activeId : (profiles[0]?.id ?? null);
+  const effectiveId = has(chosenId) ? chosenId : has(defaultId) ? defaultId : (profiles[0]?.id ?? null);
   const source = profiles.find((profile) => profile.id === effectiveId) ?? null;
 
   const draft = edits !== null && edits.id === effectiveId ? edits : source;
@@ -101,7 +100,7 @@ export function ProfilesPanel(): JSX.Element {
     setEdits({ ...draft, ...patch });
   };
 
-  const persist = async (activate: boolean): Promise<Profile | null> => {
+  const persist = async (): Promise<Profile | null> => {
     if (draft === null) return null;
     if (envProblems.length > 0) {
       setError(envProblems[0] ?? '');
@@ -118,7 +117,6 @@ export function ProfilesPanel(): JSX.Element {
         return null;
       }
     }
-    if (activate) await run('profile', () => window.cc.profileActivate(profile.id));
     setEdits(null);
     setEnvEdit(null);
     return profile;
@@ -158,7 +156,7 @@ export function ProfilesPanel(): JSX.Element {
           >
             <div className="nm">
               {profile.name}
-              {profile.id === activeId ? <span className="tag ok">active</span> : null}
+              {profile.id === defaultId ? <span className="tag ok">{t('profileDefault')}</span> : null}
             </div>
             <div className="meta">{profile.model === '' ? profile.baseUrl : profile.model}</div>
           </div>
@@ -188,6 +186,15 @@ export function ProfilesPanel(): JSX.Element {
               title={draft.name}
               actions={
                 <>
+                  {draft.id === defaultId ? null : (
+                    <button
+                      className="btn sm"
+                      onClick={() => void run('config', () => window.cc.configSave({ defaultProfileId: draft.id }))}
+                      type="button"
+                    >
+                      <Star size={13} /> {t('profileMakeDefault')}
+                    </button>
+                  )}
                   <button
                     className="btn sm"
                     onClick={() => {
@@ -413,8 +420,8 @@ export function ProfilesPanel(): JSX.Element {
                 className="btn"
                 onClick={() => {
                   void (async () => {
-                    const saved = await persist(false);
-                    if (saved !== null) setToast(t('filesSaved'));
+                    const saved = await persist();
+                    if (saved !== null) setToast(t('commonSaved'));
                   })();
                 }}
                 type="button"
@@ -425,14 +432,13 @@ export function ProfilesPanel(): JSX.Element {
                 className="btn primary"
                 onClick={() => {
                   void (async () => {
-                    const saved = await persist(true);
+                    const saved = await persist();
                     if (saved === null) return;
-                    if (!containerRunning) {
-                      setToast(saved.name);
-                      return;
-                    }
-                    const summary = await run('provision', () => window.cc.containerProvision());
-                    if (summary !== null) setToast(summary);
+                    const lines = await run('provision', () => window.cc.profileApply(saved.id));
+                    if (lines === null) return;
+                    setToast(
+                      lines.length === 0 ? t('profileApplyNone') : `${t('profileApplied')}: ${lines.join(' | ')}`,
+                    );
                   })();
                 }}
                 type="button"

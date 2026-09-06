@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
 
 const executablePath = process.argv[2] ?? '';
@@ -20,7 +22,13 @@ function check(label, condition, detail = '') {
   }
 }
 
-const app = await electron.launch({ executablePath, args: ['--no-sandbox', '--disable-gpu'] });
+// A scratch userData so the smoke test never reads or writes the real config.
+const userData = mkdtempSync(join(tmpdir(), 'cc-packaged-'));
+const app = await electron.launch({
+  executablePath,
+  args: ['--no-sandbox', '--disable-gpu'],
+  env: { ...process.env, CC_USER_DATA_DIR: userData },
+});
 
 try {
   const page = await app.firstWindow();
@@ -34,6 +42,8 @@ try {
   const snapshot = await page.evaluate(() => window.cc.snapshot());
   check('snapshot works', snapshot.ok === true, snapshot.ok ? '' : snapshot.error);
   check('config has the default profile', snapshot.ok && snapshot.value.config.profiles.length >= 1);
+  check('config is the v2 shape', snapshot.ok && snapshot.value.config.version === 2);
+  check('task list starts empty', snapshot.ok && snapshot.value.tasks.length === 0);
   check('docker reachable from the packaged app', snapshot.ok && snapshot.value.docker.available === true);
 
   const sources = await page.evaluate(() => window.cc.imageSourcesGet());
@@ -49,6 +59,11 @@ try {
     sources.ok && !sources.value.dir.includes('app.asar'),
     sources.ok ? sources.value.dir : '',
   );
+  check(
+    'sources landed in the scratch userData',
+    sources.ok && sources.value.dir.startsWith(userData),
+    sources.ok ? sources.value.dir : '',
+  );
 
   const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
   check('window rendered', painted);
@@ -60,6 +75,7 @@ try {
   );
 } finally {
   await app.close().catch(() => undefined);
+  rmSync(userData, { recursive: true, force: true });
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`} (${step} checks)\n`);

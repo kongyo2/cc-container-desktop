@@ -2,56 +2,64 @@ import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { resolve } from 'node:path';
 
 import { CHANNELS } from '../shared/ipc.ts';
-import type { BuildRequest, ExecRequest, ResetRequest, VscodeAttachResult, WriteFileRequest } from '../shared/ipc.ts';
+import type { BuildRequest, ExecRequest } from '../shared/ipc.ts';
 import type {
   AppConfig,
+  CreateTaskResult,
+  DeleteTaskRequest,
+  DeleteTaskSummary,
   ExecResult,
+  ExportSummary,
   Extensions,
-  FileEntry,
   ImageSources,
+  ImportPick,
+  ImportSummary,
   Language,
   McpServerStatus,
+  NewTaskInput,
   OpenTerminalRequest,
   OpenTerminalResult,
   Profile,
-  ResetSummary,
   Result,
   Snapshot,
-  TmuxSession,
+  Task,
+  TaskPatch,
 } from '../shared/types.ts';
-import { readMcpStatus } from './claude/extensions.ts';
-import { provisionContainer } from './claude/provision.ts';
+import { parseConfigPatch } from './config/schema.ts';
 import {
-  activateProfile,
   appDataDir,
   deleteProfile,
   getConfig,
   getSecret,
   patchConfig,
-  rememberExportDir,
   secretsAreEncrypted,
   setSecret,
   upsertProfile,
 } from './config/store.ts';
-import {
-  execCapture,
-  inspectContainer,
-  killTmuxSession,
-  listTmuxSessions,
-  removeContainer,
-  restartContainer,
-  startContainer,
-  stopContainer,
-  withRunningContainer,
-} from './docker/container.ts';
+import { MISSING_CONTAINER } from './docker/container.ts';
 import { inspectImage, probeDocker } from './docker/engine.ts';
-import { exportWorkspace, listDirectory, makeDirectory, readFileText, writeFileText } from './docker/files.ts';
 import { buildImage, readImageSources, resetImageSources, writeImageSources } from './docker/image.ts';
-import { closeTerminal, openTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
-import { openInVscode, writeDevcontainer } from './integrations/vscode.ts';
+import { closeTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
 import { isInside } from './paths.ts';
-import { resetContainer } from './reset.ts';
+import {
+  createTask,
+  deleteTask,
+  execInTask,
+  exportTask,
+  forgetProfile,
+  importIntoTask,
+  mcpStatusOfTask,
+  openTaskTerminal,
+  provisionRunningTasks,
+  provisionTask,
+  recreateTask,
+  startTask,
+  stopTask,
+  taskViews,
+  updateTaskDetails,
+} from './tasks/service.ts';
+import { listTasks } from './tasks/store.ts';
 
 const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
 
@@ -82,10 +90,13 @@ function handleConfigEdit<A extends readonly unknown[]>(channel: string, fn: (..
   });
 }
 
-function handleDockerAction<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<void>): void {
+function handleTaskAction<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<unknown>): void {
   handle<A, Snapshot>(channel, async (...args) => {
-    await fn(...args);
-    notifyStateChanged();
+    try {
+      await fn(...args);
+    } finally {
+      notifyStateChanged();
+    }
     return snapshot();
   });
 }
@@ -93,60 +104,57 @@ function handleDockerAction<A extends readonly unknown[]>(channel: string, fn: (
 async function snapshot(): Promise<Snapshot> {
   const config = getConfig();
   const docker = await probeDocker();
+  const base = { config, docker, secretsEncrypted: secretsAreEncrypted(), appVersion, platform: process.platform };
 
   if (!docker.available) {
     return {
-      config,
-      docker,
+      ...base,
       image: { tag: config.imageTag, exists: false, id: null, createdAt: null, sizeBytes: null },
-      container: {
-        name: config.containerName,
-        exists: false,
-        running: false,
-        status: 'unknown',
-        id: null,
-        image: null,
-        startedAt: null,
-        homeVolume: null,
-      },
-      secretsEncrypted: secretsAreEncrypted(),
-      appVersion: appVersion,
-      platform: process.platform,
+      tasks: listTasks().map((task) => ({ task, container: MISSING_CONTAINER, imageStale: false })),
     };
   }
 
-  const [image, container] = await Promise.all([inspectImage(config.imageTag), inspectContainer()]);
-  return {
-    config,
-    docker,
-    image,
-    container,
-    secretsEncrypted: secretsAreEncrypted(),
-    appVersion: appVersion,
-    platform: process.platform,
-  };
+  const image = await inspectImage(config.imageTag);
+  const tasks = await taskViews(image);
+  return { ...base, image, tasks };
 }
 
 function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null;
 }
 
-async function pickDirectory(defaultPath: string | null): Promise<string | null> {
+type DialogProperty = 'openDirectory' | 'createDirectory' | 'openFile' | 'multiSelections';
+
+async function pickPaths(
+  properties: readonly DialogProperty[],
+  defaultPath: string | null,
+): Promise<readonly string[]> {
   const window = focusedWindow();
   const options = {
-    properties: ['openDirectory', 'createDirectory'] as Array<'openDirectory' | 'createDirectory'>,
+    properties: [...properties],
     ...(defaultPath === null ? {} : { defaultPath }),
   };
   const result = window === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options);
-  if (result.canceled) return null;
-  return result.filePaths[0] ?? null;
+  return result.canceled ? [] : result.filePaths;
+}
+
+async function pickDirectory(defaultPath: string | null): Promise<string | null> {
+  const picked = await pickPaths(['openDirectory', 'createDirectory'], defaultPath);
+  return picked[0] ?? null;
+}
+
+function requireTaskId(id: unknown): string {
+  if (typeof id !== 'string' || id === '') throw new Error('タスク ID がありません / missing task id');
+  return id;
 }
 
 export function registerIpc(version: string): void {
   appVersion = version;
 
   handle<[], Snapshot>(CHANNELS.snapshot, snapshot);
-  handleConfigEdit<[Language]>(CHANNELS.setLanguage, (language) => patchConfig({ language }));
+  handleConfigEdit<[Language]>(CHANNELS.setLanguage, (language) =>
+    patchConfig({ language: language === 'en' ? 'en' : 'ja' }),
+  );
   handleVoid<[string]>(CHANNELS.openExternal, async (url) => {
     let parsed: URL;
     try {
@@ -172,10 +180,22 @@ export function registerIpc(version: string): void {
     clipboard.writeText(text.slice(0, MAX_CLIPBOARD_CHARS));
   });
 
-  handleConfigEdit<[Partial<AppConfig>]>(CHANNELS.configSave, (patch) => patchConfig(patch));
+  handleConfigEdit<[unknown]>(CHANNELS.configSave, (patch) => patchConfig(parseConfigPatch(patch)));
   handleConfigEdit<[Profile]>(CHANNELS.profileUpsert, (profile) => upsertProfile(profile));
-  handleConfigEdit<[string]>(CHANNELS.profileDelete, (id) => deleteProfile(id));
-  handleConfigEdit<[string]>(CHANNELS.profileActivate, (id) => activateProfile(id));
+  handle<[string], AppConfig>(CHANNELS.profileDelete, async (id) => {
+    const next = deleteProfile(id);
+    try {
+      await forgetProfile(id);
+    } finally {
+      notifyStateChanged();
+    }
+    return next;
+  });
+  handle<[string], readonly string[]>(CHANNELS.profileApply, async (id) => {
+    const lines = await provisionRunningTasks((task) => task.profileId === id);
+    notifyStateChanged();
+    return lines;
+  });
   handle<[string], string>(CHANNELS.secretGet, (profileId) => getSecret(profileId));
   handleVoid<[string, string]>(CHANNELS.secretSet, (profileId, secret) => setSecret(profileId, secret));
 
@@ -191,78 +211,86 @@ export function registerIpc(version: string): void {
   );
   handle<[], ImageSources>(CHANNELS.imageSourcesReset, resetImageSources);
 
-  handleDockerAction<[]>(CHANNELS.containerUp, async () => {
-    await startContainer();
-    await provisionContainer();
-  });
-  handleDockerAction<[]>(CHANNELS.containerStop, async () => {
-    await stopContainer();
-  });
-  handleDockerAction<[]>(CHANNELS.containerRestart, async () => {
-    await restartContainer();
-    await provisionContainer();
-  });
-  handleDockerAction<[boolean]>(CHANNELS.containerRemove, async (removeVolume) => {
-    await removeContainer(removeVolume);
-  });
-  handle<[], Snapshot>(CHANNELS.containerState, snapshot);
-  handle<[ExecRequest], ExecResult>(CHANNELS.containerExec, (request) =>
-    withRunningContainer(() => execCapture(request.command, { asRoot: request.asRoot })),
-  );
-  handle<[], string>(CHANNELS.containerProvision, async () => {
-    const summary = await withRunningContainer(provisionContainer);
-    notifyStateChanged();
-    return summary;
-  });
-  handle<[], VscodeAttachResult>(CHANNELS.containerVscode, openInVscode);
   handleConfigEdit<[Extensions]>(CHANNELS.extensionsSave, (extensions) => patchConfig({ extensions }));
-  handle<[], readonly McpServerStatus[]>(CHANNELS.mcpStatus, () => withRunningContainer(readMcpStatus));
+  handle<[], readonly string[]>(CHANNELS.extensionsApply, async () => {
+    const lines = await provisionRunningTasks();
+    notifyStateChanged();
+    return lines;
+  });
 
-  handle<[ResetRequest], ResetSummary>(CHANNELS.containerReset, async (request) => {
-    let destination: string | null = null;
-    if (request.exportFirst) {
-      destination = getConfig().lastExportDir ?? (await pickDirectory(null));
-      if (destination === null) throw new Error('取り出し先が選ばれませんでした / no export directory chosen');
+  handle<[NewTaskInput], CreateTaskResult>(CHANNELS.taskCreate, async (input) => {
+    try {
+      return await createTask(input);
+    } finally {
+      notifyStateChanged();
     }
-    const summary = await resetContainer(request, destination);
+  });
+  handle<[string, TaskPatch], Task>(CHANNELS.taskUpdate, async (id, patch) => {
+    try {
+      return await updateTaskDetails(requireTaskId(id), patch);
+    } finally {
+      notifyStateChanged();
+    }
+  });
+  handleTaskAction<[string]>(CHANNELS.taskStart, (id) => startTask(requireTaskId(id)));
+  handleTaskAction<[string]>(CHANNELS.taskStop, (id) => stopTask(requireTaskId(id)));
+  handleTaskAction<[string]>(CHANNELS.taskRecreate, (id) => recreateTask(requireTaskId(id)));
+  handle<[string, DeleteTaskRequest], DeleteTaskSummary>(CHANNELS.taskDelete, async (id, request) => {
+    const taskId = requireTaskId(id);
+    const exportFirst = request.exportFirst === true;
+    const destination = exportFirst ? await pickDirectory(getConfig().lastExportDir) : null;
+    try {
+      return await deleteTask(taskId, { exportFirst }, destination);
+    } finally {
+      notifyStateChanged();
+    }
+  });
+  handle<[string], string>(CHANNELS.taskProvision, async (id) => {
+    const summary = await provisionTask(requireTaskId(id));
     notifyStateChanged();
     return summary;
   });
-
-  handle<[], readonly TmuxSession[]>(CHANNELS.tmuxList, listTmuxSessions);
-  handleVoid<[string, string | undefined]>(CHANNELS.tmuxKill, (target, expectedName) =>
-    withRunningContainer(() => killTmuxSession(target, expectedName)),
+  handle<[string], ExportSummary | null>(CHANNELS.taskExport, async (id) => {
+    const taskId = requireTaskId(id);
+    const destination = await pickDirectory(getConfig().lastExportDir);
+    if (destination === null) return null;
+    try {
+      return await exportTask(taskId, destination);
+    } finally {
+      notifyStateChanged();
+    }
+  });
+  handle<[string, readonly string[]], ImportSummary>(CHANNELS.taskImport, async (id, paths) => {
+    const usable =
+      Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === 'string' && path.trim() !== '');
+    if (!usable) throw new Error('取り込むパスがありません / import needs one or more non-empty paths');
+    try {
+      return await importIntoTask(requireTaskId(id), paths);
+    } finally {
+      notifyStateChanged();
+    }
+  });
+  handle<[string, ImportPick], ImportSummary | null>(CHANNELS.taskPickImport, async (id, pick) => {
+    const taskId = requireTaskId(id);
+    const properties: readonly DialogProperty[] =
+      pick === 'folder' ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'];
+    const paths = await pickPaths(properties, null);
+    if (paths.length === 0) return null;
+    try {
+      return await importIntoTask(taskId, paths);
+    } finally {
+      notifyStateChanged();
+    }
+  });
+  handle<[string, ExecRequest], ExecResult>(CHANNELS.taskExec, (id, request) =>
+    execInTask(requireTaskId(id), { command: [...request.command], asRoot: request.asRoot === true }),
   );
+  handle<[string], readonly McpServerStatus[]>(CHANNELS.taskMcpStatus, (id) => mcpStatusOfTask(requireTaskId(id)));
 
   handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, (request) =>
-    withRunningContainer(async () => {
-      if (request.kind === 'claude') await provisionContainer();
-      return openTerminal(request);
-    }),
+    openTaskTerminal({ ...request, taskId: requireTaskId(request.taskId) }),
   );
   handleVoid<[string, string]>(CHANNELS.termWrite, (id, data) => writeTerminal(id, data));
   handleVoid<[string, number, number]>(CHANNELS.termResize, (id, cols, rows) => resizeTerminal(id, cols, rows));
   handleVoid<[string]>(CHANNELS.termClose, (id) => closeTerminal(id));
-
-  handle<[string], readonly FileEntry[]>(CHANNELS.fsList, (path) => withRunningContainer(() => listDirectory(path)));
-  handle<[string], string>(CHANNELS.fsRead, (path) => withRunningContainer(() => readFileText(path)));
-  handleVoid<[WriteFileRequest]>(CHANNELS.fsWrite, (request) =>
-    withRunningContainer(() => writeFileText(request.path, request.content)),
-  );
-  handleVoid<[string]>(CHANNELS.fsMkdir, (path) => withRunningContainer(() => makeDirectory(path)));
-
-  handle<[], string | null>(CHANNELS.workspaceExport, async () => {
-    const destination = await pickDirectory(getConfig().lastExportDir);
-    if (destination === null) return null;
-    rememberExportDir(destination);
-    const result = await withRunningContainer(() => exportWorkspace(destination));
-    return result.skipped.length === 0
-      ? result.path
-      : `${result.path} (${result.files} files, ${result.skipped.length} skipped)`;
-  });
-  handle<[], string | null>(CHANNELS.devcontainerWrite, async () => {
-    const destination = await pickDirectory(getConfig().lastExportDir);
-    if (destination === null) return null;
-    return writeDevcontainer(destination);
-  });
 }

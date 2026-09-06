@@ -17,7 +17,7 @@ import { validateMcpServer } from '../../../shared/mcp.ts';
 import { ArgEditor, PairEditor } from '../components/PairEditor.tsx';
 import { Check, Field, NumberField, Section, TextField } from '../components/ui.tsx';
 import { pick, useLanguage, useT } from '../i18n.ts';
-import { useApp } from '../store.ts';
+import { selectedTaskView, useApp } from '../store.ts';
 
 const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 
@@ -97,7 +97,9 @@ export function ExtensionsPanel(): JSX.Element {
   const t = useT();
   const language = useLanguage();
   const saved = useApp((state) => state.snapshot?.config.extensions) ?? EMPTY_EXTENSIONS;
-  const containerRunning = useApp((state) => state.snapshot?.container.running === true);
+  const selected = useApp(selectedTaskView);
+  const statusTaskId = selected !== null && selected.container.running ? selected.task.id : null;
+  const anyRunning = useApp((state) => state.snapshot?.tasks.some((view) => view.container.running) === true);
   const run = useApp((state) => state.run);
   const setToast = useApp((state) => state.setToast);
   const setError = useApp((state) => state.setError);
@@ -107,7 +109,10 @@ export function ExtensionsPanel(): JSX.Element {
   const dirty = draft !== null && draft.base === savedKey;
   const extensions = dirty && draft !== null ? draft.value : saved;
 
-  const [statuses, setStatuses] = useState<readonly McpServerStatus[]>([]);
+  // Statuses are remembered with the task they came from, so a stale reading
+  // never shows against another task's servers.
+  const [statusRead, setStatusRead] = useState<{ taskId: string; statuses: readonly McpServerStatus[] } | null>(null);
+  const statuses = statusRead !== null && statusRead.taskId === statusTaskId ? statusRead.statuses : [];
 
   const update = (patch: Partial<Extensions>): void => {
     setDraft({ base: savedKey, value: { ...extensions, ...patch } });
@@ -121,22 +126,23 @@ export function ExtensionsPanel(): JSX.Element {
   };
 
   const refreshStatus = async (): Promise<void> => {
-    const result = await window.cc.mcpStatus();
-    if (result.ok) setStatuses(result.value);
+    if (statusTaskId === null) return;
+    const result = await window.cc.taskMcpStatus(statusTaskId);
+    if (result.ok) setStatusRead({ taskId: statusTaskId, statuses: result.value });
     else setError(result.error);
   };
 
   useEffect(() => {
-    if (!containerRunning) return undefined;
+    if (statusTaskId === null) return undefined;
     let cancelled = false;
     void (async () => {
-      const result = await window.cc.mcpStatus();
-      if (!cancelled && result.ok) setStatuses(result.value);
+      const result = await window.cc.taskMcpStatus(statusTaskId);
+      if (!cancelled && result.ok) setStatusRead({ taskId: statusTaskId, statuses: result.value });
     })();
     return () => {
       cancelled = true;
     };
-  }, [containerRunning]);
+  }, [statusTaskId]);
 
   const statusFor = (name: string): McpServerStatus | undefined => statuses.find((status) => status.name === name);
 
@@ -151,12 +157,13 @@ export function ExtensionsPanel(): JSX.Element {
             </button>
             <button
               className="btn primary"
-              disabled={!containerRunning}
+              disabled={!anyRunning && !dirty}
               onClick={() => {
                 void (async () => {
                   if (dirty && !(await save())) return;
-                  const summary = await run('provision', () => window.cc.containerProvision());
-                  if (summary !== null) setToast(summary);
+                  const lines = await run('provision', () => window.cc.extensionsApply());
+                  if (lines === null) return;
+                  setToast(lines.length === 0 ? t('extApplyNone') : `${t('extApplied')}: ${lines.join(' | ')}`);
                   await refreshStatus();
                 })();
               }}
@@ -169,6 +176,7 @@ export function ExtensionsPanel(): JSX.Element {
       >
         <p className="hint">{t('extHint')}</p>
         <p className="hint">{t('extManagedHint')}</p>
+        <p className="hint">{t('extMcpStatusHint')}</p>
       </Section>
 
       <Section
@@ -177,7 +185,7 @@ export function ExtensionsPanel(): JSX.Element {
           <>
             <button
               className="btn ghost sm"
-              disabled={!containerRunning}
+              disabled={statusTaskId === null}
               onClick={() => void refreshStatus()}
               type="button"
             >

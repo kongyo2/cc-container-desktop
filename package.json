@@ -1,8 +1,8 @@
 {
   "name": "cc-container-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Claude Code container workbench \u2014 run Claude Code inside Docker with swappable endpoints, models and API keys.",
+  "description": "Claude Code container workbench \u2014 one Docker container per task, with swappable endpoints, models and API keys.",
   "author": "kongyo2",
   "license": "MIT",
   "main": "./out/main/index.js",
