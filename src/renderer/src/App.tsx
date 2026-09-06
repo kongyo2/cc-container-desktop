@@ -1,33 +1,21 @@
-import { Boxes, Container, FileCode2, Files, Plug, Puzzle, Settings, SquareTerminal } from 'lucide-react';
+import { Container } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect } from 'react';
 
-import { activeProfileOf } from '../../shared/profiles.ts';
 import { Banner } from './components/ui.tsx';
 import { StatusStrip } from './components/StatusStrip.tsx';
 import { useT } from './i18n.ts';
-import { ConnectPanel } from './panels/ConnectPanel.tsx';
 import { ExtensionsPanel } from './panels/ExtensionsPanel.tsx';
-import { FilesPanel } from './panels/FilesPanel.tsx';
 import { ImagePanel } from './panels/ImagePanel.tsx';
+import { LogPanel } from './panels/LogPanel.tsx';
+import { NewTaskPanel } from './panels/NewTaskPanel.tsx';
 import { ProfilesPanel } from './panels/ProfilesPanel.tsx';
 import { SettingsPanel } from './panels/SettingsPanel.tsx';
-import { TerminalPanel } from './panels/TerminalPanel.tsx';
+import { TaskSidebar } from './panels/TaskSidebar.tsx';
+import { TaskWorkspace } from './panels/TaskPanel.tsx';
 import { startTerminalBus } from './terminalBus.ts';
 import { useApp } from './store.ts';
-import type { TabId } from './store.ts';
-
-const NAV: ReadonlyArray<{ id: TabId; icon: JSX.Element; key: NavKey }> = [
-  { id: 'connect', icon: <Plug size={15} />, key: 'navConnect' },
-  { id: 'terminal', icon: <SquareTerminal size={15} />, key: 'navTerminal' },
-  { id: 'files', icon: <Files size={15} />, key: 'navFiles' },
-  { id: 'profiles', icon: <Boxes size={15} />, key: 'navProfiles' },
-  { id: 'extensions', icon: <Puzzle size={15} />, key: 'navExtensions' },
-  { id: 'image', icon: <FileCode2 size={15} />, key: 'navImage' },
-  { id: 'settings', icon: <Settings size={15} />, key: 'navSettings' },
-];
-
-type NavKey = 'navConnect' | 'navTerminal' | 'navFiles' | 'navProfiles' | 'navExtensions' | 'navImage' | 'navSettings';
+import type { View } from './store.ts';
 
 function Notice({
   kind,
@@ -50,18 +38,18 @@ function Notice({
   );
 }
 
-function Panel({ tab }: { tab: Exclude<TabId, 'terminal'> }): JSX.Element {
-  switch (tab) {
-    case 'connect':
-      return <ConnectPanel />;
-    case 'files':
-      return <FilesPanel />;
+function Panel({ view }: { view: Exclude<View, 'tasks'> }): JSX.Element {
+  switch (view) {
+    case 'newTask':
+      return <NewTaskPanel />;
     case 'profiles':
       return <ProfilesPanel />;
     case 'extensions':
       return <ExtensionsPanel />;
     case 'image':
       return <ImagePanel />;
+    case 'log':
+      return <LogPanel />;
     case 'settings':
       return <SettingsPanel />;
   }
@@ -69,8 +57,7 @@ function Panel({ tab }: { tab: Exclude<TabId, 'terminal'> }): JSX.Element {
 
 export function App(): JSX.Element {
   const t = useT();
-  const tab = useApp((state) => state.tab);
-  const setTab = useApp((state) => state.setTab);
+  const view = useApp((state) => state.view);
   const snapshot = useApp((state) => state.snapshot);
   const busy = useApp((state) => state.busy);
   const error = useApp((state) => state.error);
@@ -79,17 +66,20 @@ export function App(): JSX.Element {
   const setToast = useApp((state) => state.setToast);
   const refresh = useApp((state) => state.refresh);
   const appendLog = useApp((state) => state.appendLog);
+  const dropTaskTabs = useApp((state) => state.dropTaskTabs);
 
   useEffect(() => {
     startTerminalBus();
     void refresh();
     const offLog = window.cc.onLog(appendLog);
     const offState = window.cc.onStateChanged(() => void refresh());
+    const offReset = window.cc.onTerminalsReset((reset) => dropTaskTabs(reset.taskId));
     return () => {
       offLog();
       offState();
+      offReset();
     };
-  }, [refresh, appendLog]);
+  }, [refresh, appendLog, dropTaskTabs]);
 
   useEffect(() => {
     if (toast === null) return;
@@ -97,9 +87,7 @@ export function App(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [toast, setToast]);
 
-  const activeProfile = snapshot === null ? null : activeProfileOf(snapshot.config);
-
-  const flush = tab === 'terminal' || tab === 'files';
+  const flush = view === 'tasks';
 
   return (
     <div className="app">
@@ -114,39 +102,16 @@ export function App(): JSX.Element {
 
       <StatusStrip snapshot={snapshot} />
 
-      <nav className="sidebar">
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            className={tab === item.id ? 'active' : ''}
-            onClick={() => setTab(item.id)}
-            type="button"
-            title={t(item.key)}
-          >
-            {item.icon}
-            <span>{t(item.key)}</span>
-          </button>
-        ))}
-        <div className="sidebar-foot">
-          {activeProfile === null ? (
-            t('statusProfileNone')
-          ) : (
-            <>
-              <div>{activeProfile.name}</div>
-              <div>{activeProfile.baseUrl}</div>
-            </>
-          )}
-        </div>
-      </nav>
+      <TaskSidebar />
 
       <main className={flush ? 'content flush' : 'content'}>
         {busy === null ? null : <div className="busybar" />}
         <Notice kind="error" text={error} flush={flush} onDismiss={() => setError(null)} />
         <Notice kind="info" text={toast} flush={flush} onDismiss={() => setToast(null)} />
-        <div className="panel-host" style={{ display: tab === 'terminal' ? 'flex' : 'none' }}>
-          <TerminalPanel />
+        <div className="panel-host" style={{ display: flush ? 'flex' : 'none' }}>
+          <TaskWorkspace />
         </div>
-        {tab === 'terminal' ? null : <Panel tab={tab} />}
+        {flush ? null : <Panel view={view} />}
       </main>
     </div>
   );

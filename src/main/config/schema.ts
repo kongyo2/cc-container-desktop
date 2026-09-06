@@ -1,14 +1,7 @@
 import { z } from 'zod';
 
-import {
-  DEFAULT_CONTAINER_NAME,
-  DEFAULT_IMAGE_TAG,
-  DEFAULT_TMUX_SESSION,
-  DEFAULT_VOLUME_NAME,
-  ENDPOINT_PRESETS,
-  sanitizeSessionName,
-} from '../../shared/presets.ts';
-import type { AppConfig, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
+import { DEFAULT_IMAGE_TAG, ENDPOINT_PRESETS } from '../../shared/presets.ts';
+import type { AppConfig, ConfigPatch, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
 
 const profileSchema = z.object({
   id: z.string().min(1),
@@ -74,29 +67,42 @@ const extensionsSchema = z.object({
   skillInstalls: z.array(skillInstallSchema).default([]),
 });
 
-const managedSchema = z.object({
-  mcpServers: z.array(z.string()).default([]),
-  marketplaces: z.array(z.string()).default([]),
-  plugins: z.array(z.string()).default([]),
-});
-
 const appConfigSchema = z.object({
-  version: z.literal(1).catch(1).default(1),
+  version: z.literal(2).catch(2).default(2),
   language: z.enum(['ja', 'en']).catch('ja').default('ja'),
-  activeProfileId: z.string().nullable().default(null),
+  defaultProfileId: z.string().nullable().default(null),
   profiles: z.array(profileSchema).default([]),
-  containerName: z.string().min(1).catch(DEFAULT_CONTAINER_NAME).default(DEFAULT_CONTAINER_NAME),
   imageTag: z.string().min(1).catch(DEFAULT_IMAGE_TAG).default(DEFAULT_IMAGE_TAG),
-  volumeName: z.string().min(1).catch(DEFAULT_VOLUME_NAME).default(DEFAULT_VOLUME_NAME),
   autoOnboarding: z.boolean().default(true),
   autoApproveApiKey: z.boolean().default(true),
   skipPermissions: z.boolean().default(true),
-  tmuxSession: z.string().min(1).catch(DEFAULT_TMUX_SESSION).default(DEFAULT_TMUX_SESSION),
   lastExportDir: z.string().nullable().default(null),
-  exportBeforeReset: z.boolean().default(true),
   extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }),
-  managed: managedSchema.default({ mcpServers: [], marketplaces: [], plugins: [] }),
 });
+
+/** What the renderer may change through configSave: everything else has its own channel. */
+const configPatchSchema = z
+  .object({
+    defaultProfileId: z.string().nullable().optional(),
+    imageTag: z.string().trim().min(1).optional(),
+    autoOnboarding: z.boolean().optional(),
+    autoApproveApiKey: z.boolean().optional(),
+    skipPermissions: z.boolean().optional(),
+    lastExportDir: z.string().nullable().optional(),
+  })
+  .strict();
+
+export function parseConfigPatch(raw: unknown): ConfigPatch {
+  const parsed = configPatchSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`設定の変更内容が不正です / invalid config patch: ${parsed.error.issues[0]?.message ?? ''}`);
+  }
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value !== undefined) patch[key] = value;
+  }
+  return patch as ConfigPatch;
+}
 
 export function starterProfile(): Profile {
   const openrouter = ENDPOINT_PRESETS.find((preset) => preset.id === 'openrouter');
@@ -130,21 +136,16 @@ export function emptyManagedNames(): ManagedNames {
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
   return {
-    version: 1,
+    version: 2,
     language: 'ja',
-    activeProfileId: profile.id,
+    defaultProfileId: profile.id,
     profiles: [profile],
-    containerName: DEFAULT_CONTAINER_NAME,
     imageTag: DEFAULT_IMAGE_TAG,
-    volumeName: DEFAULT_VOLUME_NAME,
     autoOnboarding: true,
     autoApproveApiKey: true,
     skipPermissions: true,
-    tmuxSession: DEFAULT_TMUX_SESSION,
     lastExportDir: null,
-    exportBeforeReset: true,
     extensions: emptyExtensions(),
-    managed: emptyManagedNames(),
   };
 }
 
@@ -152,7 +153,7 @@ interface Checker {
   readonly safeParse: (value: unknown) => { readonly success: boolean };
 }
 
-function keepValid(schema: Checker, raw: unknown, report: { dropped: number }): unknown[] {
+export function keepValid(schema: Checker, raw: unknown, report: { dropped: number }): unknown[] {
   if (!Array.isArray(raw)) {
     if (raw !== undefined && raw !== null) report.dropped += 1;
     return [];
@@ -179,9 +180,6 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
     next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
     next['plugins'] = keepValid(pluginSchema, next['plugins'], report);
     next['skillInstalls'] = keepValid(skillInstallSchema, next['skillInstalls'], report);
-    const written = next['skills'];
-    if (Array.isArray(written) && written.length > 0) report.dropped += written.length;
-    delete next['skills'];
     source['extensions'] = next;
   }
 
@@ -201,32 +199,24 @@ export function readConfig(raw: unknown): ConfigRead {
   return { config: fromSchema(parsed.data), dropped, reset: false };
 }
 
-export function parseConfig(raw: unknown): AppConfig {
-  return readConfig(raw).config;
-}
-
-function resolveActiveProfile(activeProfileId: string | null, profiles: readonly Profile[]): string | null {
-  if (activeProfileId === null) return null;
-  if (profiles.some((profile) => profile.id === activeProfileId)) return activeProfileId;
+function resolveDefaultProfile(defaultProfileId: string | null, profiles: readonly Profile[]): string | null {
+  if (defaultProfileId !== null && profiles.some((profile) => profile.id === defaultProfileId)) {
+    return defaultProfileId;
+  }
   return profiles[0]?.id ?? null;
 }
 
 function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
   return {
-    version: 1,
+    version: 2,
     language: value.language,
-    activeProfileId: resolveActiveProfile(value.activeProfileId, value.profiles),
+    defaultProfileId: resolveDefaultProfile(value.defaultProfileId, value.profiles),
     profiles: value.profiles,
-    containerName: value.containerName,
     imageTag: value.imageTag,
-    volumeName: value.volumeName,
     autoOnboarding: value.autoOnboarding,
     autoApproveApiKey: value.autoApproveApiKey,
     skipPermissions: value.skipPermissions,
-    tmuxSession: sanitizeSessionName(value.tmuxSession),
     lastExportDir: value.lastExportDir,
-    exportBeforeReset: value.exportBeforeReset,
     extensions: value.extensions,
-    managed: value.managed,
   };
 }

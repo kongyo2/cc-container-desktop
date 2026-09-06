@@ -21,21 +21,56 @@ export interface Profile {
 }
 
 export interface AppConfig {
-  readonly version: 1;
+  readonly version: 2;
   readonly language: Language;
-  readonly activeProfileId: string | null;
+  readonly defaultProfileId: string | null;
   readonly profiles: readonly Profile[];
-  readonly containerName: string;
   readonly imageTag: string;
-  readonly volumeName: string;
   readonly autoOnboarding: boolean;
   readonly autoApproveApiKey: boolean;
   readonly skipPermissions: boolean;
-  readonly tmuxSession: string;
   readonly lastExportDir: string | null;
-  readonly exportBeforeReset: boolean;
   readonly extensions: Extensions;
+}
+
+export type ConfigPatch = Partial<
+  Pick<
+    AppConfig,
+    'defaultProfileId' | 'imageTag' | 'autoOnboarding' | 'autoApproveApiKey' | 'skipPermissions' | 'lastExportDir'
+  >
+>;
+
+export type WorkspaceSource =
+  { readonly kind: 'empty' } | { readonly kind: 'git'; readonly url: string; readonly ref: string };
+
+export interface Task {
+  readonly id: string;
+  readonly name: string;
+  readonly note: string;
+  readonly profileId: string | null;
+  readonly source: WorkspaceSource;
+  readonly containerName: string;
+  readonly volumeName: string;
+  readonly createdAt: string;
   readonly managed: ManagedNames;
+}
+
+export interface NewTaskInput {
+  readonly name: string;
+  readonly note: string;
+  readonly profileId: string | null;
+  readonly source: WorkspaceSource;
+}
+
+export interface TaskPatch {
+  readonly name?: string;
+  readonly note?: string;
+  readonly profileId?: string | null;
+}
+
+export interface CreateTaskResult {
+  readonly task: Task;
+  readonly warning: string | null;
 }
 
 export interface DockerStatus {
@@ -55,33 +90,19 @@ export interface ImageStatus {
 }
 
 export interface ContainerState {
-  readonly name: string;
   readonly exists: boolean;
   readonly running: boolean;
   readonly status: string;
   readonly id: string | null;
-  readonly image: string | null;
+  readonly imageId: string | null;
   readonly startedAt: string | null;
   readonly homeVolume: string | null;
 }
 
-export interface TmuxSession {
-  readonly id: string;
-  readonly name: string;
-  readonly windows: number;
-  readonly attached: boolean;
-  readonly createdAt: string;
-}
-
-export type FileKind = 'file' | 'dir' | 'link' | 'other';
-
-export interface FileEntry {
-  readonly name: string;
-  readonly path: string;
-  readonly kind: FileKind;
-  readonly size: number;
-  readonly mode: string;
-  readonly modifiedAt: string;
+export interface TaskView {
+  readonly task: Task;
+  readonly container: ContainerState;
+  readonly imageStale: boolean;
 }
 
 export interface ExecResult {
@@ -94,7 +115,7 @@ export interface Snapshot {
   readonly config: AppConfig;
   readonly docker: DockerStatus;
   readonly image: ImageStatus;
-  readonly container: ContainerState;
+  readonly tasks: readonly TaskView[];
   readonly secretsEncrypted: boolean;
   readonly appVersion: string;
   readonly platform: string;
@@ -117,19 +138,21 @@ export interface TerminalExit {
   readonly exitCode: number | null;
 }
 
-export type TerminalKind = 'claude' | 'shell' | 'attach';
+export interface TerminalsReset {
+  readonly taskId: string;
+}
+
+export type TerminalKind = 'claude' | 'shell';
 
 export interface OpenTerminalRequest {
+  readonly taskId: string;
   readonly kind: TerminalKind;
-  readonly sessionName: string;
-  readonly sessionId?: string;
   readonly cols: number;
   readonly rows: number;
 }
 
 export interface OpenTerminalResult {
   readonly id: string;
-  readonly sessionName: string;
 }
 
 export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
@@ -141,14 +164,27 @@ export interface ImageSources {
   readonly dir: string;
 }
 
-export interface ResetSummary {
+export interface ExportSummary {
+  readonly path: string;
+  readonly files: number;
+  readonly skipped: readonly string[];
+}
+
+export interface ImportSummary {
+  readonly entries: number;
+  readonly sources: readonly string[];
+}
+
+export interface DeleteTaskRequest {
+  readonly exportFirst: boolean;
+}
+
+export interface DeleteTaskSummary {
   readonly exportedTo: string | null;
   readonly exportedFiles: number;
-  readonly exportSkipped: number;
-  readonly rebuiltImage: boolean;
-  readonly containerName: string;
-  readonly provisionError: string | null;
 }
+
+export type ImportPick = 'files' | 'folder';
 
 export type McpTransport = 'stdio' | 'http' | 'sse';
 

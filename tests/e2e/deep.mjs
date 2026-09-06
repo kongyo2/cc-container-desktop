@@ -1,52 +1,40 @@
+// The regression suite: every guard, merge rule and lifecycle edge that does not
+// need a model. Needs Docker; no API key. Everything runs in a scratch userData
+// with e2e- prefixed tasks, and every container and volume it makes is removed.
+
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { _electron as electron } from 'playwright';
 
-const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
-const SCRATCH = process.env['CC_E2E_SCRATCH'] ?? '/tmp/cc-e2e-scratch';
-const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
+import {
+  call,
+  check,
+  finish,
+  goView,
+  harnessFailure,
+  launchIsolated,
+  ok,
+  readContainerFile,
+  readContainerJson,
+  selectTask,
+  sh,
+  shoot,
+  taskById,
+  TASK_PREFIX,
+  waitFor,
+  writeContainerFile,
+} from './helpers.mjs';
 
+const API_KEY = process.env['CC_E2E_API_KEY'] ?? 'sk-e2e-placeholder-token';
 const LOCAL_SKILL_SOURCE = '/home/claude/workspace/deep-skill-source';
+const SCRATCH_TAG = 'cc-container-desktop-e2e:scratch';
 
-let failures = 0;
-let step = 0;
+const scratch = mkdtempSync(join(tmpdir(), 'cc-deep-'));
+const session = await launchIsolated();
+const { page, app } = session;
 
-function check(label, condition, detail = '') {
-  step += 1;
-  const tag = String(step).padStart(2, '0');
-  if (condition) {
-    console.log(`  ✓ ${tag} ${label}${detail === '' ? '' : ` — ${detail}`}`);
-  } else {
-    failures += 1;
-    console.error(`  ✗ ${tag} ${label} — ${detail === '' ? 'assertion failed' : detail}`);
-  }
-  return condition;
-}
-
-async function call(page, method, args = []) {
-  const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
-  if (result === null || typeof result !== 'object' || !('ok' in result)) {
-    throw new Error(`${method}: unexpected reply ${JSON.stringify(result)}`);
-  }
-  return result;
-}
-
-async function ok(page, method, args = []) {
-  const result = await call(page, method, args);
-  if (!result.ok) throw new Error(`${method}: ${result.error}`);
-  return result.value;
-}
-
-async function goTab(page, id) {
-  await page.evaluate((tab) => {
-    const order = ['connect', 'terminal', 'files', 'profiles', 'extensions', 'image', 'settings'];
-    document.querySelectorAll('.sidebar button')[order.indexOf(tab)]?.click();
-  }, id);
-  await page.waitForTimeout(400);
-}
-
-async function fieldInput(page, labelText) {
+async function fieldInput(labelText) {
   const handle = await page.evaluateHandle((label) => {
     for (const field of document.querySelectorAll('.field')) {
       if (field.querySelector('label')?.textContent?.trim() === label) {
@@ -60,132 +48,140 @@ async function fieldInput(page, labelText) {
   return element;
 }
 
-rmSync(SCRATCH, { recursive: true, force: true });
-mkdirSync(SCRATCH, { recursive: true });
+function mockDirectoryDialog(dir) {
+  return app.evaluate(({ dialog }, chosen) => {
+    dialog.showOpenDialog = async () =>
+      chosen === null ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [chosen] };
+  }, dir);
+}
 
-const app = await electron.launch({ args: ['.', '--no-sandbox', '--disable-gpu'] });
+function dockerLabelsOf(containerName) {
+  const raw = execFileSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', containerName], {
+    encoding: 'utf8',
+  });
+  return JSON.parse(raw);
+}
+
+function dockerVolumeExists(name) {
+  try {
+    execFileSync('docker', ['volume', 'inspect', name], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function dockerContainerExists(name) {
+  try {
+    execFileSync('docker', ['inspect', '--type', 'container', name], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 try {
-  const page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
-  await page.waitForTimeout(800);
-
   const boot = await ok(page, 'snapshot');
   if (!boot.docker.available) throw new Error('docker is not available');
+  if (!boot.image.exists) {
+    console.log('  … image missing, building it first');
+    await ok(page, 'imageBuild', [{ noCache: false }]);
+  }
 
   await page.evaluate(() => {
     window.__ccBuildLogs = [];
     window.__ccProvisionLogs = [];
+    window.__ccAppLogs = [];
+    window.__ccResets = [];
     window.cc.onLog((line) => {
       if (line.stream === 'build') window.__ccBuildLogs.push(line.text);
       if (line.stream === 'provision') window.__ccProvisionLogs.push(line.text);
+      if (line.stream === 'app') window.__ccAppLogs.push(line.text);
     });
+    window.cc.onTerminalsReset((reset) => window.__ccResets.push(reset.taskId));
   });
 
-  console.log('\n[A] typing into controlled inputs');
+  console.log('\n[A] guards that need no container');
 
-  await goTab(page, 'settings');
-  const sessionInput = await fieldInput(page, 'tmux セッション名');
-  await sessionInput.click({ clickCount: 3 });
+  const unknownKey = await call(page, 'configSave', [{ containerName: 'x' }]);
+  check('a config key that no longer exists is rejected', unknownKey.ok === false, unknownKey.error ?? '');
+  const emptyTag = await call(page, 'configSave', [{ imageTag: '   ' }]);
+  check('an empty image tag is rejected', emptyTag.ok === false, emptyTag.error ?? '');
+
+  const noName = await call(page, 'taskCreate', [
+    { name: '   ', note: '', profileId: null, source: { kind: 'empty' } },
+  ]);
+  check('a task needs a name', noName.ok === false, noName.error ?? '');
+  const sshUrl = await call(page, 'taskCreate', [
+    { name: 'x', note: '', profileId: null, source: { kind: 'git', url: 'git@github.com:a/b.git', ref: '' } },
+  ]);
+  check('an ssh clone URL is refused', sshUrl.ok === false, sshUrl.error ?? '');
+  const credUrl = await call(page, 'taskCreate', [
+    {
+      name: 'x',
+      note: '',
+      profileId: null,
+      source: { kind: 'git', url: 'https://user:token@github.com/a/b', ref: '' },
+    },
+  ]);
+  check('credentials in a clone URL are refused', credUrl.ok === false, credUrl.error ?? '');
+  const optionRef = await call(page, 'taskCreate', [
+    {
+      name: 'x',
+      note: '',
+      profileId: null,
+      source: { kind: 'git', url: 'https://github.com/a/b', ref: '--upload-pack=x' },
+    },
+  ]);
+  check('a branch that reads as an option is refused', optionRef.ok === false, optionRef.error ?? '');
+  const badProfile = await call(page, 'taskCreate', [
+    { name: 'x', note: '', profileId: 'no-such-profile', source: { kind: 'empty' } },
+  ]);
+  check('an unknown profile is refused', badProfile.ok === false, badProfile.error ?? '');
+  check('none of the refused creations left a task behind', (await ok(page, 'snapshot')).tasks.length === 0);
+
+  const execGhost = await call(page, 'taskExec', ['ghost', { command: ['true'], asRoot: false }]);
+  check('exec on an unknown task is refused', execGhost.ok === false, execGhost.error ?? '');
+  const termGhost = await call(page, 'termOpen', [{ taskId: 'ghost', kind: 'shell', cols: 80, rows: 24 }]);
+  check('a terminal on an unknown task is refused', termGhost.ok === false, termGhost.error ?? '');
+  const badScheme = await call(page, 'openExternal', ['file:///etc/passwd']);
+  check('a non-http link is refused', badScheme.ok === false);
+  const badReveal = await call(page, 'revealPath', ['/etc']);
+  check('revealing a path outside the app data is refused', badReveal.ok === false);
+
+  console.log('\n[B] typing into controlled inputs');
+
+  await page.click('[data-testid="new-task"]');
+  await page.waitForTimeout(400);
+  const nameInput = await fieldInput('タスク名');
+  await nameInput.click({ clickCount: 3 });
   await page.keyboard.press('Backspace');
-  await page.keyboard.type('my-long-session-name', { delay: 15 });
-  await page.waitForTimeout(1200);
-  const typedSession = await sessionInput.inputValue();
-  check(
-    'settings text field keeps every character typed',
-    typedSession === 'my-long-session-name',
-    `got ${JSON.stringify(typedSession)}`,
-  );
+  await page.keyboard.type('my long task name', { delay: 15 });
+  await page.waitForTimeout(400);
+  check('the task name field keeps every character typed', (await nameInput.inputValue()) === 'my long task name');
+  const createEnabled = await page.evaluate(() => !document.querySelector('[data-testid="create-task"]').disabled);
+  check('the create button is enabled with a valid form', createEnabled);
+  await nameInput.click({ clickCount: 3 });
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  const createDisabled = await page.evaluate(() => document.querySelector('[data-testid="create-task"]').disabled);
+  check('the create button is disabled with an empty name', createDisabled);
 
-  const beforeBlur = (await ok(page, 'snapshot')).config.tmuxSession;
-  check(
-    'settings text field does not persist mid-edit',
-    beforeBlur !== typedSession,
-    `already stored ${JSON.stringify(beforeBlur)}`,
-  );
-
-  await page.keyboard.press('Tab');
-  await page.waitForTimeout(700);
-  const persistedSession = (await ok(page, 'snapshot')).config.tmuxSession;
-  check(
-    'settings text field persists on blur',
-    persistedSession === typedSession,
-    `stored ${JSON.stringify(persistedSession)} vs shown ${JSON.stringify(typedSession)}`,
-  );
-  check(
-    'field still shows the committed value after the snapshot refresh',
-    (await sessionInput.inputValue()) === typedSession,
-  );
-
-  await ok(page, 'configSave', [{ tmuxSession: 'cc' }]);
-
-  await goTab(page, 'profiles');
-  const urlInput = await fieldInput(page, 'ベース URL');
+  await goView(page, 'profiles');
+  const urlInput = await fieldInput('ベース URL');
   await urlInput.click({ clickCount: 3 });
   await page.keyboard.press('Backspace');
   await page.keyboard.type('https://example.test/api/v1/messages', { delay: 15 });
-  await page.waitForTimeout(600);
-  const typedUrl = await urlInput.inputValue();
+  await page.waitForTimeout(400);
   check(
     'base URL field keeps every character while typing',
-    typedUrl === 'https://example.test/api/v1/messages',
-    `got ${JSON.stringify(typedUrl)}`,
+    (await urlInput.inputValue()) === 'https://example.test/api/v1/messages',
   );
-
   await page.keyboard.press('Tab');
   await page.waitForTimeout(400);
-  const blurredUrl = await urlInput.inputValue();
-  check(
-    'base URL is trimmed to the prefix on blur',
-    blurredUrl === 'https://example.test/api',
-    `got ${JSON.stringify(blurredUrl)}`,
-  );
+  check('base URL is trimmed to the prefix on blur', (await urlInput.inputValue()) === 'https://example.test/api');
 
-  console.log('\n[B] container down: clear errors, no crashes');
-
-  await ok(page, 'containerRemove', [true]);
-  const downSnapshot = await ok(page, 'snapshot');
-  check('container reported missing', downSnapshot.container.exists === false, downSnapshot.container.status);
-
-  const provisionDown = await call(page, 'containerProvision');
-  check(
-    'provisioning without a container fails with a readable message',
-    provisionDown.ok === false && /コンテナが起動していません|not running/u.test(provisionDown.error),
-    provisionDown.ok ? 'unexpectedly succeeded' : provisionDown.error,
-  );
-
-  const listDown = await call(page, 'fsList', ['/home/claude/workspace']);
-  check(
-    'file listing without a container fails with a readable message',
-    listDown.ok === false && /コンテナが起動していません|not running/u.test(listDown.error),
-    listDown.ok ? 'unexpectedly succeeded' : listDown.error,
-  );
-
-  const termDown = await call(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 80, rows: 24 }]);
-  check(
-    'opening a terminal without a container fails with a readable message',
-    termDown.ok === false && /コンテナが起動していません|not running/u.test(termDown.error),
-    termDown.ok ? 'unexpectedly succeeded' : termDown.error,
-  );
-
-  const tmuxDown = await call(page, 'tmuxList');
-  check(
-    'tmux listing without a container returns empty, not an error',
-    tmuxDown.ok === true && tmuxDown.value.length === 0,
-  );
-
-  /* oxlint-disable no-await-in-loop */
-  for (const tab of ['connect', 'terminal', 'files', 'profiles', 'extensions', 'settings']) {
-    await goTab(page, tab);
-    const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
-    check(`${tab} tab still renders with no container`, painted);
-  }
-  /* oxlint-enable no-await-in-loop */
-
-  console.log('\n[C] two profiles, switching, auth mode');
-
-  await ok(page, 'containerUp');
+  console.log('\n[C] two tasks, two profiles, nothing shared');
 
   const bearer = {
     id: 'deep-bearer',
@@ -213,50 +209,97 @@ try {
     contextTokens: null,
     extraEnv: { CC_DEEP_MARKER: 'keyed' },
   };
-
   await ok(page, 'profileUpsert', [bearer]);
   await ok(page, 'profileUpsert', [keyed]);
   await ok(page, 'secretSet', [bearer.id, API_KEY]);
   await ok(page, 'secretSet', [keyed.id, 'sk-fake-for-header-check']);
 
-  await ok(page, 'profileActivate', [bearer.id]);
-  await ok(page, 'containerProvision');
-  let env = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json'])).env;
-  check(
-    'bearer profile sets AUTH_TOKEN and explicitly blanks API_KEY',
-    env.ANTHROPIC_AUTH_TOKEN === API_KEY && env.ANTHROPIC_API_KEY === '',
-  );
-  check('extra env applied', env.CC_DEEP_MARKER === 'bearer', env.CC_DEEP_MARKER);
-  check(
-    'the fable alias is pinned for the gateway',
-    env.ANTHROPIC_DEFAULT_FABLE_MODEL === 'stealth/ox-alpha',
-    env.ANTHROPIC_DEFAULT_FABLE_MODEL,
-  );
-  check('API_TIMEOUT_MS applied', env.API_TIMEOUT_MS === '123456', env.API_TIMEOUT_MS);
-  check('context tokens applied', env.CLAUDE_CODE_MAX_CONTEXT_TOKENS === '1048576', env.CLAUDE_CODE_MAX_CONTEXT_TOKENS);
+  const alpha = (await session.createTask({ name: `${TASK_PREFIX}alpha`, profileId: bearer.id })).task;
+  const beta = (await session.createTask({ name: `${TASK_PREFIX}beta`, profileId: keyed.id, note: '  beta note ' }))
+    .task;
+  check('tasks get distinct containers', alpha.containerName !== beta.containerName);
+  check('the note is trimmed', beta.note === 'beta note', JSON.stringify(beta.note));
 
-  await ok(page, 'profileActivate', [keyed.id]);
-  await ok(page, 'containerProvision');
-  env = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json'])).env;
+  let snapshot = await ok(page, 'snapshot');
   check(
-    'switching to api-key mode removes the stale AUTH_TOKEN',
-    env.ANTHROPIC_API_KEY === 'sk-fake-for-header-check' && env.ANTHROPIC_AUTH_TOKEN === undefined,
-    JSON.stringify(Object.keys(env)),
+    'both tasks are running',
+    taskById(snapshot, alpha.id)?.container.running && taskById(snapshot, beta.id)?.container.running,
   );
-  check('stale API_TIMEOUT_MS removed', env.API_TIMEOUT_MS === undefined, env.API_TIMEOUT_MS);
-  check('stale context tokens removed', env.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined);
-  check('extra env replaced, not merged', env.CC_DEEP_MARKER === 'keyed', env.CC_DEEP_MARKER);
+  check(
+    'each container carries its own task label',
+    dockerLabelsOf(alpha.containerName)['com.cc-container-desktop.task'] === alpha.id &&
+      dockerLabelsOf(beta.containerName)['com.cc-container-desktop.task'] === beta.id,
+  );
+  check(
+    'each task has its own home volume',
+    dockerVolumeExists(alpha.volumeName) && dockerVolumeExists(beta.volumeName),
+  );
 
-  const claudeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  let alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
+  let betaEnv = (await readContainerJson(page, beta.id, '/home/claude/.claude/settings.json')).env;
+  check(
+    'the bearer task sets AUTH_TOKEN and explicitly blanks API_KEY',
+    alphaEnv.ANTHROPIC_AUTH_TOKEN === API_KEY && alphaEnv.ANTHROPIC_API_KEY === '',
+  );
+  check('extra env applied per task', alphaEnv.CC_DEEP_MARKER === 'bearer' && betaEnv.CC_DEEP_MARKER === 'keyed');
+  check('the fable alias is pinned for the gateway', alphaEnv.ANTHROPIC_DEFAULT_FABLE_MODEL === 'stealth/ox-alpha');
+  check('API_TIMEOUT_MS applied', alphaEnv.API_TIMEOUT_MS === '123456', alphaEnv.API_TIMEOUT_MS);
+  check('context tokens applied', alphaEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === '1048576');
+  check(
+    'the keyed task uses the API key header and no stale AUTH_TOKEN',
+    betaEnv.ANTHROPIC_API_KEY === 'sk-fake-for-header-check' && betaEnv.ANTHROPIC_AUTH_TOKEN === undefined,
+    JSON.stringify(Object.keys(betaEnv)),
+  );
+  check(
+    'no timeout leaks into the keyed task',
+    betaEnv.API_TIMEOUT_MS === undefined && betaEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined,
+  );
+  const betaClaudeJson = await readContainerJson(page, beta.id, '/home/claude/.claude.json');
   check(
     'api-key mode pre-approves the key',
-    Array.isArray(claudeJson.customApiKeyResponses?.approved) && claudeJson.customApiKeyResponses.approved.length > 0,
-    JSON.stringify(claudeJson.customApiKeyResponses ?? null),
+    Array.isArray(betaClaudeJson.customApiKeyResponses?.approved) &&
+      betaClaudeJson.customApiKeyResponses.approved.length > 0,
   );
+
+  await writeContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt', 'alpha\n');
+  const betaSees = await sh(page, beta.id, 'test -e ~/workspace/only-in-alpha.txt && echo yes || echo no');
+  check('a file written in one task is invisible to the other', betaSees.stdout.trim() === 'no');
+
+  await ok(page, 'configSave', [{ defaultProfileId: keyed.id }]);
+  await ok(page, 'taskProvision', [alpha.id]);
+  alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
+  check('changing the default profile does not touch a task that has its own', alphaEnv.CC_DEEP_MARKER === 'bearer');
+
+  const switched = await ok(page, 'taskUpdate', [alpha.id, { profileId: keyed.id }]);
+  check('taskUpdate returns the task with the new profile', switched.profileId === keyed.id);
+  alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
+  check(
+    'switching a running task to api-key mode rewrites its env and drops AUTH_TOKEN',
+    alphaEnv.ANTHROPIC_API_KEY === 'sk-fake-for-header-check' && alphaEnv.ANTHROPIC_AUTH_TOKEN === undefined,
+  );
+  check('stale API_TIMEOUT_MS removed', alphaEnv.API_TIMEOUT_MS === undefined);
+  check('extra env replaced, not merged', alphaEnv.CC_DEEP_MARKER === 'keyed');
+  await ok(page, 'taskUpdate', [alpha.id, { profileId: bearer.id }]);
+
+  const renamed = await ok(page, 'taskUpdate', [alpha.id, { name: `  ${TASK_PREFIX}alpha   renamed ` }]);
+  check('a rename collapses whitespace', renamed.name === `${TASK_PREFIX}alpha renamed`, JSON.stringify(renamed.name));
+  const blankRename = await call(page, 'taskUpdate', [alpha.id, { name: '   ' }]);
+  check('a blank rename is refused', blankRename.ok === false);
+  await ok(page, 'taskUpdate', [alpha.id, { name: `${TASK_PREFIX}alpha` }]);
+
+  const applied = await ok(page, 'profileApply', [bearer.id]);
+  check(
+    'applying a profile reports the running tasks that use it',
+    applied.length === 1 && applied[0].startsWith(`${TASK_PREFIX}alpha`),
+    JSON.stringify(applied),
+  );
+  const appliedNone = await ok(page, 'profileApply', ['no-such-profile']);
+  check('applying an unused profile reports nothing', appliedNone.length === 0);
 
   console.log('\n[D] ~/.claude.json is merged, never clobbered');
 
-  const beforeMerge = { ...claudeJson, userID: 'deep-user-123', numStartups: 42 };
+  const alphaJson = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const beforeMerge = { ...alphaJson, userID: 'deep-user-123', numStartups: 42 };
   beforeMerge.projects = {
     ...beforeMerge.projects,
     '/home/claude/workspace': {
@@ -265,11 +308,9 @@ try {
     },
     '/some/other/project': { hasTrustDialogAccepted: false },
   };
-  await ok(page, 'fsWrite', [
-    { path: '/home/claude/.claude.json', content: `${JSON.stringify(beforeMerge, null, 2)}\n` },
-  ]);
-  await ok(page, 'containerProvision');
-  const merged = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', `${JSON.stringify(beforeMerge, null, 2)}\n`);
+  await ok(page, 'taskProvision', [alpha.id]);
+  const merged = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
   check('unrelated top-level keys survive', merged.userID === 'deep-user-123' && merged.numStartups === 42);
   check(
     'project history survives',
@@ -278,616 +319,78 @@ try {
   check('other projects survive untouched', merged.projects['/some/other/project'].hasTrustDialogAccepted === false);
   check('onboarding flag re-asserted', merged.hasCompletedOnboarding === true);
 
-  await ok(page, 'fsWrite', [{ path: '/home/claude/.claude.json', content: 'this is not json at all' }]);
-  const afterCorrupt = await call(page, 'containerProvision');
+  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', 'this is not json at all');
+  const afterCorrupt = await call(page, 'taskProvision', [alpha.id]);
   check('a corrupt .claude.json does not break provisioning', afterCorrupt.ok === true, afterCorrupt.error ?? '');
-  const rebuilt = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  const rebuilt = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
   check('corrupt .claude.json is rebuilt with the flags', rebuilt.hasCompletedOnboarding === true);
 
-  const badSettings = await call(page, 'fsWrite', [
-    { path: '/home/claude/.claude/settings.json', content: '{ broken' },
-  ]);
-  check('writing an invalid settings.json is allowed', badSettings.ok === true);
-  const afterBadSettings = await call(page, 'containerProvision');
+  await writeContainerFile(page, alpha.id, '/home/claude/.claude/settings.json', '{ broken');
+  const afterBadSettings = await call(page, 'taskProvision', [alpha.id]);
   check(
     'a corrupt settings.json does not break provisioning',
     afterBadSettings.ok === true,
     afterBadSettings.error ?? '',
   );
-  const settingsBack = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  const settingsBack = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
   check('corrupt settings.json is rebuilt with env', typeof settingsBack.env?.ANTHROPIC_BASE_URL === 'string');
-
-  console.log('\n[E] file operations');
-
-  const odd = '/home/claude/workspace/日本語 と スペース.txt';
-  await ok(page, 'fsWrite', [{ path: odd, content: 'ゼロ幅\tタブ\nと改行\n' }]);
-  const oddBack = await ok(page, 'fsRead', [odd]);
-  check('CJK + spaces in a filename round-trip', oddBack === 'ゼロ幅\tタブ\nと改行\n', JSON.stringify(oddBack));
-
-  const listing = await ok(page, 'fsList', ['/home/claude/workspace']);
   check(
-    'odd filename appears in the listing',
-    listing.some((entry) => entry.name === '日本語 と スペース.txt'),
-    listing.map((entry) => entry.name).join(' | '),
+    'the bypass-permissions prompt is pre-accepted where current Claude Code reads it',
+    settingsBack.skipDangerousModePermissionPrompt === true,
   );
 
-  const nested = '/home/claude/workspace/deep/nested/dir';
-  await ok(page, 'fsMkdir', [nested]);
-  await ok(page, 'fsWrite', [{ path: `${nested}/inner.txt`, content: 'nested content\n' }]);
-  check('nested mkdir + write works', (await ok(page, 'fsRead', [`${nested}/inner.txt`])) === 'nested content\n');
+  console.log('\n[E] extensions: MCP, marketplaces, plugins, skill installs');
 
-  const ownership = await ok(page, 'containerExec', [
-    { command: ['stat', '-c', '%U:%G %a', odd, `${nested}/inner.txt`], asRoot: false },
-  ]);
-  check(
-    'written files are owned by claude',
-    ownership.stdout
-      .split('\n')
-      .filter(Boolean)
-      .every((line) => line.startsWith('claude:claude')),
-    ownership.stdout.trim(),
+  await sh(
+    page,
+    alpha.id,
+    'mkdir -p ~/.claude/skills/hand-written && echo "hand made" > ~/.claude/skills/hand-written/SKILL.md',
   );
-
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        'printf "#!/bin/sh\\necho v1\\n" > ~/workspace/script.sh && chmod 755 ~/workspace/script.sh',
-      ],
-      asRoot: false,
-    },
-  ]);
-  await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/script.sh', content: '#!/bin/sh\necho v2\n' }]);
-  const modeAfter = await ok(page, 'containerExec', [
-    { command: ['stat', '-c', '%a', '/home/claude/workspace/script.sh'], asRoot: false },
-  ]);
-  check(
-    'editing an executable file keeps its mode',
-    modeAfter.stdout.trim() === '755',
-    `mode is ${modeAfter.stdout.trim()}, expected 755`,
+  await sh(
+    page,
+    alpha.id,
+    `mkdir -p ${LOCAL_SKILL_SOURCE}/deep-probe && printf '%s\\n' '---' 'name: deep-probe' ` +
+      `'description: A probe skill the end-to-end suite installs to prove the skills CLI ran.' '---' '' ` +
+      `'DEEP-SKILL-MARKER' > ${LOCAL_SKILL_SOURCE}/deep-probe/SKILL.md`,
   );
-
-  await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'head -c 4096 /dev/urandom > ~/workspace/blob.bin'], asRoot: false },
-  ]);
-  const binary = await call(page, 'fsRead', ['/home/claude/workspace/blob.bin']);
-  check(
-    'binary files are refused with a known marker',
-    binary.ok === false && binary.error === 'FILE_BINARY',
-    binary.error,
-  );
-
-  await ok(page, 'containerExec', [
-    {
-      command: ['bash', '-lc', 'yes abcdefghijklmnopqrstuvwxyz | head -c 3000000 > ~/workspace/big.txt'],
-      asRoot: false,
-    },
-  ]);
-  const big = await call(page, 'fsRead', ['/home/claude/workspace/big.txt']);
-  check(
-    'oversized files are refused with a known marker',
-    big.ok === false && big.error === 'FILE_TOO_LARGE',
-    big.error,
-  );
-
-  const missing = await call(page, 'fsList', ['/home/claude/workspace/definitely-not-here']);
-  check('listing a missing directory reports an error', missing.ok === false, missing.error ?? 'succeeded');
-
-  console.log('\n[F] export');
-
-  const exportRoot = join(SCRATCH, 'exports');
-  mkdirSync(exportRoot, { recursive: true });
-  await ok(page, 'configSave', [{ lastExportDir: exportRoot }]);
-  await app.evaluate(({ dialog }, dir) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [dir] });
-  }, exportRoot);
-
-  const exported = await ok(page, 'workspaceExport');
-  check('export returned a path', typeof exported === 'string' && exported.startsWith(exportRoot), String(exported));
-  check('exported nested file exists on the host', existsSync(join(exported, 'deep/nested/dir/inner.txt')));
-  check(
-    'exported nested file has the right content',
-    existsSync(join(exported, 'deep/nested/dir/inner.txt')) &&
-      readFileSync(join(exported, 'deep/nested/dir/inner.txt'), 'utf8') === 'nested content\n',
-  );
-  check('exported CJK filename survives', existsSync(join(exported, '日本語 と スペース.txt')));
-  check('no .partial directory left behind', !existsSync(`${exported}.partial`));
-
-  const devDir = await ok(page, 'devcontainerWrite');
-  check('devcontainer.json written', existsSync(join(String(devDir), 'devcontainer.json')));
-  check('Dockerfile copied next to it', existsSync(join(String(devDir), 'Dockerfile')));
-  const devJson = JSON.parse(readFileSync(join(String(devDir), 'devcontainer.json'), 'utf8'));
-  check(
-    'devcontainer points at the same volume',
-    devJson.workspaceMount.includes(boot.config.volumeName),
-    devJson.workspaceMount,
-  );
-
-  console.log('\n[G] VS Code attach URI');
-
-  const vscode = await ok(page, 'containerVscode');
-  const hex = /attached-container\+([0-9a-f]+)/u.exec(vscode.uri)?.[1] ?? '';
-  const decoded = hex === '' ? '' : Buffer.from(hex, 'hex').toString('utf8');
-  check(
-    'attach URI encodes {"containerName":"/<name>"}',
-    decoded === JSON.stringify({ containerName: `/${boot.config.containerName}` }),
-    decoded,
-  );
-  check('attach URI ends at the workspace', vscode.uri.endsWith('/home/claude/workspace'), vscode.uri);
-
-  console.log('\n[H] terminals');
-
-  await ok(page, 'profileActivate', [bearer.id]);
-  await ok(page, 'containerProvision');
-
-  const shellA = await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 80, rows: 24 }]);
-  const shellB = await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 100, rows: 30 }]);
-  check('two shells get distinct ids', shellA.id !== shellB.id);
-
-  const resized = await call(page, 'termResize', [shellA.id, 132, 43]);
-  check('resize accepted', resized.ok === true, resized.error ?? '');
-  const resizeZero = await call(page, 'termResize', [shellA.id, 0, 0]);
-  check('a zero-size resize is ignored rather than throwing', resizeZero.ok === true);
-  const resizeGone = await call(page, 'termResize', ['no-such-terminal', 80, 24]);
-  check('resizing an unknown terminal is a no-op', resizeGone.ok === true);
-  const writeGone = await call(page, 'termWrite', ['no-such-terminal', 'x']);
-  check('writing to an unknown terminal is a no-op', writeGone.ok === true);
-  const closeGone = await call(page, 'termClose', ['no-such-terminal']);
-  check('closing an unknown terminal is a no-op', closeGone.ok === true);
-
-  await ok(page, 'termClose', [shellA.id]);
-  await ok(page, 'termClose', [shellB.id]);
-
-  const wide = await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 200, rows: 50 }]);
-  await page.evaluate((id) => {
-    window.__ccTermText = '';
-    window.cc.onTerminalData((event) => {
-      if (event.id === id) window.__ccTermText += event.data;
-    });
-  }, wide.id);
-  await page.waitForTimeout(600);
-  const REPEATS = 20000;
-  await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
-  await page.waitForTimeout(9000);
-  const termText = await page.evaluate(() => window.__ccTermText ?? '');
-  check(
-    'a 60KB run of 3-byte characters survives the pty stream intact',
-    !termText.includes('�'),
-    `${(termText.match(/�/gu) ?? []).length} replacement char(s) in ${termText.length}`,
-  );
-  check(
-    'and every character arrived',
-    (termText.match(/あ/gu) ?? []).length >= REPEATS,
-    `${(termText.match(/あ/gu) ?? []).length}/${REPEATS}`,
-  );
-  await ok(page, 'termClose', [wide.id]);
-
-  const named = await ok(page, 'termOpen', [
-    { kind: 'attach', sessionName: 'has spaces.and:colons', cols: 80, rows: 24 },
-  ]);
-  check('tmux session names are sanitized', named.sessionName === 'has-spaces-and-colons', named.sessionName);
-  await page.waitForTimeout(2500);
-  const sessions = await ok(page, 'tmuxList');
-  check(
-    'sanitized session shows up in the list',
-    sessions.some((session) => session.name === 'has-spaces-and-colons'),
-    sessions.map((session) => session.name).join(', '),
-  );
-  check(
-    'the listing carries tmux session ids',
-    sessions.every((session) => /^\$\d+$/u.test(session.id)),
-    sessions.map((session) => session.id).join(', '),
-  );
-  check(
-    'an open tab shows as attached',
-    sessions.find((session) => session.name === 'has-spaces-and-colons')?.attached === true,
-  );
-
-  await ok(page, 'termClose', [named.id]);
-  await page.waitForTimeout(2500);
-  const afterDetach = await ok(page, 'tmuxList');
-  const detached = afterDetach.find((session) => session.name === 'has-spaces-and-colons');
-  check('closing the tab leaves the session running', detached !== undefined);
-  check('and detaches its client instead of leaking one', detached?.attached === false, JSON.stringify(afterDetach));
-
-  const leaked = await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'tmux list-clients 2>/dev/null | wc -l'], asRoot: false },
-  ]);
-  check('no tmux client is left behind', leaked.stdout.trim() === '0', leaked.stdout.trim());
-
-  const raced = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'raced', cols: 80, rows: 24 }]);
-  await ok(page, 'termClose', [raced.id]);
-  await page.waitForTimeout(4000);
-  const afterRace = await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'tmux list-clients 2>/dev/null | wc -l'], asRoot: false },
-  ]);
-  check(
-    'closing a tab the instant it opens still detaches its client',
-    afterRace.stdout.trim() === '0',
-    afterRace.stdout.trim(),
-  );
-  await ok(page, 'tmuxKill', ['raced']);
-
-  const injected = await ok(page, 'termOpen', [
-    { kind: 'attach', sessionName: 'pwn#(touch /tmp/cc-pwned)#{pid}*x', cols: 80, rows: 24 },
-  ]);
-  check(
-    'tmux format and glob characters never reach tmux',
-    !/[#{}*?[\]$@%:.=~\\\s]/u.test(injected.sessionName),
-    injected.sessionName,
-  );
-  await page.waitForTimeout(2500);
-  const injectedList = await ok(page, 'tmuxList');
-  check(
-    'tmux agrees on the name we reported back',
-    injectedList.some((session) => session.name === injected.sessionName),
-    injectedList.map((session) => session.name).join(', '),
-  );
-  const pwned = await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'test -e /tmp/cc-pwned && echo yes || echo no'], asRoot: false },
-  ]);
-  check('a session name cannot run a command in the container', pwned.stdout.trim() === 'no', pwned.stdout.trim());
-  await ok(page, 'termClose', [injected.id]);
-  await page.waitForTimeout(1500);
-
-  await ok(page, 'tmuxKill', [injected.sessionName]);
-  await page.waitForTimeout(800);
-
-  const prefixKill = await call(page, 'tmuxKill', ['has']);
-  check('killing a mere prefix of a session name is a no-op', prefixKill.ok === true);
-  await page.waitForTimeout(800);
-  const afterPrefixKill = await ok(page, 'tmuxList');
-  check(
-    'and the session sharing that prefix is still there',
-    afterPrefixKill.some((session) => session.name === 'has-spaces-and-colons'),
-    afterPrefixKill.map((session) => session.name).join(', '),
-  );
-
-  const killTarget = afterPrefixKill.find((session) => session.name === 'has-spaces-and-colons');
-  await ok(page, 'tmuxKill', [killTarget.id]);
-  await page.waitForTimeout(800);
-  const afterKill = await ok(page, 'tmuxList');
-  check(
-    'killing by session id works',
-    !afterKill.some((session) => session.name === 'has-spaces-and-colons'),
-    afterKill.map((session) => session.name).join(', '),
-  );
-  const killMissing = await call(page, 'tmuxKill', ['never-existed']);
-  check('killing a missing session is not an error', killMissing.ok === true);
-
-  const staleRow = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'renamed', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(2500);
-  const staleEntry = (await ok(page, 'tmuxList')).find((session) => session.name === 'renamed');
-  await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', `tmux rename-session -t '${staleEntry.id}' someone-elses-work`], asRoot: false },
-  ]);
-  const staleKill = await call(page, 'tmuxKill', [staleEntry.id, 'renamed']);
-  check('killing by a stale id whose session now has another name is refused', staleKill.ok === false);
-  const spared = await ok(page, 'tmuxList');
-  check(
-    'and that session is left running',
-    spared.some((session) => session.name === 'someone-elses-work'),
-    spared.map((session) => session.name).join(', '),
-  );
-  const staleAttach = await call(page, 'termOpen', [
-    { kind: 'attach', sessionName: 'renamed', sessionId: staleEntry.id, cols: 80, rows: 24 },
-  ]);
-  check('attaching by a stale id whose session now has another name is refused', staleAttach.ok === false);
-  await ok(page, 'termClose', [staleRow.id]);
-  await ok(page, 'tmuxKill', ['someone-elses-work']);
-
-  const pinned = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'pinned', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(2500);
-  await ok(page, 'configSave', [{ containerName: 'cc-workbench-renamed-away' }]);
-  await ok(page, 'termClose', [pinned.id]);
-  await page.waitForTimeout(3000);
-  await ok(page, 'configSave', [{ containerName: 'cc-workbench' }]);
-  const afterRename = await ok(page, 'tmuxList');
-  check(
-    'closing after a container rename still detaches in the original container',
-    afterRename.find((session) => session.name === 'pinned')?.attached === false,
-    JSON.stringify(afterRename),
-  );
-  await ok(page, 'tmuxKill', ['pinned']);
-  const attachGone = await call(page, 'termOpen', [
-    { kind: 'attach', sessionName: 'ghost', sessionId: '$999', cols: 80, rows: 24 },
-  ]);
-  check('attaching to a session that has gone reports it instead of making a new one', attachGone.ok === false);
-
-  const doomed = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'doomed', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(2500);
-  const doomedEntry = (await ok(page, 'tmuxList')).find((session) => session.name === 'doomed');
-  await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', `tmux kill-session -t '${doomedEntry.id}'`], asRoot: false },
-  ]);
-  const killRaced = await call(page, 'tmuxKill', [doomedEntry.id]);
-  check('a session that ended between listing and kill is not reported as a failure', killRaced.ok === true);
-  await ok(page, 'termClose', [doomed.id]);
-
-  const firstTab = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'reused', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(2500);
-  await ok(page, 'containerExec', [{ command: ['bash', '-lc', "tmux detach-client -s 'reused'"], asRoot: false }]);
-  const reattached = await ok(page, 'termOpen', [{ kind: 'attach', sessionName: 'reused', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(4000);
-  const afterReattach = await ok(page, 'tmuxList');
-  check(
-    'cleanup for a tab that ended on its own does not detach the tab that replaced it',
-    afterReattach.find((session) => session.name === 'reused')?.attached === true,
-    JSON.stringify(afterReattach),
-  );
-  await ok(page, 'termClose', [firstTab.id]);
-  await ok(page, 'termClose', [reattached.id]);
-  await ok(page, 'tmuxKill', ['reused']);
-
-  await ok(page, 'containerProvision');
-  await ok(page, 'containerProvision');
-  const features = await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'tmux show -g terminal-features 2>/dev/null | grep -cF "xterm*:RGB"'], asRoot: false },
-  ]);
-  check(
-    'reloading the managed config does not stack terminal-features entries',
-    features.stdout.trim() === '1',
-    features.stdout.trim(),
-  );
-
-  console.log('\n[I] lifecycle and persistence');
-
-  await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/persist.txt', content: 'survive me\n' }]);
-
-  const stopped = await ok(page, 'containerStop');
-  check('stop reports not running', stopped.container.running === false, stopped.container.status);
-  const stopAgain = await call(page, 'containerStop');
-  check('stopping an already stopped container is a no-op', stopAgain.ok === true);
-
-  const restarted = await ok(page, 'containerRestart');
-  check('restart brings it back', restarted.container.running === true, restarted.container.status);
-  check(
-    'workspace survived the restart',
-    (await ok(page, 'fsRead', ['/home/claude/workspace/persist.txt'])) === 'survive me\n',
-  );
-
-  await ok(page, 'containerRemove', [false]);
-  const afterRemove = await ok(page, 'snapshot');
-  check('container removed', afterRemove.container.exists === false, afterRemove.container.status);
-  await ok(page, 'containerUp');
-  check(
-    'workspace survived removing the container (volume kept)',
-    (await ok(page, 'fsRead', ['/home/claude/workspace/persist.txt'])) === 'survive me\n',
-  );
-  check(
-    'settings.json survived removing the container',
-    typeof JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json'])).env?.ANTHROPIC_BASE_URL ===
-      'string',
-  );
-
-  const upAgain = await call(page, 'containerUp');
-  check('starting an already running container is a no-op', upAgain.ok === true);
-
-  console.log('\n[J] image sources round-trip');
-
-  const sources = await ok(page, 'imageSourcesGet');
-  check('Dockerfile loaded', sources.dockerfile.includes('FROM ubuntu:24.04'));
-  check('post-create loaded', sources.postCreate.includes('post-create'));
-  check('setup script loaded', sources.setup.includes('setup'), sources.setup.slice(0, 60));
-
-  const marked = `${sources.postCreate}\necho "DEEP-POSTCREATE-MARKER"\n`;
-  await ok(page, 'imageSourcesSave', [{ dockerfile: sources.dockerfile, setup: sources.setup, postCreate: marked }]);
-  const reread = await ok(page, 'imageSourcesGet');
-  check('post-create edit persisted', reread.postCreate.includes('DEEP-POSTCREATE-MARKER'));
-
-  await ok(page, 'containerProvision');
-  const inContainer = await ok(page, 'fsRead', ['/opt/cc/post-create.sh']);
-  check('edited post-create reached the container', inContainer.includes('DEEP-POSTCREATE-MARKER'));
-
-  await ok(page, 'imageSourcesSave', [
-    { dockerfile: sources.dockerfile, setup: sources.setup, postCreate: 'echo start\r\nexit 3\r\n' },
-  ]);
-  const crlfFree = (await ok(page, 'imageSourcesGet')).postCreate;
-  check('CRLF is normalized on save', !crlfFree.includes('\r'), JSON.stringify(crlfFree));
-  const failingPostCreate = await call(page, 'containerProvision');
-  check(
-    'a failing post-create does not fail provisioning',
-    failingPostCreate.ok === true,
-    failingPostCreate.error ?? '',
-  );
-
-  const restored = await ok(page, 'imageSourcesReset');
-  check('reset restores the shipped sources', !restored.postCreate.includes('DEEP-POSTCREATE-MARKER'));
-  check('reset keeps the Dockerfile intact', restored.dockerfile.includes('FROM ubuntu:24.04'));
-
-  console.log('\n[K] image build path');
-
-  const scratchTag = 'cc-container-desktop-e2e:scratch';
-  const realTag = (await ok(page, 'snapshot')).config.imageTag;
-  const savedSources = await ok(page, 'imageSourcesGet');
-
-  try {
-    await ok(page, 'configSave', [{ imageTag: scratchTag }]);
-
-    await ok(page, 'imageSourcesSave', [
-      {
-        dockerfile: 'FROM ubuntu:24.04\nRUN exit 42\n',
-        setup: savedSources.setup,
-        postCreate: savedSources.postCreate,
-      },
-    ]);
-    const failedBuild = await call(page, 'imageBuild', [{ noCache: false }]);
-    check(
-      'a failing build is reported as an error',
-      failedBuild.ok === false && /42/u.test(failedBuild.error),
-      failedBuild.ok ? 'unexpectedly succeeded' : failedBuild.error,
-    );
-
-    writeFileSync(join(savedSources.dir, 'extra-context-file.txt'), 'CONTEXT-OK\n');
-    await ok(page, 'imageSourcesSave', [
-      {
-        dockerfile:
-          'FROM ubuntu:24.04\n' +
-          'COPY extra-context-file.txt /tmp/extra.txt\n' +
-          'RUN grep -q CONTEXT-OK /tmp/extra.txt\n' +
-          'COPY setup.sh /opt/cc/setup.sh\n' +
-          'RUN bash /opt/cc/setup.sh\n',
-        setup: 'echo SETUP-RAN-AT-BUILD\n',
-        postCreate: savedSources.postCreate,
-      },
-    ]);
-    const contextBuild = await call(page, 'imageBuild', [{ noCache: false }]);
-    check(
-      'a user-added file reaches the build context',
-      contextBuild.ok === true,
-      contextBuild.ok ? '' : contextBuild.error,
-    );
-
-    await page.waitForTimeout(600);
-    const buildLogs = await page.evaluate(() => window.__ccBuildLogs ?? []);
-    check('build progress was streamed to the log pane', buildLogs.length > 3, `${buildLogs.length} lines`);
-    check(
-      'the log reports completion',
-      buildLogs.some((line) => /build finished|ビルド完了/u.test(line)),
-      buildLogs.slice(-2).join(' | '),
-    );
-
-    check(
-      'setup.sh runs at build time, so its output is in the build log',
-      buildLogs.some((line) => line.includes('SETUP-RAN-AT-BUILD')),
-      buildLogs.filter((line) => line.includes('SETUP')).join(' | ') || '(not found)',
-    );
-
-    const scratchImage = await ok(page, 'snapshot');
-    check('the scratch image exists', scratchImage.image.exists === true, scratchImage.image.tag);
-  } finally {
-    rmSync(join(savedSources.dir, 'extra-context-file.txt'), { force: true });
-    await ok(page, 'imageSourcesSave', [
-      { dockerfile: savedSources.dockerfile, setup: savedSources.setup, postCreate: savedSources.postCreate },
-    ]);
-    await ok(page, 'configSave', [{ imageTag: realTag }]);
-    try {
-      execFileSync('docker', ['rmi', '-f', scratchTag], { stdio: 'ignore' });
-    } catch {}
-  }
-
-  console.log('\n[L] language switch');
-
-  await goTab(page, 'connect');
-  await ok(page, 'setLanguage', ['en']);
-  await page.waitForTimeout(700);
-  const englishNav = await page.evaluate(() => document.querySelector('.sidebar button')?.textContent?.trim() ?? '');
-  check('UI switched to English', englishNav.includes('Connect'), englishNav);
-  await ok(page, 'setLanguage', ['ja']);
-  await page.waitForTimeout(700);
-  const japaneseNav = await page.evaluate(() => document.querySelector('.sidebar button')?.textContent?.trim() ?? '');
-  check('UI switched back to Japanese', japaneseNav.includes('接続'), japaneseNav);
-
-  if (SHOT_DIR !== '') {
-    mkdirSync(SHOT_DIR, { recursive: true });
-    await page.screenshot({ path: join(SHOT_DIR, 'deep-final.png') });
-  }
-
-  console.log('\n[M] extensions: MCP, marketplaces, plugins, skill installs');
-
-  await ok(page, 'containerUp');
-
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        'mkdir -p ~/.claude/skills/hand-written && echo "hand made" > ~/.claude/skills/hand-written/SKILL.md',
-      ],
-      asRoot: false,
-    },
-  ]);
-
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        `mkdir -p ${LOCAL_SKILL_SOURCE}/deep-probe && printf '%s\\n' '---' 'name: deep-probe' ` +
-          `'description: A probe skill the end-to-end suite installs to prove the skills CLI ran.' '---' '' ` +
-          `'DEEP-SKILL-MARKER' > ${LOCAL_SKILL_SOURCE}/deep-probe/SKILL.md`,
-      ],
-      asRoot: false,
-    },
-  ]);
-  const handMadeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  const handMadeJson = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
   handMadeJson.mcpServers = {
     ...(handMadeJson.mcpServers ?? {}),
     'hand-added': { type: 'http', url: 'https://example.test/mcp' },
   };
-  await ok(page, 'fsWrite', [
-    { path: '/home/claude/.claude.json', content: `${JSON.stringify(handMadeJson, null, 2)}\n` },
-  ]);
+  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', `${JSON.stringify(handMadeJson, null, 2)}\n`);
 
+  const mcp = (id, name, extra) => ({
+    id,
+    name,
+    enabled: true,
+    transport: 'http',
+    command: '',
+    args: [],
+    env: {},
+    url: '',
+    headers: {},
+    timeoutMs: null,
+    note: '',
+    ...extra,
+  });
   await ok(page, 'extensionsSave', [
     {
       mcpServers: [
-        {
-          id: 'x-remote',
-          name: 'agentskills',
-          enabled: true,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
+        mcp('x-remote', 'agentskills', {
           url: 'https://agentskills.io/mcp',
           headers: { 'X-Probe': ' spaced ' },
           timeoutMs: 30000,
-          note: '',
-        },
-        {
-          id: 'x-stdio',
-          name: 'local_fs',
-          enabled: true,
+        }),
+        mcp('x-stdio', 'local_fs', {
           transport: 'stdio',
           command: 'npx',
           args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/claude/workspace'],
           env: { DEBUG: '1' },
-          url: '',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
-        {
-          id: 'x-off',
-          name: 'disabled_one',
-          enabled: false,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
-          url: 'https://disabled.test/mcp',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
-        {
-          id: 'x-bad-name',
-          name: 'has.dots',
-          enabled: true,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
-          url: 'https://bad.test/mcp',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
-        {
-          id: 'x-reserved',
-          name: 'workspace',
-          enabled: true,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
-          url: 'https://reserved.test/mcp',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
+        }),
+        mcp('x-off', 'disabled_one', { enabled: false, url: 'https://disabled.test/mcp' }),
+        mcp('x-bad-name', 'has.dots', { url: 'https://bad.test/mcp' }),
+        mcp('x-reserved', 'workspace', { url: 'https://reserved.test/mcp' }),
       ],
       marketplaces: [
         {
@@ -906,415 +409,429 @@ try {
       ],
       skillInstalls: [
         { id: 'x-skill-local', enabled: true, source: LOCAL_SKILL_SOURCE, skills: ['deep-probe'], note: '' },
-        { id: 'x-skill-remote', enabled: true, source: 'anthropics/skills', skills: ['frontend-design'], note: '' },
         { id: 'x-skill-off', enabled: false, source: 'never/installed', skills: [], note: '' },
         { id: 'x-skill-bad', enabled: true, source: '', skills: [], note: '' },
       ],
     },
   ]);
-  await ok(page, 'containerProvision');
+  const appliedAll = await ok(page, 'extensionsApply');
+  check('applying extensions reaches every running task', appliedAll.length === 2, JSON.stringify(appliedAll));
 
-  const servers = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  const servers = (await readContainerJson(page, alpha.id, '/home/claude/.claude.json')).mcpServers;
   check(
     'a remote server carries an explicit type',
     servers.agentskills?.type === 'http' && servers.agentskills?.url === 'https://agentskills.io/mcp',
-    JSON.stringify(servers.agentskills),
   );
-  check(
-    'header whitespace is trimmed',
-    servers.agentskills?.headers?.['X-Probe'] === 'spaced',
-    JSON.stringify(servers.agentskills?.headers),
-  );
+  check('header whitespace is trimmed', servers.agentskills?.headers?.['X-Probe'] === 'spaced');
   check('the per-server timeout is written', servers.agentskills?.timeout === 30000);
   check(
     'a stdio server is written the way `claude mcp add` writes it',
     servers.local_fs?.command === 'npx' && servers.local_fs?.args?.length === 3 && servers.local_fs?.type === 'stdio',
-    JSON.stringify(servers.local_fs),
   );
-  check('stdio env is written', servers.local_fs?.env?.DEBUG === '1');
   check('a disabled server is not written', servers.disabled_one === undefined);
   check('an invalid name is refused', servers['has.dots'] === undefined);
   check('a reserved name is refused', servers.workspace === undefined);
+  check('a server added inside the container is left alone', servers['hand-added']?.url === 'https://example.test/mcp');
+
+  snapshot = await ok(page, 'snapshot');
   check(
-    'a server added inside the container is left alone',
-    servers['hand-added']?.url === 'https://example.test/mcp',
-    JSON.stringify(servers['hand-added']),
+    'the task remembers which entries it manages',
+    taskById(snapshot, alpha.id)?.task.managed.mcpServers.includes('agentskills') === true,
+    JSON.stringify(taskById(snapshot, alpha.id)?.task.managed),
   );
 
-  const extSettings = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  const extSettings = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
   check(
     'the marketplace is registered',
     extSettings.extraKnownMarketplaces?.['acme-tools']?.source?.repo === 'acme-corp/claude-plugins',
-    JSON.stringify(extSettings.extraKnownMarketplaces),
   );
-  check('autoUpdate is carried through', extSettings.extraKnownMarketplaces?.['acme-tools']?.autoUpdate === true);
   check(
     'plugins are keyed as plugin@marketplace, both states kept',
     extSettings.enabledPlugins?.['formatter@acme-tools'] === true &&
       extSettings.enabledPlugins?.['experimental@acme-tools'] === false,
-    JSON.stringify(extSettings.enabledPlugins),
   );
 
-  const localSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
+  const localSkill = await readContainerFile(page, alpha.id, '/home/claude/.claude/skills/deep-probe/SKILL.md');
   check('the skills CLI installed the named skill', localSkill.includes('DEEP-SKILL-MARKER'));
-  const remoteSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/frontend-design/SKILL.md']);
   check(
-    'a skill named with -s is installed from a GitHub source',
-    remoteSkill.ok === true,
-    remoteSkill.ok ? '' : remoteSkill.error,
+    'the apply reports both tasks by name',
+    appliedAll.some((line) => line.startsWith(`${TASK_PREFIX}alpha`)) &&
+      appliedAll.some((line) => line.startsWith(`${TASK_PREFIX}beta`)),
+    JSON.stringify(appliedAll),
   );
-  const ranCommand = await page.evaluate(() =>
-    window.__ccProvisionLogs.some((line) =>
-      line.includes('npx -y skills@latest add anthropics/skills -s frontend-design -g -a claude-code -y'),
-    ),
-  );
-  check('the command runs exactly as the panel shows it', ranCommand);
-  const notInstalled = await call(page, 'fsRead', ['/home/claude/.claude/skills/never-installed/SKILL.md']);
-  check('a disabled entry is not installed', notInstalled.ok === false);
   const emptySourceWarned = await page.evaluate(() =>
     window.__ccProvisionLogs.some((line) => line.includes('ソースが空です')),
   );
   check('an entry with no source is reported, not run', emptySourceWarned);
-  const handSkill = await ok(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
+  const handSkill = await readContainerFile(page, alpha.id, '/home/claude/.claude/skills/hand-written/SKILL.md');
   check('a hand-written skill is left alone', handSkill.includes('hand made'));
 
-  await ok(page, 'containerProvision');
-  const stillThere = await ok(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
-  check('a second apply reinstalls over the same skill', stillThere.includes('DEEP-SKILL-MARKER'));
-
-  const extBeforeBadEdit = (await ok(page, 'snapshot')).config.extensions;
-  await ok(page, 'extensionsSave', [
-    {
-      ...extBeforeBadEdit,
-      mcpServers: extBeforeBadEdit.mcpServers.map((server) =>
-        server.name === 'agentskills' ? { ...server, url: '' } : server,
-      ),
-    },
-  ]);
-  await ok(page, 'containerProvision');
-  const preserved = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
-  check(
-    'an invalid edit to a managed server keeps its last applied config',
-    preserved.agentskills?.url === 'https://agentskills.io/mcp',
-    JSON.stringify(preserved.agentskills),
-  );
-
-  await ok(page, 'configSave', [{ autoOnboarding: false }]);
-  const extNoOnboard = (await ok(page, 'snapshot')).config.extensions;
-  await ok(page, 'extensionsSave', [
-    {
-      ...extNoOnboard,
-      mcpServers: [
-        ...extNoOnboard.mcpServers,
-        {
-          id: 'x-late',
-          name: 'late_join',
-          enabled: true,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
-          url: 'https://late.test/mcp',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
-      ],
-    },
-  ]);
-  await ok(page, 'containerProvision');
-  const lateServers = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
-  check(
-    'MCP servers still install with auto-onboarding off',
-    lateServers.late_join?.url === 'https://late.test/mcp',
-    JSON.stringify(lateServers.late_join),
-  );
-  await ok(page, 'configSave', [{ autoOnboarding: true }]);
+  const statuses = await ok(page, 'taskMcpStatus', [alpha.id]);
+  check('MCP status can be read for a running task', Array.isArray(statuses));
 
   await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }]);
-  await ok(page, 'containerProvision');
-  const afterRemoval = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json'])).mcpServers;
+  await ok(page, 'taskProvision', [alpha.id]);
+  const afterRemoval = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  check('removing a server removes it from the container', afterRemoval.mcpServers?.agentskills === undefined);
   check(
-    'removing a server removes it from the container',
-    afterRemoval.agentskills === undefined,
-    JSON.stringify(afterRemoval),
+    'the hand-added server still survives',
+    afterRemoval.mcpServers?.['hand-added']?.url === 'https://example.test/mcp',
   );
-  check('the hand-added server still survives', afterRemoval['hand-added']?.url === 'https://example.test/mcp');
-  const settingsAfter = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
+  const settingsAfter = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
   check('removing a marketplace removes it', settingsAfter.extraKnownMarketplaces?.['acme-tools'] === undefined);
   check('removing a plugin removes it', settingsAfter.enabledPlugins?.['formatter@acme-tools'] === undefined);
-  const keptSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/deep-probe/SKILL.md']);
-  check('dropping an entry leaves the installed skill in the container', keptSkill.ok === true);
-  const stillThereSkill = await call(page, 'fsRead', ['/home/claude/.claude/skills/hand-written/SKILL.md']);
-  check('the hand-written skill is still there', stillThereSkill.ok === true);
+  const keptSkill = await sh(page, alpha.id, 'test -e ~/.claude/skills/deep-probe/SKILL.md && echo yes || echo no');
+  check('dropping an entry leaves the installed skill in the container', keptSkill.stdout.trim() === 'yes');
 
-  console.log('\n[N] reset: a disposable session');
+  console.log('\n[F] terminals');
 
-  await ok(page, 'containerUp');
-  await ok(page, 'containerProvision');
-
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        'sudo install -m 0755 /dev/stdin /usr/local/bin/reset-probe <<<"#!/bin/sh\necho GLOBAL-MARKER" && ' +
-          'echo HOME-MARKER > ~/.reset-probe && ' +
-          'echo WORKSPACE-MARKER > ~/workspace/reset-probe.txt',
-      ],
-      asRoot: false,
-    },
-  ]);
-
-  const before = await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'reset-probe; cat ~/.reset-probe ~/workspace/reset-probe.txt'], asRoot: false },
-  ]);
+  const shellA = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'shell', cols: 80, rows: 24 }]);
+  const shellB = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'shell', cols: 100, rows: 30 }]);
+  check('two shells get distinct ids', shellA.id !== shellB.id);
+  check('resize accepted', (await call(page, 'termResize', [shellA.id, 132, 43])).ok === true);
   check(
-    'all three markers are in place before the reset',
-    ['GLOBAL-MARKER', 'HOME-MARKER', 'WORKSPACE-MARKER'].every((marker) => before.stdout.includes(marker)),
-    before.stdout.replace(/\s+/gu, ' ').trim(),
-  );
-
-  const containerBefore = (await ok(page, 'snapshot')).container.id;
-  const imageBefore = (await ok(page, 'snapshot')).image.id;
-
-  await ok(page, 'termOpen', [{ kind: 'shell', sessionName: 'cc', cols: 80, rows: 24 }]);
-  await page.waitForTimeout(1200);
-
-  const resetExportDir = join(SCRATCH, 'reset-exports');
-  mkdirSync(resetExportDir, { recursive: true });
-  await ok(page, 'configSave', [{ lastExportDir: resetExportDir }]);
-
-  const summary = await ok(page, 'containerReset', [{ exportFirst: true, rebuildImage: false }]);
-  check('reset reported a fresh container', typeof summary.containerName === 'string', summary.containerName);
-  check('reset exported first', typeof summary.exportedTo === 'string', String(summary.exportedTo));
-  check(
-    'the export holds the workspace file that was about to be destroyed',
-    existsSync(join(String(summary.exportedTo), 'reset-probe.txt')) &&
-      readFileSync(join(String(summary.exportedTo), 'reset-probe.txt'), 'utf8').includes('WORKSPACE-MARKER'),
-  );
-
-  const afterReset = await ok(page, 'snapshot');
-  check('container is running again', afterReset.container.running === true, afterReset.container.status);
-  check('it is a different container', afterReset.container.id !== containerBefore);
-  check(
-    'the image is untouched — it is the snapshot',
-    afterReset.image.id === imageBefore,
-    String(afterReset.image.id),
-  );
-
-  const after = await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        'command -v reset-probe || echo NO-GLOBAL; cat ~/.reset-probe 2>/dev/null || echo NO-HOME; ' +
-          'cat ~/workspace/reset-probe.txt 2>/dev/null || echo NO-WORKSPACE',
-      ],
-      asRoot: false,
-    },
-  ]);
-  check('the globally installed binary is gone', after.stdout.includes('NO-GLOBAL'), after.stdout.trim());
-  check('the home-directory file is gone', after.stdout.includes('NO-HOME'), after.stdout.trim());
-  check('the workspace file is gone', after.stdout.includes('NO-WORKSPACE'), after.stdout.trim());
-
-  check(
-    'Claude Code is still installed — it came from the image',
-    /\d+\.\d+\.\d+/u.test(
-      (await ok(page, 'containerExec', [{ command: ['claude', '--version'], asRoot: false }])).stdout,
-    ),
-  );
-
-  const freshSettings = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude/settings.json']));
-  check(
-    'the fresh container was provisioned',
-    typeof freshSettings.env?.ANTHROPIC_BASE_URL === 'string',
-    JSON.stringify(Object.keys(freshSettings.env ?? {})),
+    'a zero-size resize is ignored rather than throwing',
+    (await call(page, 'termResize', [shellA.id, 0, 0])).ok === true,
   );
   check(
-    'the bypass-permissions prompt is pre-accepted where current Claude Code reads it',
-    freshSettings.skipDangerousModePermissionPrompt === true,
+    'resizing an unknown terminal is a no-op',
+    (await call(page, 'termResize', ['no-such-terminal', 80, 24])).ok === true,
   );
-  const freshClaudeJson = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
-  check('onboarding is done in the fresh container', freshClaudeJson.hasCompletedOnboarding === true);
+  check(
+    'writing to an unknown terminal is a no-op',
+    (await call(page, 'termWrite', ['no-such-terminal', 'x'])).ok === true,
+  );
+  check('closing an unknown terminal is a no-op', (await call(page, 'termClose', ['no-such-terminal'])).ok === true);
+  await ok(page, 'termClose', [shellA.id]);
+  await ok(page, 'termClose', [shellB.id]);
 
+  const wide = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'shell', cols: 200, rows: 50 }]);
+  await page.evaluate((id) => {
+    window.__ccTermText = '';
+    window.cc.onTerminalData((event) => {
+      if (event.id === id) window.__ccTermText += event.data;
+    });
+  }, wide.id);
   await page.waitForTimeout(600);
-  const tabsAfterReset = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
-  check('terminal tabs were dropped with the container', tabsAfterReset === 0, String(tabsAfterReset));
-
-  const sessionsAfterReset = await ok(page, 'tmuxList');
-  check('no tmux sessions survived', sessionsAfterReset.length === 0, JSON.stringify(sessionsAfterReset));
-
-  console.log('\n[O] the guards that stand between a typo and lost data');
-
-  await ok(page, 'configSave', [{ lastExportDir: null }]);
-  await app.evaluate(({ dialog }) => {
-    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
-  });
-  await ok(page, 'fsWrite', [{ path: '/home/claude/workspace/guard-probe.txt', content: 'STILL-HERE\n' }]);
-  const refused = await call(page, 'containerReset', [{ exportFirst: true, rebuildImage: false }]);
-  check('a reset that cannot export refuses instead of destroying', refused.ok === false, JSON.stringify(refused));
-  const survived = await call(page, 'fsRead', ['/home/claude/workspace/guard-probe.txt']);
+  const REPEATS = 20000;
+  await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
+  await page.waitForTimeout(9000);
+  const termText = await page.evaluate(() => window.__ccTermText ?? '');
+  check('a 60KB run of 3-byte characters survives the pty stream intact', !termText.includes('�'));
   check(
-    'the workspace it was about to destroy is still there',
-    survived.ok === true && survived.value.includes('STILL-HERE'),
-    survived.ok ? survived.value : survived.error,
+    'and every character arrived',
+    (termText.match(/あ/gu) ?? []).length >= REPEATS,
+    `${(termText.match(/あ/gu) ?? []).length}/${REPEATS}`,
   );
+  await ok(page, 'termClose', [wide.id]);
 
-  const beforeBadPlugin = (await ok(page, 'snapshot')).config;
-  await ok(page, 'extensionsSave', [
-    {
-      ...beforeBadPlugin.extensions,
-      plugins: [{ id: 'plg_blank', plugin: '', marketplace: '', enabled: true }],
-    },
-  ]);
-  const afterBadPlugin = (await ok(page, 'snapshot')).config;
-  check(
-    'a half-typed plugin does not take the profiles with it',
-    afterBadPlugin.profiles.length === beforeBadPlugin.profiles.length,
-    `${beforeBadPlugin.profiles.length} → ${afterBadPlugin.profiles.length}`,
-  );
-  check(
-    'and the config still round-trips through its own schema',
-    JSON.parse(JSON.stringify(afterBadPlugin)).version === 1,
-    String(afterBadPlugin.version),
-  );
+  const claudeTab = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'claude', cols: 100, rows: 30 }]);
+  await page.waitForTimeout(3000);
+  let tmux = await sh(page, alpha.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  check('the Claude Code tab runs inside the cc tmux session', /^cc 1$/mu.test(tmux.stdout), tmux.stdout.trim());
+  await ok(page, 'termClose', [claudeTab.id]);
+  await page.waitForTimeout(2500);
+  tmux = await sh(page, alpha.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  check('closing the tab leaves the session running and detached', /^cc 0$/mu.test(tmux.stdout), tmux.stdout.trim());
+  const leaked = await sh(page, alpha.id, 'tmux list-clients 2>/dev/null | wc -l');
+  check('no tmux client is left behind', leaked.stdout.trim() === '0');
+  const betaTmux = await sh(page, beta.id, 'tmux list-sessions 2>/dev/null | wc -l');
+  check('the other task has no tmux session of its own', betaTmux.stdout.trim() === '0');
 
-  const protectedSkill = 'handmade-guard';
-  await ok(page, 'containerExec', [
-    {
-      command: [
-        'bash',
-        '-lc',
-        `mkdir -p ~/.claude/skills/${protectedSkill} && echo MINE > ~/.claude/skills/${protectedSkill}/SKILL.md`,
-      ],
-      asRoot: false,
-    },
-  ]);
-  await ok(page, 'extensionsSave', [
-    {
-      mcpServers: [
-        {
-          id: 'mcp_proto',
-          name: 'constructor',
-          enabled: true,
-          transport: 'http',
-          command: '',
-          args: [],
-          env: {},
-          url: 'https://example.test/proto',
-          headers: {},
-          timeoutMs: null,
-          note: '',
-        },
-      ],
-      marketplaces: [],
-      plugins: [],
-      skillInstalls: [
-        { id: 'skl_dashed', enabled: true, source: '-rf', skills: [], note: '' },
-        { id: 'skl_spaced', enabled: true, source: 'has space/repo', skills: [], note: '' },
-        { id: 'skl_dashed_name', enabled: true, source: 'acme/skills', skills: ['-g'], note: '' },
-      ],
-    },
-  ]);
-  await ok(page, 'containerProvision');
+  console.log('\n[G] lifecycle and persistence');
 
-  const handmade = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
-  check('a skill directory the app never installed is left alone', handmade.trim() === 'MINE', handmade.trim());
-  await ok(page, 'containerProvision');
-  const handmadeSecond = await ok(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
-  check('and a second provision still does not touch it', handmadeSecond.trim() === 'MINE', handmadeSecond.trim());
-  const refusedArgs = await page.evaluate(() => [
-    ...new Set(
-      window.__ccProvisionLogs.filter(
-        (line) => line.includes('- で始まっています') || line.includes('空白は使えません'),
-      ),
-    ),
-  ]);
+  const openDuringStop = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'shell', cols: 80, rows: 24 }]);
+  await page.waitForTimeout(800);
+  await ok(page, 'taskStop', [alpha.id]);
+  snapshot = await ok(page, 'snapshot');
+  check('stop reports not running', taskById(snapshot, alpha.id)?.container.running === false);
+  const resets = await page.evaluate(() => window.__ccResets);
+  check('stopping a task resets its terminals in the renderer', resets.includes(alpha.id), JSON.stringify(resets));
   check(
-    'a source or skill name that would be read as an option is refused',
-    refusedArgs.length === 3,
-    JSON.stringify(refusedArgs),
+    'and a handle from before the stop is harmless',
+    (await call(page, 'termResize', [openDuringStop.id, 90, 30])).ok === true,
   );
-  const neverRan = await page.evaluate(() =>
-    window.__ccProvisionLogs.some((line) => line.includes('npx -y skills@latest add -rf')),
+  const execStopped = await call(page, 'taskExec', [alpha.id, { command: ['true'], asRoot: false }]);
+  check(
+    'exec on a stopped task fails with a readable message',
+    execStopped.ok === false && /起動していません|not running/u.test(execStopped.error),
   );
-  check('and its command never runs', neverRan === false);
+  check('stopping an already stopped task is a no-op', (await call(page, 'taskStop', [alpha.id])).ok === true);
+  check('the other task kept running', taskById(snapshot, beta.id)?.container.running === true);
 
-  const withProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
+  await ok(page, 'taskStart', [alpha.id]);
+  check('restart brings it back', taskById(await ok(page, 'snapshot'), alpha.id)?.container.running === true);
   check(
-    'a server named after an Object.prototype member is written',
-    Object.hasOwn(withProto.mcpServers ?? {}, 'constructor'),
-    JSON.stringify(Object.keys(withProto.mcpServers ?? {})),
+    'the workspace survived the restart',
+    (await readContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt')) === 'alpha\n',
   );
-  await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }]);
-  await ok(page, 'containerProvision');
-  const withoutProto = JSON.parse(await ok(page, 'fsRead', ['/home/claude/.claude.json']));
-  check(
-    'and removing it actually removes it',
-    !Object.hasOwn(withoutProto.mcpServers ?? {}, 'constructor'),
-    JSON.stringify(Object.keys(withoutProto.mcpServers ?? {})),
-  );
-  const handmadeAfterClear = await call(page, 'fsRead', [`/home/claude/.claude/skills/${protectedSkill}/SKILL.md`]);
-  check(
-    'clearing the extensions does not delete the never-claimed skill',
-    handmadeAfterClear.ok === true && handmadeAfterClear.value.trim() === 'MINE',
-    handmadeAfterClear.ok ? handmadeAfterClear.value.trim() : handmadeAfterClear.error,
-  );
+  check('starting an already running task is a no-op', (await call(page, 'taskStart', [alpha.id])).ok === true);
 
-  await ok(page, 'containerExec', [
-    { command: ['bash', '-lc', 'ln -sfn /etc/hostname ~/workspace/a-link'], asRoot: false },
-  ]);
-  const linkRead = await call(page, 'fsRead', ['/home/claude/workspace/a-link']);
+  console.log('\n[H] export guards the delete');
+
+  const exportRoot = join(scratch, 'exports');
+  mkdirSync(exportRoot, { recursive: true });
+  await mockDirectoryDialog(exportRoot);
+  await sh(page, alpha.id, 'ln -sfn /etc/hostname ~/workspace/escape-link');
+  const refused = await call(page, 'taskDelete', [alpha.id, { exportFirst: true }]);
   check(
-    'opening a symlink reports a problem instead of an empty editor',
-    linkRead.ok === false,
-    linkRead.ok ? JSON.stringify(linkRead.value) : linkRead.error,
+    'a delete whose export skipped something is refused',
+    refused.ok === false && /取り出せなかった|could not be exported/u.test(refused.error),
+    refused.ok ? 'deleted!' : refused.error,
   );
+  snapshot = await ok(page, 'snapshot');
+  check('the task is still there', taskById(snapshot, alpha.id) !== null);
+  check('and still running', taskById(snapshot, alpha.id)?.container.running === true);
+  const partialPath = refused.ok ? '' : (/the partial export is at (.+)$/u.exec(refused.error)?.[1] ?? '');
+  check(
+    'the partial export was kept on disk and named in the message',
+    partialPath !== '' && existsSync(join(partialPath, 'only-in-alpha.txt')),
+    partialPath,
+  );
+  const exportWarned = await page.evaluate(() => window.__ccAppLogs.some((line) => line.includes('escape-link')));
+  check('the skipped entry is named in the log', exportWarned);
 
-  const badScheme = await call(page, 'openExternal', ['file:///etc/passwd']);
-  check('a non-http link is refused', badScheme.ok === false, JSON.stringify(badScheme));
-  const badReveal = await call(page, 'revealPath', ['/etc']);
-  check('revealing a path outside the app data is refused', badReveal.ok === false, JSON.stringify(badReveal));
+  await sh(page, alpha.id, 'rm -f ~/workspace/escape-link');
+  const cleanExport = await ok(page, 'taskExport', [alpha.id]);
+  check('export succeeds once the link is gone', cleanExport !== null && cleanExport.skipped.length === 0);
+  check(
+    'the export holds the workspace file',
+    cleanExport !== null && existsSync(join(cleanExport.path, 'only-in-alpha.txt')),
+  );
+  check('no .partial directory left behind', cleanExport !== null && !existsSync(`${cleanExport.path}.partial`));
 
-  const guardConfig = (await ok(page, 'snapshot')).config;
-  await ok(page, 'containerRemove', [false]);
-  execFileSync('docker', ['create', '--name', guardConfig.containerName, guardConfig.imageTag], { stdio: 'ignore' });
+  await mockDirectoryDialog(null);
+  const cancelled = await call(page, 'taskDelete', [alpha.id, { exportFirst: true }]);
+  check(
+    'a delete that cannot export refuses instead of destroying',
+    cancelled.ok === false,
+    cancelled.ok ? 'deleted!' : cancelled.error,
+  );
+  check('the task survived the cancelled export', taskById(await ok(page, 'snapshot'), alpha.id) !== null);
+  const cancelledExport = await ok(page, 'taskExport', [alpha.id]);
+  check('a cancelled export dialog returns null', cancelledExport === null);
+  await mockDirectoryDialog(exportRoot);
+
+  console.log('\n[I] a same-name container the app did not create');
+
+  await writeContainerFile(page, beta.id, '/home/claude/workspace/beta-marker.txt', 'beta\n');
+  await ok(page, 'taskStop', [beta.id]);
+  execFileSync('docker', ['rm', '-f', beta.containerName], { stdio: 'ignore' });
+  execFileSync('docker', ['create', '--name', beta.containerName, boot.config.imageTag], { stdio: 'ignore' });
   try {
-    const adopted = await call(page, 'containerUp');
+    const adopted = await call(page, 'taskStart', [beta.id]);
     check(
-      'a same-name container the app did not create is refused, not adopted',
-      adopted.ok === false && adopted.error.includes(guardConfig.containerName),
+      'a same-name container without our labels is refused, not adopted',
+      adopted.ok === false && adopted.error.includes(beta.containerName),
       JSON.stringify(adopted),
     );
+    const execForeign = await call(page, 'taskExec', [beta.id, { command: ['true'], asRoot: false }]);
+    check('exec into the foreign container is refused too', execForeign.ok === false);
+    const termForeign = await call(page, 'termOpen', [{ taskId: beta.id, kind: 'shell', cols: 80, rows: 24 }]);
+    check('a terminal into the foreign container is refused too', termForeign.ok === false);
+    const deleteForeign = await call(page, 'taskDelete', [beta.id, { exportFirst: false }]);
+    check('deleting the task does not remove the foreign container', deleteForeign.ok === false);
+    check('the foreign container is untouched', dockerContainerExists(beta.containerName));
   } finally {
-    execFileSync('docker', ['rm', '-f', guardConfig.containerName], { stdio: 'ignore' });
+    execFileSync('docker', ['rm', '-f', beta.containerName], { stdio: 'ignore' });
   }
-  await ok(page, 'containerUp');
-
-  console.log('\n[P] cleanup of test profiles');
-
-  const secretBefore = await ok(page, 'secretGet', [keyed.id]);
-  check('secret readable before delete', secretBefore === 'sk-fake-for-header-check');
-  await ok(page, 'profileDelete', [keyed.id]);
-  const secretAfter = await ok(page, 'secretGet', [keyed.id]);
-  check('deleting a profile drops its secret', secretAfter === '', JSON.stringify(secretAfter));
-  await ok(page, 'profileDelete', [bearer.id]);
-  const finalConfig = (await ok(page, 'snapshot')).config;
+  await ok(page, 'taskStart', [beta.id]);
   check(
-    'active profile falls back to a surviving one',
-    finalConfig.activeProfileId === null || finalConfig.profiles.some((p) => p.id === finalConfig.activeProfileId),
-    String(finalConfig.activeProfileId),
+    'once the impostor is gone the task starts again on its own volume',
+    (await readContainerFile(page, beta.id, '/home/claude/workspace/beta-marker.txt')) === 'beta\n',
   );
+
+  console.log('\n[J] an image rebuild is detected per task');
+
+  const realTag = boot.config.imageTag;
+  const savedSources = await ok(page, 'imageSourcesGet');
+  try {
+    await ok(page, 'configSave', [{ imageTag: SCRATCH_TAG }]);
+    await ok(page, 'imageSourcesSave', [
+      {
+        dockerfile: `FROM ${realTag}\nRUN echo E2E-LAYER > /tmp/e2e-layer\n`,
+        setup: savedSources.setup,
+        postCreate: savedSources.postCreate,
+      },
+    ]);
+    await ok(page, 'imageBuild', [{ noCache: false }]);
+    snapshot = await ok(page, 'snapshot');
+    check('the scratch image exists', snapshot.image.exists === true && snapshot.image.tag === SCRATCH_TAG);
+    check(
+      'existing tasks are flagged as running on an older image',
+      taskById(snapshot, alpha.id)?.imageStale === true && taskById(snapshot, beta.id)?.imageStale === true,
+    );
+
+    await ok(page, 'taskRecreate', [alpha.id]);
+    snapshot = await ok(page, 'snapshot');
+    const recreated = taskById(snapshot, alpha.id);
+    check(
+      'recreate moves the task onto the new image',
+      recreated?.imageStale === false && recreated?.container.imageId === snapshot.image.id,
+      String(recreated?.container.imageId),
+    );
+    check(
+      'recreate keeps the home volume',
+      (await readContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt')) === 'alpha\n',
+    );
+    check(
+      'the new layer is really there',
+      (await sh(page, alpha.id, 'cat /tmp/e2e-layer')).stdout.trim() === 'E2E-LAYER',
+    );
+    check('the other task is still flagged', taskById(snapshot, beta.id)?.imageStale === true);
+    check(
+      'the recreated container is provisioned',
+      typeof (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env?.ANTHROPIC_BASE_URL ===
+        'string',
+    );
+
+    const buildLogs = await page.evaluate(() => window.__ccBuildLogs ?? []);
+    check('build progress was streamed to the log pane', buildLogs.length > 1, `${buildLogs.length} lines`);
+  } finally {
+    await ok(page, 'imageSourcesSave', [
+      { dockerfile: savedSources.dockerfile, setup: savedSources.setup, postCreate: savedSources.postCreate },
+    ]);
+    await ok(page, 'configSave', [{ imageTag: realTag }]);
+  }
+  snapshot = await ok(page, 'snapshot');
+  check('back on the real tag, the untouched task is current again', taskById(snapshot, beta.id)?.imageStale === false);
+  check('and the recreated one is now the stale one', taskById(snapshot, alpha.id)?.imageStale === true);
+  await ok(page, 'taskRecreate', [alpha.id]);
+  check(
+    'recreating again lands on the real image',
+    taskById(await ok(page, 'snapshot'), alpha.id)?.imageStale === false,
+  );
+  try {
+    execFileSync('docker', ['rmi', '-f', SCRATCH_TAG], { stdio: 'ignore' });
+  } catch {}
+
+  console.log('\n[K] importing host files');
+
+  const inbox = join(scratch, 'inbox');
+  mkdirSync(join(inbox, 'nested', 'deeper'), { recursive: true });
+  writeFileSync(join(inbox, 'nested', 'deeper', 'leaf.txt'), 'leaf\n');
+  writeFileSync(join(inbox, '日本語 と スペース.txt'), 'cjk\n');
+  writeFileSync(join(scratch, 'single.txt'), 'single\n');
+  const imported = await ok(page, 'taskImport', [alpha.id, [inbox, join(scratch, 'single.txt')]]);
+  check(
+    'import counts what it copied',
+    imported.entries >= 4 && imported.sources.length === 2,
+    JSON.stringify(imported),
+  );
+  const found = await sh(page, alpha.id, 'cd ~/workspace && find . -type f | sort');
+  check('nested folders arrive intact', found.stdout.includes('./inbox/nested/deeper/leaf.txt'), found.stdout.trim());
+  check('CJK file names survive the import', found.stdout.includes('./inbox/日本語 と スペース.txt'));
+  check('a single file lands at the workspace root', found.stdout.includes('./single.txt'));
+  check(
+    'imported files are owned by claude',
+    (await sh(page, alpha.id, 'stat -c %U:%G ~/workspace/single.txt ~/workspace/inbox/nested/deeper/leaf.txt')).stdout
+      .split('\n')
+      .filter(Boolean)
+      .every((line) => line === 'claude:claude'),
+  );
+  const missingImport = await call(page, 'taskImport', [alpha.id, [join(scratch, 'does-not-exist')]]);
+  check('importing a missing path is an error', missingImport.ok === false);
+  const emptyDir = join(scratch, 'empty-dir');
+  mkdirSync(emptyDir, { recursive: true });
+  await ok(page, 'taskImport', [alpha.id, [emptyDir]]);
+  check(
+    'an empty folder still shows up',
+    (await sh(page, alpha.id, 'test -d ~/workspace/empty-dir && echo yes || echo no')).stdout.trim() === 'yes',
+  );
+
+  console.log('\n[L] the UI follows the tasks');
+
+  await selectTask(page, alpha.id);
+  const headerName = await page.evaluate(() => document.querySelector('.task-name-input')?.value ?? '');
+  check('the task header shows the selected task', headerName === `${TASK_PREFIX}alpha`, headerName);
+  await page.click('[data-testid="open-shell"]');
+  await page.waitForTimeout(2500);
+  const tabCount = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  check('opening a shell from the header adds a tab', tabCount === 1, String(tabCount));
+  await selectTask(page, beta.id);
+  const betaTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  check('tabs belong to their task', betaTabs === 0, String(betaTabs));
+  await selectTask(page, alpha.id);
+  check(
+    'switching back shows the tab again',
+    (await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length)) === 1,
+  );
+  await shoot(page, 'deep-task');
+  await page.click('[data-testid="task-stop"]');
+  const tabsAfterStop = await waitFor(
+    page,
+    () => page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length),
+    (count) => count === 0,
+    20000,
+  );
+  check('stopping from the header drops the tabs', tabsAfterStop === 0, String(tabsAfterStop));
+  await waitFor(
+    page,
+    () => page.evaluate(() => document.querySelector('[data-testid="task-start"]') !== null),
+    (present) => present === true,
+    20000,
+  );
+  await page.click('[data-testid="task-start"]');
+  const runningAgain = await waitFor(
+    page,
+    async () => taskById(await ok(page, 'snapshot'), alpha.id)?.container.running === true,
+    (running) => running === true,
+    90000,
+  );
+  check('starting from the header brings it back', runningAgain === true);
+
+  await ok(page, 'setLanguage', ['en']);
+  await page.waitForTimeout(700);
+  const englishNav = await page.evaluate(
+    () => document.querySelector('.sidebar-nav button')?.textContent?.trim() ?? '',
+  );
+  check('UI switched to English', englishNav.includes('Profiles'), englishNav);
+  await ok(page, 'setLanguage', ['ja']);
+  await page.waitForTimeout(700);
+  const japaneseNav = await page.evaluate(
+    () => document.querySelector('.sidebar-nav button')?.textContent?.trim() ?? '',
+  );
+  check('UI switched back to Japanese', japaneseNav.includes('プロファイル'), japaneseNav);
+
+  console.log('\n[M] profiles and tasks part ways cleanly');
+
+  await ok(page, 'taskUpdate', [beta.id, { profileId: keyed.id }]);
+  await ok(page, 'profileDelete', [keyed.id]);
+  snapshot = await ok(page, 'snapshot');
+  check('deleting a profile drops its secret', (await ok(page, 'secretGet', [keyed.id])) === '');
+  check(
+    'a task that used the deleted profile falls back to none',
+    taskById(snapshot, beta.id)?.task.profileId === null,
+  );
+  check(
+    'the default profile falls back to a surviving one',
+    snapshot.config.defaultProfileId !== keyed.id &&
+      snapshot.config.profiles.some((p) => p.id === snapshot.config.defaultProfileId),
+  );
+  await ok(page, 'taskProvision', [beta.id]);
+  const betaNoProfile = await readContainerJson(page, beta.id, '/home/claude/.claude/settings.json');
+  check('a task without a profile gets no env block', betaNoProfile.env === undefined);
+
+  console.log('\n[N] delete removes exactly this task');
+
+  const alphaDelete = await ok(page, 'taskDelete', [alpha.id, { exportFirst: false }]);
+  session.forgetTask(alpha.id);
+  check('delete without export reports no export', alphaDelete.exportedTo === null);
+  check('the container is gone', !dockerContainerExists(alpha.containerName));
+  check('the volume is gone', !dockerVolumeExists(alpha.volumeName));
+  check(
+    'the other task and its volume are untouched',
+    dockerContainerExists(beta.containerName) && dockerVolumeExists(beta.volumeName),
+  );
+  snapshot = await ok(page, 'snapshot');
+  check('the task list only holds the survivor', snapshot.tasks.length === 1 && snapshot.tasks[0].task.id === beta.id);
+  const deleteAgain = await call(page, 'taskDelete', [alpha.id, { exportFirst: false }]);
+  check('deleting a deleted task is an error, not a crash', deleteAgain.ok === false);
 } catch (error) {
-  step += 1;
-  failures += 1;
-  console.error(
-    `  ✗ ${String(step).padStart(2, '0')} harness — ${error instanceof Error ? error.stack : String(error)}`,
-  );
+  harnessFailure(error);
 } finally {
-  await app.close().catch(() => undefined);
+  await session.close();
+  rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`} (${step} checks)\n`);
-process.exit(failures === 0 ? 0 : 1);
+finish();

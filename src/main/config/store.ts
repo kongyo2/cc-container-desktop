@@ -3,8 +3,7 @@ import { join } from 'node:path';
 
 import { safeStorage } from 'electron';
 
-import { activeProfileOf } from '../../shared/profiles.ts';
-import type { AppConfig, Profile } from '../../shared/types.ts';
+import type { AppConfig, ConfigPatch, Profile } from '../../shared/types.ts';
 import { describeError, logError, logWarn } from '../logger.ts';
 import { userDataDir } from '../paths.ts';
 import { defaultConfig, readConfig } from './schema.ts';
@@ -32,13 +31,13 @@ function secretsPath(): string {
   return join(userDataDir(), 'secrets.json');
 }
 
-function writeAtomic(path: string, content: string): void {
+export function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, path);
 }
 
-function readJson(path: string): unknown {
+export function readJson(path: string): unknown {
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as unknown;
@@ -60,7 +59,7 @@ function keepAside(path: string): string | null {
   }
 }
 
-function keptCopyNote(path: string): string {
+export function keptCopyNote(path: string): string {
   const backup = keepAside(path);
   return backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`;
 }
@@ -107,12 +106,13 @@ export function saveConfig(next: AppConfig): AppConfig {
   return normalized;
 }
 
-export function patchConfig(patch: Partial<AppConfig>): AppConfig {
-  return saveConfig({ ...getConfig(), ...patch, version: 1 });
+export function patchConfig(patch: ConfigPatch & Partial<Pick<AppConfig, 'language' | 'extensions'>>): AppConfig {
+  return saveConfig({ ...getConfig(), ...patch, version: 2 });
 }
 
-export function getActiveProfile(): Profile | null {
-  return activeProfileOf(getConfig());
+export function profileFor(id: string | null): Profile | null {
+  if (id === null) return null;
+  return getConfig().profiles.find((profile) => profile.id === id) ?? null;
 }
 
 export function rememberExportDir(directory: string): AppConfig {
@@ -123,20 +123,16 @@ export function upsertProfile(profile: Profile): AppConfig {
   const config = getConfig();
   const index = config.profiles.findIndex((candidate) => candidate.id === profile.id);
   const profiles = index === -1 ? [...config.profiles, profile] : config.profiles.with(index, profile);
-  const activeProfileId = config.activeProfileId ?? profile.id;
-  return saveConfig({ ...config, profiles, activeProfileId });
+  const defaultProfileId = config.defaultProfileId ?? profile.id;
+  return saveConfig({ ...config, profiles, defaultProfileId });
 }
 
 export function deleteProfile(id: string): AppConfig {
   const config = getConfig();
   const profiles = config.profiles.filter((profile) => profile.id !== id);
-  const activeProfileId = config.activeProfileId === id ? (profiles[0]?.id ?? null) : config.activeProfileId;
+  const defaultProfileId = config.defaultProfileId === id ? (profiles[0]?.id ?? null) : config.defaultProfileId;
   deleteSecret(id);
-  return saveConfig({ ...config, profiles, activeProfileId });
-}
-
-export function activateProfile(id: string): AppConfig {
-  return patchConfig({ activeProfileId: id });
+  return saveConfig({ ...config, profiles, defaultProfileId });
 }
 
 export function secretsAreEncrypted(): boolean {

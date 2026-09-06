@@ -1,15 +1,24 @@
 import { app, BrowserWindow, Menu, shell } from 'electron';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { getConfig } from './config/store.ts';
 import { closeAllTerminals, setTerminalTarget } from './docker/terminal.ts';
 import { ensureImageSources } from './docker/image.ts';
 import { registerIpc } from './ipc.ts';
 import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
+import { listTasks } from './tasks/store.ts';
 
 const isDev = !app.isPackaged;
 
 const QUIT_CLEANUP_MS = 3000;
+
+// A test run points this at a scratch folder so it never touches the real
+// config, secrets or task list. It has to land before the single-instance
+// lock, which lives under userData too.
+const userDataOverride = process.env['CC_USER_DATA_DIR'];
+if (userDataOverride !== undefined && userDataOverride.trim() !== '') {
+  app.setPath('userData', resolve(userDataOverride));
+}
 
 function isOpenable(url: string): boolean {
   try {
@@ -126,7 +135,7 @@ if (!app.requestSingleInstanceLock()) {
     const config = getConfig();
     logInfo(
       'app',
-      `起動しました / started — container=${config.containerName} image=${config.imageTag} volume=${config.volumeName}`,
+      `起動しました / started — image=${config.imageTag} tasks=${listTasks().length} data=${app.getPath('userData')}`,
     );
 
     app.on('activate', () => {
@@ -142,8 +151,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', (event) => {
     if (terminalsReleased) return;
     event.preventDefault();
-    const deadline = new Promise<void>((resolve) => {
-      setTimeout(resolve, QUIT_CLEANUP_MS);
+    const deadline = new Promise<void>((settle) => {
+      setTimeout(settle, QUIT_CLEANUP_MS);
     });
     void Promise.race([closeAllTerminals(), deadline])
       .catch(() => undefined)

@@ -9,7 +9,7 @@ function stamp(at: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-export function LogPane(): JSX.Element {
+export function LogPane({ tall = false }: { tall?: boolean }): JSX.Element {
   const logs = useApp((state) => state.logs);
   const ref = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -23,7 +23,7 @@ export function LogPane(): JSX.Element {
 
   return (
     <div
-      className="logpane"
+      className={tall ? 'logpane tall' : 'logpane'}
       ref={ref}
       onScroll={(event) => {
         const node = event.currentTarget;

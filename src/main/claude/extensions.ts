@@ -2,6 +2,7 @@ import { CONTAINER_HOME } from '../../shared/presets.ts';
 import { validateMcpServer } from '../../shared/mcp.ts';
 import type { Extensions, ManagedNames, McpServerConfig, McpServerStatus } from '../../shared/types.ts';
 import { execCapture } from '../docker/container.ts';
+import type { ContainerRef } from '../docker/container.ts';
 
 function emptyMap(): Record<string, unknown> {
   return Object.create(null) as Record<string, unknown>;
@@ -210,8 +211,8 @@ interface RawMcpStatus {
   readonly status?: unknown;
 }
 
-export async function readMcpStatus(): Promise<readonly McpServerStatus[]> {
-  const result = await execCapture(['claude', 'mcp', 'list'], { workdir: CONTAINER_HOME });
+export async function readMcpStatus(ref: ContainerRef): Promise<readonly McpServerStatus[]> {
+  const result = await execCapture(ref, ['claude', 'mcp', 'list'], { workdir: CONTAINER_HOME });
   const text = `${result.stdout}\n${result.stderr}`;
 
   const statuses: McpServerStatus[] = [];

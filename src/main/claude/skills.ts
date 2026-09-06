@@ -2,6 +2,7 @@ import { CONTAINER_HOME } from '../../shared/presets.ts';
 import { formatArgv, skillInstallArgv, skillInstallProblem } from '../../shared/skillInstall.ts';
 import type { SkillInstallConfig } from '../../shared/types.ts';
 import { execCapture } from '../docker/container.ts';
+import type { ContainerRef } from '../docker/container.ts';
 import { logInfo, logWarn } from '../logger.ts';
 
 const LOG_TAIL_LINES = 24;
@@ -36,7 +37,10 @@ export interface SkillInstallResult {
   readonly warnings: readonly string[];
 }
 
-export async function installSkills(entries: readonly SkillInstallConfig[]): Promise<SkillInstallResult> {
+export async function installSkills(
+  ref: ContainerRef,
+  entries: readonly SkillInstallConfig[],
+): Promise<SkillInstallResult> {
   const warnings: string[] = [];
   const wanted: SkillInstallConfig[] = [];
 
@@ -55,7 +59,7 @@ export async function installSkills(entries: readonly SkillInstallConfig[]): Pro
     const argv = skillInstallArgv(entry);
     logInfo('provision', redact(formatArgv(argv)));
 
-    const result = await execCapture(['timeout', '-k', '10', String(INSTALL_TIMEOUT_SECONDS), ...argv], {
+    const result = await execCapture(ref, ['timeout', '-k', '10', String(INSTALL_TIMEOUT_SECONDS), ...argv], {
       workdir: CONTAINER_HOME,
       env: [`HOME=${CONTAINER_HOME}`],
     });

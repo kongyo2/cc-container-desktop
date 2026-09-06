@@ -112,7 +112,7 @@ jobs:
             echo
             echo '1. 下の `.exe` をダウンロードして実行 / download and run the `.exe` below'
             echo '2. Docker Desktop を起動 / start Docker Desktop'
-            echo '3. アプリの「接続」タブでイメージをビルドし、コンテナを起動 / build the image on the Connect tab, then start the container'
+            echo '3. アプリの「イメージ」でイメージをビルドし、「+」でタスクを作成 / build the image on the Image page, then create a task with "+"'
             echo
             echo "詳細は [README](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/README.md) を参照してください."
           } > "$NOTES_FILE"

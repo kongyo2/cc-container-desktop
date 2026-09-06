@@ -4,12 +4,11 @@ import { useEffect, useState } from 'react';
 
 import { CodeEditor } from '../components/CodeEditor.tsx';
 import { ConfirmBanner, Section } from '../components/ui.tsx';
-import { pick, useLanguage, useT } from '../i18n.ts';
+import { useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
 export function ImagePanel(): JSX.Element {
   const t = useT();
-  const language = useLanguage();
   const run = useApp((state) => state.run);
   const busy = useApp((state) => state.busy);
   const setToast = useApp((state) => state.setToast);
@@ -97,7 +96,7 @@ export function ImagePanel(): JSX.Element {
             disabled={!dirty}
             onClick={() => {
               void (async () => {
-                if (await save()) setToast(t('filesSaved'));
+                if (await save()) setToast(t('commonSaved'));
               })();
             }}
             type="button"
@@ -118,11 +117,7 @@ export function ImagePanel(): JSX.Element {
             <Hammer size={14} /> {t('imageBuild')}
           </button>
           <span className="empty" style={{ padding: 0 }}>
-            {pick(
-              language,
-              'ビルド後に「接続」タブでコンテナを再作成すると反映されます。',
-              'Recreate the container from the Connect tab after building to pick up the new image.',
-            )}
+            {t('imageAfterBuildHint')}
           </span>
         </div>
       </Section>

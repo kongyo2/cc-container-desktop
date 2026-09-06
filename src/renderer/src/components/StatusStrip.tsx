@@ -1,9 +1,7 @@
 import type { JSX } from 'react';
 
-import { activeProfileOf } from '../../../shared/profiles.ts';
 import type { Snapshot } from '../../../shared/types.ts';
 import { useT } from '../i18n.ts';
-import type { MessageKey } from '../../../shared/i18n.ts';
 
 export type Lamp = 'live' | 'hold' | 'fault' | 'off';
 
@@ -30,8 +28,8 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
     );
   }
 
-  const { docker, image, container, config } = snapshot;
-  const profile = activeProfileOf(config);
+  const { docker, image, tasks, config } = snapshot;
+  const running = tasks.filter((view) => view.container.running).length;
   const mcpCount = config.extensions.mcpServers.filter((server) => server.enabled).length;
   const skillCount = config.extensions.skillInstalls.filter((skill) => skill.enabled).length;
   const pluginCount = config.extensions.plugins.filter((plugin) => plugin.enabled).length;
@@ -51,14 +49,9 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
         value={image.exists ? short(image.tag) : t('panelNotBuilt')}
       />
       <Cell
-        legend={t('panelContainer')}
-        lamp={container.running ? 'live' : container.exists ? 'hold' : 'off'}
-        value={container.running ? container.name : container.exists ? container.status : t('panelNone')}
-      />
-      <Cell
-        legend={t('panelModel')}
-        lamp={profile === null ? 'hold' : 'live'}
-        value={profile === null ? t('panelNone') : short(profile.model === '' ? profile.name : profile.model)}
+        legend={t('panelTasks')}
+        lamp={running > 0 ? 'live' : tasks.length > 0 ? 'hold' : 'off'}
+        value={tasks.length === 0 ? t('panelNone') : `${running} ${t('panelRunning')} / ${tasks.length}`}
       />
       <Cell
         legend={t('panelExtensions')}
@@ -68,8 +61,3 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
     </div>
   );
 }
-
-export type StatusStripKey = Extract<
-  MessageKey,
-  'panelDocker' | 'panelImage' | 'panelContainer' | 'panelModel' | 'panelExtensions'
->;

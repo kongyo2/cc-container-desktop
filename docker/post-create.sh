@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Runs inside the container as the `claude` user, every time the app starts it.
-# Keep it idempotent — it is not a one-shot bootstrap.
+# Runs inside a task's container as the `claude` user, every time the app starts
+# it or writes its settings. Keep it idempotent — it is not a one-shot bootstrap.
 #
 # This is your hook for anything that belongs to the *running* container rather
 # than the image: extra npm globals, pip packages, git identity, dotfiles.

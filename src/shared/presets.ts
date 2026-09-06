@@ -118,19 +118,20 @@ export const CONTAINER_USER = 'claude';
 export const CONTAINER_UID = 1000;
 export const CONTAINER_GID = 1000;
 
-export const DEFAULT_CONTAINER_NAME = 'cc-workbench';
 export const DEFAULT_IMAGE_TAG = 'cc-container-desktop:latest';
-export const DEFAULT_VOLUME_NAME = 'cc-workbench-home';
-export const DEFAULT_TMUX_SESSION = 'cc';
 
-const UNSAFE_SESSION_CHARS = /[\p{Cc}\p{Cf}\s.:#$@%*?[\]{}=~\\]/gu;
-const MAX_SESSION_NAME = 64;
+/** The one tmux session each task's container runs Claude Code in. */
+export const CLAUDE_TMUX_SESSION = 'cc';
 
-export function sanitizeSessionName(name: string): string {
-  const cleaned = name
-    .replaceAll(UNSAFE_SESSION_CHARS, '-')
-    .replaceAll(/-{2,}/gu, '-')
-    .replaceAll(/^-+|-+$/gu, '')
-    .slice(0, MAX_SESSION_NAME);
-  return cleaned === '' ? DEFAULT_TMUX_SESSION : cleaned;
+export const MANAGED_LABEL = 'com.cc-container-desktop.managed';
+export const TASK_LABEL = 'com.cc-container-desktop.task';
+
+const TASK_RESOURCE_PREFIX = 'cc-task-';
+
+export function taskContainerName(taskId: string): string {
+  return `${TASK_RESOURCE_PREFIX}${taskId}`;
+}
+
+export function taskVolumeName(taskId: string): string {
+  return `${TASK_RESOURCE_PREFIX}${taskId}-home`;
 }

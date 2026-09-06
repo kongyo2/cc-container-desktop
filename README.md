@@ -1,9 +1,34 @@
 # Claude Code コンテナ ワークベンチ
 
-Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron アプリ。エンドポイント・モデル・API キーをプロファイル単位で差し替えられます。ホストには Node も Claude Code も入れません。
+Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron アプリ。作業は「タスク」単位で、タスクごとに専用のコンテナとホームボリュームを持ちます。エンドポイント・モデル・API キーはプロファイルとしてタスクに割り当てます。ホストには Node も Claude Code も入れません。
 
 [English](README.en.md)
 
-![接続タブ](docs/screenshot-connect.png)
+## 使い方
 
-![拡張](docs/screenshot-extensions.png)
+1. Docker Desktop を起動し、「イメージ」でコンテナイメージをビルドします (初回のみ)。
+2. 「プロファイル」でエンドポイントと API キーを設定します。
+3. 左上の「+」でタスクを作ります。空のワークスペースで始めるか、公開 Git リポジトリを clone できます。
+4. タスク画面の「Claude Code」でコンテナ内の tmux セッションに入ります。タブを閉じてもアプリを閉じても Claude Code は動き続け、同じボタンで再接続できます。
+5. ファイルやフォルダはタスク画面へドロップ (または「取り込む」ボタン) でワークスペースにコピーし、成果は「取り出す」でホストのフォルダに書き出します。
+
+## タスクとデータの置き場所
+
+| もの                     | 場所                                                        |
+| ------------------------ | ----------------------------------------------------------- |
+| ワークスペース・設定・履歴 | タスクごとの Docker ボリューム `cc-task-<id>-home` (`/home/claude`) |
+| コンテナ                 | `cc-task-<id>`。停止しても削除しない限りボリュームは残ります |
+| イメージ                 | 全タスク共通。再ビルドすると各タスクに「イメージ更新あり」が出て、「作り直す」でボリュームを保ったまま載せ替えられます |
+| アプリの設定・タスク一覧 | `%APPDATA%\cc-container-desktop\config.json` / `tasks.json`。API キーは `secrets.json` (OS の暗号化ストア経由) |
+
+タスクの削除はコンテナとボリュームを消します。「削除する前にワークスペースを取り出す」を付けると、取り出しに失敗した項目が 1 つでもあれば削除しません。
+
+## 開発
+
+```
+npm ci
+npm run dev        # 開発モード
+npm run check      # format / lint / typecheck / build
+npm run e2e:deep   # Docker が必要 (API キー不要)。専用の userData と e2e- 接頭辞のタスクで動きます
+npm run e2e        # Docker と CC_E2E_API_KEY が必要
+```
