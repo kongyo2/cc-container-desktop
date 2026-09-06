@@ -81,16 +81,14 @@ const appConfigSchema = z.object({
 });
 
 /** What the renderer may change through configSave: everything else has its own channel. */
-const configPatchSchema = z
-  .object({
-    defaultProfileId: z.string().nullable().optional(),
-    imageTag: z.string().trim().min(1).optional(),
-    autoOnboarding: z.boolean().optional(),
-    autoApproveApiKey: z.boolean().optional(),
-    skipPermissions: z.boolean().optional(),
-    lastExportDir: z.string().nullable().optional(),
-  })
-  .strict();
+const configPatchSchema = z.strictObject({
+  defaultProfileId: z.string().nullable().optional(),
+  imageTag: z.string().trim().min(1).optional(),
+  autoOnboarding: z.boolean().optional(),
+  autoApproveApiKey: z.boolean().optional(),
+  skipPermissions: z.boolean().optional(),
+  lastExportDir: z.string().nullable().optional(),
+});
 
 export function parseConfigPatch(raw: unknown): ConfigPatch {
   const parsed = configPatchSchema.safeParse(raw);
@@ -170,6 +168,12 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { source: raw, dropped: 0 };
   const report = { dropped: 0 };
   const source: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+
+  // A v1 config named its selected profile differently; keep that choice as the
+  // default for new tasks rather than silently falling back to the first profile.
+  if (source['defaultProfileId'] === undefined && typeof source['activeProfileId'] === 'string') {
+    source['defaultProfileId'] = source['activeProfileId'];
+  }
 
   source['profiles'] = keepValid(profileSchema, source['profiles'], report);
 

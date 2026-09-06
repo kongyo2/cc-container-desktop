@@ -23,6 +23,18 @@ An Electron app for Windows 11 that runs Claude Code inside Docker. Work is orga
 
 Deleting a task removes its container and volume. With "Export the workspace before deleting" checked, a single item that cannot be exported stops the delete.
 
+### Workspaces from v0.2 and earlier
+
+The single `cc-workbench` container and its `cc-workbench-home` volume from v0.2 are neither managed nor removed by this version. To keep their contents, copy them out with Docker and bring them into a new task with "Import folder".
+
+```
+# while the container still exists
+docker cp cc-workbench:/home/claude/workspace <destination>
+
+# from the volume alone
+docker run --rm -v cc-workbench-home:/home/claude -v "<destination>:/out" ubuntu:24.04 cp -a /home/claude/workspace /out/
+```
+
 ## Development
 
 ```

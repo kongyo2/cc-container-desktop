@@ -1,4 +1,4 @@
-import { cloneRefProblem, cloneUrlProblem, repoNameFromUrl } from '../../shared/git.ts';
+import { cloneRefProblem, cloneUrlProblem, displayCloneUrl, repoNameFromUrl } from '../../shared/git.ts';
 import { CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import { logInfo, logWarn } from '../logger.ts';
 import { execCapture } from './container.ts';
@@ -21,7 +21,10 @@ export async function cloneIntoWorkspace(ref: ContainerRef, url: string, gitRef:
   const target = (await workspaceIsEmpty(ref))
     ? CONTAINER_WORKSPACE
     : `${CONTAINER_WORKSPACE}/${repoNameFromUrl(cleanUrl)}`;
-  logInfo('app', `clone します / cloning ${cleanUrl}${cleanRef === '' ? '' : ` @ ${cleanRef}`} → ${target}`);
+  logInfo(
+    'app',
+    `clone します / cloning ${displayCloneUrl(cleanUrl)}${cleanRef === '' ? '' : ` @ ${cleanRef}`} → ${target}`,
+  );
 
   const argv = [
     'git',

@@ -19,10 +19,10 @@ import {
   readContainerJson,
   selectTask,
   sh,
-  shellQuote,
   shoot,
   taskById,
   TASK_PREFIX,
+  writeContainerFile,
 } from './helpers.mjs';
 
 const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
@@ -117,8 +117,12 @@ try {
 
   console.log('\n[5] settings.json survives a rewrite of unrelated keys');
   const withExtra = { ...settings, statusLine: { type: 'command', command: 'echo hi' } };
-  const encoded = Buffer.from(`${JSON.stringify(withExtra, null, 2)}\n`, 'utf8').toString('base64');
-  await sh(page, task.id, `printf '%s' ${shellQuote(encoded)} | base64 -d > ~/.claude/settings.json`);
+  await writeContainerFile(
+    page,
+    task.id,
+    '/home/claude/.claude/settings.json',
+    `${JSON.stringify(withExtra, null, 2)}\n`,
+  );
   await ok(page, 'taskProvision', [task.id]);
   const reProvisioned = await readContainerJson(page, task.id, '/home/claude/.claude/settings.json');
   check('hand-added keys preserved', reProvisioned.statusLine?.command === 'echo hi');

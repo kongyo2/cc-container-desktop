@@ -182,9 +182,13 @@ export function registerIpc(version: string): void {
 
   handleConfigEdit<[unknown]>(CHANNELS.configSave, (patch) => patchConfig(parseConfigPatch(patch)));
   handleConfigEdit<[Profile]>(CHANNELS.profileUpsert, (profile) => upsertProfile(profile));
-  handleConfigEdit<[string]>(CHANNELS.profileDelete, (id) => {
+  handle<[string], AppConfig>(CHANNELS.profileDelete, async (id) => {
     const next = deleteProfile(id);
-    forgetProfile(id);
+    try {
+      await forgetProfile(id);
+    } finally {
+      notifyStateChanged();
+    }
     return next;
   });
   handle<[string], readonly string[]>(CHANNELS.profileApply, async (id) => {
@@ -257,7 +261,9 @@ export function registerIpc(version: string): void {
     }
   });
   handle<[string, readonly string[]], ImportSummary>(CHANNELS.taskImport, async (id, paths) => {
-    if (!Array.isArray(paths)) throw new Error('取り込むパスがありません / no paths to import');
+    const usable =
+      Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === 'string' && path.trim() !== '');
+    if (!usable) throw new Error('取り込むパスがありません / import needs one or more non-empty paths');
     try {
       return await importIntoTask(requireTaskId(id), paths);
     } finally {

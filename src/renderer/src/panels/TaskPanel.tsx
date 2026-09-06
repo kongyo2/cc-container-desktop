@@ -25,10 +25,12 @@ import { selectedTaskView, useApp } from '../store.ts';
 
 function statusOf(view: TaskView): {
   tone: Tone;
-  label: 'taskStatusRunning' | 'taskStatusStopped' | 'taskStatusMissing';
+  label: 'taskStatusRunning' | 'taskStatusStopped' | 'taskStatusMissing' | 'taskStatusError';
 } {
   if (view.container.running) return { tone: 'ok', label: 'taskStatusRunning' };
   if (view.container.exists) return { tone: 'warn', label: 'taskStatusStopped' };
+  // An inspect that failed is not a missing container: Docker could not answer.
+  if (view.container.status === 'error') return { tone: 'err', label: 'taskStatusError' };
   return { tone: 'idle', label: 'taskStatusMissing' };
 }
 
@@ -341,7 +343,12 @@ export function TaskWorkspace(): JSX.Element {
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
     >
-      {selected === null ? <p className="empty">{t('taskNoneSelected')}</p> : <TaskHeader view={selected} />}
+      {selected === null ? (
+        <p className="empty">{t('taskNoneSelected')}</p>
+      ) : (
+        // Keyed by task so a pending delete confirmation never carries over to another task.
+        <TaskHeader key={selected.task.id} view={selected} />
+      )}
 
       {selected === null ? null : (
         <div className="term-tabs">
@@ -359,18 +366,17 @@ export function TaskWorkspace(): JSX.Element {
               {tab.kind === 'claude' ? <Sparkles size={12} /> : <SquareTerminal size={12} />}
               {tab.kind === 'claude' ? t('terminalClaude') : 'bash'}
               {tab.exited ? <span className="tag">exit</span> : null}
-              <span
+              <button
                 className="x"
+                type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   closeTab(tab.key);
                 }}
-                role="button"
-                tabIndex={-1}
                 aria-label={t('terminalClose')}
               >
                 <X size={12} />
-              </span>
+              </button>
             </span>
           ))}
           <button

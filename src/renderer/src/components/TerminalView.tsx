@@ -123,7 +123,7 @@ export function TerminalView(props: TerminalViewProps): JSX.Element {
         return;
       }
       if (!result.ok) {
-        term.writeln(`\r\n[31m${result.error}[0m`);
+        term.writeln(`\r\n\u001b[31m${result.error}\u001b[0m`);
         propsRef.current.onError(result.error);
         return;
       }

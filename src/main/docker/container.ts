@@ -1,5 +1,6 @@
 import type { Container } from 'dockerode';
 import { PassThrough } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 
 import {
   CONTAINER_HOME,
@@ -134,6 +135,10 @@ async function ensureVolume(ref: ContainerRef): Promise<void> {
     Name: ref.volumeName,
     Labels: { [MANAGED_LABEL]: 'true', [TASK_LABEL]: ref.taskId },
   });
+  // Volume creation is idempotent: a same-name volume that appeared between
+  // the inspect and the create comes back untouched, labels and all.
+  const created = await inspectVolume(ref.volumeName);
+  if (created === null || !ownedBy(created.labels, ref.taskId)) throw foreignVolumeError(ref.volumeName);
 }
 
 /** Resolves the container only when it is ours; a same-name container from elsewhere is an error, a missing one is null. */
@@ -234,21 +239,25 @@ export interface ExecOptions {
 }
 
 interface LineSplitter {
-  readonly push: (text: string) => void;
+  readonly push: (chunk: Buffer) => void;
   readonly flush: () => void;
 }
 
+/** Turns a byte stream into lines; the decoder carries a UTF-8 sequence split across chunks. */
 function lineSplitter(emit: (line: string) => void): LineSplitter {
+  const decoder = new StringDecoder('utf8');
   let pending = '';
+  const take = (text: string): void => {
+    const parts = (pending + text).split(/\r\n|\r|\n/u);
+    pending = parts.pop() ?? '';
+    for (const part of parts) {
+      if (part.trim() !== '') emit(part);
+    }
+  };
   return {
-    push: (text) => {
-      const parts = (pending + text).split(/\r\n|\r|\n/u);
-      pending = parts.pop() ?? '';
-      for (const part of parts) {
-        if (part.trim() !== '') emit(part);
-      }
-    },
+    push: (chunk) => take(decoder.write(chunk)),
     flush: () => {
+      take(decoder.end());
       if (pending.trim() !== '') emit(pending);
       pending = '';
     },
@@ -285,13 +294,13 @@ export async function execCapture(
   const outLines = onLine === undefined ? null : lineSplitter((line) => onLine(line, 'stdout'));
   const errLines = onLine === undefined ? null : lineSplitter((line) => onLine(line, 'stderr'));
   stdout.on('data', (chunk: Buffer) => {
-    outLines?.push(chunk.toString('utf8'));
+    outLines?.push(chunk);
     if (outBytes >= MAX_CAPTURE_BYTES) return;
     outBytes += chunk.length;
     outChunks.push(chunk);
   });
   stderr.on('data', (chunk: Buffer) => {
-    errLines?.push(chunk.toString('utf8'));
+    errLines?.push(chunk);
     if (errBytes >= MAX_CAPTURE_BYTES) return;
     errBytes += chunk.length;
     errChunks.push(chunk);

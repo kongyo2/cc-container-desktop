@@ -851,6 +851,11 @@ code.command {
 .term-tabs .tab .x {
   opacity: 0.5;
   display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .term-tabs .tab .x:hover {

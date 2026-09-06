@@ -515,8 +515,12 @@ try {
   await page.waitForTimeout(600);
   const REPEATS = 20000;
   await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
-  await page.waitForTimeout(9000);
-  const termText = await page.evaluate(() => window.__ccTermText ?? '');
+  const termText = await waitFor(
+    page,
+    () => page.evaluate(() => window.__ccTermText ?? ''),
+    (text) => text.includes('DONE-CJK'),
+    30000,
+  );
   check('a 60KB run of 3-byte characters survives the pty stream intact', !termText.includes('�'));
   check(
     'and every character arrived',

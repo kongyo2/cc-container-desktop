@@ -20,7 +20,21 @@ export function cloneUrlProblem(input: string): string | null {
     return `${parsed.host}: URL に認証情報は入れられません / credentials in the URL are not allowed`;
   }
   if (parsed.hostname === '') return `${url}: ホスト名がありません / the URL has no host`;
+  // A query or fragment is where a token would hide; a public clone URL needs neither.
+  if (parsed.search !== '' || parsed.hash !== '') {
+    return `${parsed.host}: URL に ? や # 以降は付けられません / a clone URL cannot carry a query or fragment`;
+  }
   return null;
+}
+
+/** The URL with everything but scheme, host and path removed, for logs. */
+export function displayCloneUrl(input: string): string {
+  try {
+    const parsed = new URL(input.trim());
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return '(invalid URL)';
+  }
 }
 
 export function cloneRefProblem(input: string): string | null {

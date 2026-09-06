@@ -193,8 +193,9 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
 export function startTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    const imageTag = await requireImage();
-    await startContainer(refOf(task), imageTag);
+    // The image is only needed when the container has to be created; a stopped
+    // container restarts fine after its tag was rebuilt or renamed.
+    await startContainer(refOf(task), getConfig().imageTag);
     return applyProvision(task);
   });
 }
@@ -342,8 +343,14 @@ export async function provisionRunningTasks(filter: (task: Task) => boolean = ()
   return lines;
 }
 
-export function forgetProfile(profileId: string): void {
+/** Detaches a deleted profile from its tasks and rewrites the running ones, so its key does not linger in their settings. */
+export async function forgetProfile(profileId: string): Promise<readonly string[]> {
+  const affected = new Set<string>();
   for (const task of listTasks()) {
-    if (task.profileId === profileId) updateTask(task.id, { profileId: null });
+    if (task.profileId !== profileId) continue;
+    updateTask(task.id, { profileId: null });
+    affected.add(task.id);
   }
+  if (affected.size === 0) return [];
+  return provisionRunningTasks((task) => affected.has(task.id));
 }

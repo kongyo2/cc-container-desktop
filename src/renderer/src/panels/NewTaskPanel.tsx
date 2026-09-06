@@ -26,7 +26,9 @@ export function NewTaskPanel(): JSX.Element {
   const taskCount = snapshot?.tasks.length ?? 0;
   const [name, setName] = useState(() => suggestName(taskCount, language));
   const [note, setNote] = useState('');
-  const [profileId, setProfileId] = useState<string | null>(snapshot?.config.defaultProfileId ?? null);
+  // undefined until the user picks something, so the default profile applies
+  // even when the panel mounted before the first snapshot arrived.
+  const [profileChoice, setProfileChoice] = useState<string | null | undefined>(undefined);
   const [kind, setKind] = useState<WorkspaceSource['kind']>('empty');
   const [url, setUrl] = useState('');
   const [ref, setRef] = useState('');
@@ -34,6 +36,7 @@ export function NewTaskPanel(): JSX.Element {
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
   const { config, docker, image } = snapshot;
   const working = busy !== null;
+  const profileId = profileChoice === undefined ? config.defaultProfileId : profileChoice;
 
   const source: WorkspaceSource =
     kind === 'git' ? { kind: 'git', url: url.trim(), ref: ref.trim() } : { kind: 'empty' };
@@ -79,7 +82,7 @@ export function NewTaskPanel(): JSX.Element {
         <Field label={t('taskProfile')}>
           <select
             value={profileId ?? ''}
-            onChange={(event) => setProfileId(event.target.value === '' ? null : event.target.value)}
+            onChange={(event) => setProfileChoice(event.target.value === '' ? null : event.target.value)}
           >
             <option value="">{t('taskProfileNone')}</option>
             {config.profiles.map((profile) => (

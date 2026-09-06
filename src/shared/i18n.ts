@@ -48,6 +48,7 @@ const ja = {
   taskStatusRunning: '実行中',
   taskStatusStopped: '停止中',
   taskStatusMissing: 'コンテナなし',
+  taskStatusError: '確認できません',
   taskImageStale: 'イメージ更新あり',
   taskImageStaleHint:
     'このタスクのコンテナは古いイメージから作られています。「作り直す」でホームボリュームを保ったまま新しいイメージに載せ替えます。コンテナ層に直接入れたもの (apt など) は消えます。',
@@ -277,6 +278,7 @@ const en: Record<MessageKey, string> = {
   taskStatusRunning: 'running',
   taskStatusStopped: 'stopped',
   taskStatusMissing: 'no container',
+  taskStatusError: 'cannot inspect',
   taskImageStale: 'image updated',
   taskImageStaleHint:
     "This task's container was created from an older image. Recreate it to move onto the new image while keeping the home volume; anything installed into the container layer itself (apt etc.) is lost.",

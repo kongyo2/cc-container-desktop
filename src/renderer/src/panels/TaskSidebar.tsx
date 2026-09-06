@@ -19,6 +19,7 @@ const NAV: ReadonlyArray<{ id: View; icon: JSX.Element; key: MessageKey }> = [
 function lampOf(view: TaskView): string {
   if (view.container.running) return 'live';
   if (view.container.exists) return 'hold';
+  if (view.container.status === 'error') return 'fault';
   return 'off';
 }
 

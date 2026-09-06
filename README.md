@@ -23,6 +23,18 @@ Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron
 
 タスクの削除はコンテナとボリュームを消します。「削除する前にワークスペースを取り出す」を付けると、取り出しに失敗した項目が 1 つでもあれば削除しません。
 
+### v0.2 以前のワークスペース
+
+v0.2 までの単一コンテナ `cc-workbench` とボリューム `cc-workbench-home` は、このバージョンからは扱いません (消しもしません)。中身が必要なら Docker から直接取り出し、新しいタスクに「フォルダを取り込む」で入れ直してください。
+
+```
+# コンテナが残っている場合
+docker cp cc-workbench:/home/claude/workspace <取り出し先>
+
+# ボリュームだけ残っている場合
+docker run --rm -v cc-workbench-home:/home/claude -v "<取り出し先>:/out" ubuntu:24.04 cp -a /home/claude/workspace /out/
+```
+
 ## 開発
 
 ```

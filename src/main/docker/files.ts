@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import {
+  createReadStream,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
@@ -211,26 +220,39 @@ async function importFile(ref: ContainerRef, source: string, name: string, size:
   await upload;
 }
 
-/** Copies host files and folders into the task's workspace, each under its own base name. Symlinks are kept as links. */
+/**
+ * Copies host files and folders into the task's workspace, each under its own
+ * base name. A path that is itself a symbolic link is followed, because a host
+ * link target means nothing inside the container; links found inside an
+ * imported folder are kept as links.
+ */
 export async function importIntoWorkspace(ref: ContainerRef, paths: readonly string[]): Promise<ImportSummary> {
   const sources: string[] = [];
   let entries = 0;
 
   /* oxlint-disable no-await-in-loop -- one archive at a time keeps the memory bounded */
   for (const raw of paths) {
-    if (typeof raw !== 'string' || raw.trim() === '') continue;
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      throw new Error(`取り込むパスが不正です / not a usable path: ${JSON.stringify(raw)}`);
+    }
     const source = resolve(raw);
+    const name = importName(source);
+    let target = source;
     let stats;
     try {
-      stats = statSync(source);
+      stats = lstatSync(source);
+      if (stats.isSymbolicLink()) {
+        target = realpathSync(source);
+        stats = statSync(target);
+        logInfo('app', `リンク先を取り込みます / following the link ${source} → ${target}`);
+      }
     } catch {
       throw new Error(`見つかりません / not found: ${source}`);
     }
-    const name = importName(source);
     if (stats.isDirectory()) {
-      entries += await importDirectory(ref, source, name);
+      entries += await importDirectory(ref, target, name);
     } else if (stats.isFile()) {
-      await importFile(ref, source, name, stats.size, stats.mode & 0o777);
+      await importFile(ref, target, name, stats.size, stats.mode & 0o777);
       entries += 1;
     } else {
       throw new Error(`ファイルかフォルダだけ取り込めます / only files and folders can be imported: ${source}`);
