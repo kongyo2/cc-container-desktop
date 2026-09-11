@@ -18,7 +18,7 @@ export const TAG_PATTERN: RegExp = /^[\w][\w.-]{0,127}$/u;
 
 const PATH_COMPONENT_PATTERN = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/u;
 
-const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$/u;
+const HOST_PATTERN = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/u;
 
 export type LocalizedText = Readonly<Record<Language, string>>;
 

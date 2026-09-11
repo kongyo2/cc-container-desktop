@@ -92,6 +92,46 @@ test('after a restart an operation whose registration committed is succeeded, ev
   assert.equal(recoverOperation(alreadyDone, []).phase, 'failed');
 });
 
+test('a tag-only custom registration that committed before the restart is recognised', () => {
+  const started = createOperation({
+    id: 'op_2',
+    kind: 'custom',
+    targetKey: 'custom:docker.io/library/my-image|tag:dev',
+    catalogEntryId: null,
+    registeredImageId: null,
+    target: {
+      title: { ja: 'my-image:dev', en: 'my-image:dev' },
+      repository: 'docker.io/library/my-image',
+      tag: 'dev',
+      pinnedDigest: null,
+      platform: 'linux/amd64',
+    },
+    now: '2026-09-11T10:00:00.000Z',
+  });
+  const running = patchOperation(started, { phase: 'registering' }, '2026-09-11T10:00:01.000Z');
+  const image: RegisteredImage = {
+    id: registeredImageIdFor('docker.io/library/my-image', null, 'dev', 'linux/amd64'),
+    catalogEntryId: null,
+    variant: null,
+    release: null,
+    title: { ja: 'my-image:dev', en: 'my-image:dev' },
+    repository: 'docker.io/library/my-image',
+    tag: 'dev',
+    pinnedDigest: null,
+    platform: 'linux/amd64',
+    tools: [],
+    registeredAt: '2026-09-11T10:00:02.000Z',
+  };
+  const recovered = recoverOperation(running, [image]);
+  assert.equal(recovered.phase, 'succeeded');
+  assert.equal(recovered.registeredImageId, image.id);
+  assert.equal(recoverOperation(running, [{ ...image, tag: 'other' }]).phase, 'interrupted');
+  assert.equal(
+    recoverOperation(running, [{ ...image, registeredAt: '2026-09-11T09:00:00.000Z' }]).phase,
+    'interrupted',
+  );
+});
+
 test('history keeps every active operation and only the newest finished ones', () => {
   const finished = Array.from({ length: 25 }, (_, index) =>
     finishOperation(

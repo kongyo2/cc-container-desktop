@@ -85,12 +85,13 @@ export function recoverOperation(
   now?: string,
 ): ImageOperation {
   if (isTerminalPhase(operation.phase)) return operation;
+  const { target } = operation;
   const committed = images.find(
     (image) =>
       (operation.registeredImageId !== null && image.id === operation.registeredImageId) ||
-      (operation.target.pinnedDigest !== null &&
-        image.pinnedDigest === operation.target.pinnedDigest &&
-        image.platform === operation.target.platform),
+      (image.platform === target.platform &&
+        image.repository === target.repository &&
+        (target.pinnedDigest === null ? image.tag === target.tag : image.pinnedDigest === target.pinnedDigest)),
   );
   if (committed !== undefined && committed.registeredAt >= operation.startedAt) {
     return patchOperation(

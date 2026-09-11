@@ -184,6 +184,7 @@ try {
     registeredOne?.image.pinnedDigest === fixture.releaseOne.digest &&
       registeredOne?.image.variant === 'base' &&
       registeredOne?.image.release === '2026.09.1' &&
+      registeredOne?.image.title.en === 'Base (e2e)' &&
       registeredOne?.image.platform === fixture.platform,
     JSON.stringify(registeredOne?.image),
   );

@@ -123,6 +123,17 @@ test('image references are parsed the way docker pull reads them', () => {
     tag: 'latest',
     digest: null,
   });
+  assert.deepEqual(parseImageReference('[::1]:5000/team/image:dev'), {
+    repository: '[::1]:5000/team/image',
+    tag: 'dev',
+    digest: null,
+  });
+  assert.deepEqual(parseImageReference('[fe80::1%25eth0]:5000/team/image'), null);
+  assert.deepEqual(parseImageReference('[2001:db8::10]/team/image'), {
+    repository: '[2001:db8::10]/team/image',
+    tag: 'latest',
+    digest: null,
+  });
 });
 
 test('what docker pull would refuse is refused too', () => {

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   catalogPlatform,
   entryById,
+  imageDisplayName,
   imageReference,
   isTerminalPhase,
   normalizeRepository,
@@ -171,7 +172,7 @@ interface FetchTarget {
 
 function operationTarget(target: FetchTarget, platform: ImagePlatform | null): ImageOperationTarget {
   return {
-    title: target.title,
+    title: { ja: imageDisplayName(target, 'ja'), en: imageDisplayName(target, 'en') },
     repository: target.repository,
     tag: target.tag,
     pinnedDigest: target.digest,
@@ -267,16 +268,12 @@ async function fetchAndRegister(
   return committed;
 }
 
-function catalogTitle(entry: ImageCatalogEntry): LocalizedText {
-  return { ja: `${entry.title.ja} / ${entry.release}`, en: `${entry.title.en} / ${entry.release}` };
-}
-
 function catalogTarget(entry: ImageCatalogEntry, digest: string | null): FetchTarget {
   return {
     catalogEntryId: entry.id,
     variant: entry.variant,
     release: entry.release,
-    title: catalogTitle(entry),
+    title: entry.title,
     repository: entry.repository,
     tag: entry.tag,
     digest,
