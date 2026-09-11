@@ -2,6 +2,7 @@ import { assertCloneTarget } from '../../shared/git.ts';
 import { taskContainerName, taskVolumeName } from '../../shared/presets.ts';
 import { exportFolderName, normalizeTaskName } from '../../shared/tasks.ts';
 import type {
+  AppConfig,
   ContainerState,
   CreateTaskResult,
   DeleteTaskRequest,
@@ -22,8 +23,9 @@ import type { ExecRequest } from '../../shared/ipc.ts';
 import type { ExecResult } from '../../shared/types.ts';
 import { readMcpStatus } from '../claude/extensions.ts';
 import { provisionTask as provisionInto } from '../claude/provision.ts';
+import { runSetupIfPending, setupFailureMessage } from '../claude/setup.ts';
 import { emptyManagedNames } from '../config/schema.ts';
-import { getConfig, profileFor, rememberExportDir } from '../config/store.ts';
+import { environmentFor, getConfig, profileFor, rememberExportDir, removeEnvironment } from '../config/store.ts';
 import {
   ensureContainer,
   execCapture,
@@ -42,6 +44,7 @@ import { exportWorkspace, importIntoWorkspace } from '../docker/files.ts';
 import { cloneIntoWorkspace } from '../docker/git.ts';
 import { closeTaskTerminals, openTerminal } from '../docker/terminal.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
+import { containerSpecFor, environmentRevision, taskEnvironment } from './environment.ts';
 import { addTask, getTask, listTasks, newTaskId, removeTask, updateTask } from './store.ts';
 
 const queues = new Map<string, Promise<void>>();
@@ -61,6 +64,13 @@ export function withTaskLock<T>(id: string, work: () => Promise<T>): Promise<T> 
   return next;
 }
 
+function environmentStaleFor(task: Task, container: ContainerState): boolean {
+  if (!container.exists) return false;
+  const expectedId = task.environmentId ?? '';
+  const expectedRevision = environmentRevision(taskEnvironment(task));
+  return container.environmentId !== expectedId || container.environmentRevision !== expectedRevision;
+}
+
 export async function taskViews(image: ImageStatus): Promise<readonly TaskView[]> {
   return Promise.all(
     listTasks().map(async (task): Promise<TaskView> => {
@@ -76,7 +86,7 @@ export async function taskViews(image: ImageStatus): Promise<readonly TaskView[]
       }
       const imageStale =
         container.exists && image.id !== null && container.imageId !== null && container.imageId !== image.id;
-      return { task, container, imageStale };
+      return { task, container, imageStale, environmentStale: environmentStaleFor(task, container) };
     }),
   );
 }
@@ -87,6 +97,28 @@ async function applyProvision(task: Task): Promise<string> {
   return outcome.summary;
 }
 
+/** Runs the setup script when this container has not had it yet; a failure is reported, not thrown. */
+async function applySetup(task: Task): Promise<string | null> {
+  try {
+    // A container created with other variables (or before environments
+    // existed) must not run the current environment's script and then claim
+    // it is set up; "Recreate" is the way to apply the environment there.
+    if (environmentStaleFor(task, await inspectContainer(refOf(task)))) {
+      logWarn(
+        'setup',
+        `[${task.name}] コンテナが今の環境とは違う設定で作られているので、セットアップスクリプトは実行しません。「作り直す」で反映してください / the container was created with a different environment; its setup script is skipped until the task is recreated`,
+      );
+      return null;
+    }
+    const outcome = await runSetupIfPending(task);
+    return outcome.exitCode === null || outcome.exitCode === 0 ? null : setupFailureMessage(outcome.exitCode);
+  } catch (error) {
+    const message = `セットアップスクリプトを実行できませんでした / could not run the setup script: ${describeError(error)}`;
+    logWarn('setup', `[${task.name}] ${message}`);
+    return message;
+  }
+}
+
 function checkedSource(source: WorkspaceSource): WorkspaceSource {
   if (source.kind === 'empty') return { kind: 'empty' };
   const url = source.url.trim();
@@ -95,12 +127,27 @@ function checkedSource(source: WorkspaceSource): WorkspaceSource {
   return { kind: 'git', url, ref };
 }
 
-function checkedProfileId(profileId: string | null): string | null {
-  if (profileId === null || profileId === '') return null;
+function checkedProfileId(profileId: string | null | undefined): string | null {
+  if (profileId === null || profileId === undefined || profileId === '') return null;
   if (profileFor(profileId) === null) {
     throw new Error(`プロファイルが見つかりません / no such profile: ${profileId}`);
   }
   return profileId;
+}
+
+/** Only an environment that exists and is not archived can be picked for a task. */
+function checkedEnvironmentId(environmentId: string | null | undefined): string | null {
+  if (environmentId === null || environmentId === undefined || environmentId === '') return null;
+  const environment = environmentFor(environmentId);
+  if (environment === null) {
+    throw new Error(`環境が見つかりません / no such environment: ${environmentId}`);
+  }
+  if (environment.archived) {
+    throw new Error(
+      `${environment.name}: アーカイブ済みの環境は選べません。復元してください / archived environments cannot be selected; restore it first`,
+    );
+  }
+  return environmentId;
 }
 
 async function requireImage(): Promise<string> {
@@ -113,8 +160,14 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
   const name = normalizeTaskName(input.name);
   if (name === '') throw new Error('タスク名が空です / the task name is empty');
   const source = checkedSource(input.source);
+  checkedProfileId(input.profileId);
+  checkedEnvironmentId(input.environmentId);
+  await requireImage();
+  // Checked again after the only await: the profile and environment handlers
+  // take no task lock, so either could have been removed meanwhile. From here
+  // to addTask() nothing yields.
   const profileId = checkedProfileId(input.profileId);
-  const imageTag = await requireImage();
+  const environmentId = checkedEnvironmentId(input.environmentId);
 
   const id = newTaskId();
   const task: Task = {
@@ -122,6 +175,7 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
     name,
     note: typeof input.note === 'string' ? input.note.trim() : '',
     profileId,
+    environmentId,
     source,
     containerName: taskContainerName(id),
     volumeName: taskVolumeName(id),
@@ -129,24 +183,31 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
     managed: emptyManagedNames(),
   };
   addTask(task);
-  logInfo('app', `タスクを作成します / creating task "${name}" (${task.containerName})`);
+  logInfo(
+    'app',
+    `タスクを作成します / creating task "${name}" (${task.containerName}, environment: ${environmentFor(environmentId)?.name ?? '—'})`,
+  );
 
   return withTaskLock(id, async () => {
     const ref = refOf(task);
     try {
-      await startContainer(ref, imageTag);
-      let warning: string | null = null;
+      await startContainer(ref, containerSpecFor(task));
+      const warnings: string[] = [];
       try {
         await applyProvision(task);
       } catch (error) {
-        warning = `設定の書き込みに失敗しました / provisioning failed: ${describeError(error)}`;
+        const warning = `設定の書き込みに失敗しました / provisioning failed: ${describeError(error)}`;
         logWarn('app', `[${name}] ${warning}`);
+        warnings.push(warning);
       }
       if (source.kind === 'git') {
         await withRunningContainer(ref, () => cloneIntoWorkspace(ref, source.url, source.ref));
       }
+      // The setup script sees the cloned repository, like a session's setup on the web.
+      const setupWarning = await applySetup(task);
+      if (setupWarning !== null) warnings.push(setupWarning);
       logInfo('app', `タスクの準備ができました / task ready: ${name}`);
-      return { task: getTask(id), warning };
+      return { task: getTask(id), warning: warnings.length === 0 ? null : warnings.join(' — ') };
     } catch (error) {
       logWarn(
         'app',
@@ -167,7 +228,7 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
 export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
   return withTaskLock(id, async () => {
     const current = getTask(id);
-    const next: { name?: string; note?: string; profileId?: string | null } = {};
+    const next: { name?: string; note?: string; profileId?: string | null; environmentId?: string | null } = {};
     if (patch.name !== undefined) {
       const name = normalizeTaskName(patch.name);
       if (name === '') throw new Error('タスク名が空です / the task name is empty');
@@ -175,6 +236,11 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
     }
     if (patch.note !== undefined) next.note = patch.note.trim();
     if (patch.profileId !== undefined) next.profileId = checkedProfileId(patch.profileId);
+    // Switching the environment only changes what the *next* container is
+    // created with; the running one is flagged as stale until it is recreated.
+    if (patch.environmentId !== undefined && patch.environmentId !== current.environmentId) {
+      next.environmentId = checkedEnvironmentId(patch.environmentId);
+    }
 
     const updated = updateTask(id, next);
     const profileChanged = patch.profileId !== undefined && updated.profileId !== current.profileId;
@@ -188,8 +254,10 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
 export function startTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    await startContainer(refOf(task), getConfig().imageTag);
-    return applyProvision(task);
+    await startContainer(refOf(task), containerSpecFor(task));
+    const summary = await applyProvision(task);
+    await applySetup(task);
+    return summary;
   });
 }
 
@@ -209,8 +277,10 @@ export function recreateTask(id: string): Promise<string> {
     await closeTaskTerminals(id);
     logInfo('app', `[${task.name}] コンテナを作り直します / recreating the container on ${imageTag}`);
     await removeContainer(ref, false);
-    await startContainer(ref, imageTag);
-    return applyProvision(task);
+    await startContainer(ref, containerSpecFor(task));
+    const summary = await applyProvision(task);
+    await applySetup(task);
+    return summary;
   });
 }
 
@@ -226,13 +296,13 @@ async function hasWorkspace(ref: ContainerRef): Promise<boolean> {
   return volumeExists(ref.volumeName);
 }
 
-function ensureTaskContainer(ref: ContainerRef): Promise<ContainerState> {
-  return ensureContainer(ref, getConfig().imageTag);
+function ensureTaskContainer(task: Task): Promise<ContainerState> {
+  return ensureContainer(refOf(task), containerSpecFor(task));
 }
 
-async function exportTo(ref: ContainerRef, taskName: string, destination: string): Promise<ExportSummary> {
-  await ensureTaskContainer(ref);
-  const summary = await exportWorkspace(ref, destination, exportFolderName(taskName));
+async function exportTo(task: Task, destination: string): Promise<ExportSummary> {
+  await ensureTaskContainer(task);
+  const summary = await exportWorkspace(refOf(task), destination, exportFolderName(task.name));
   rememberExportDir(destination);
   return summary;
 }
@@ -240,13 +310,12 @@ async function exportTo(ref: ContainerRef, taskName: string, destination: string
 export function exportTask(id: string, destination: string): Promise<ExportSummary> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    const ref = refOf(task);
-    if (!(await hasWorkspace(ref))) {
+    if (!(await hasWorkspace(refOf(task)))) {
       throw new Error(
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
-    return exportTo(ref, task.name, destination);
+    return exportTo(task, destination);
   });
 }
 
@@ -267,7 +336,7 @@ export function deleteTask(
             '取り出し先が選ばれなかったので何も消していません / no export folder was chosen, so nothing was deleted',
           );
         }
-        exported = await exportTo(ref, task.name, destination);
+        exported = await exportTo(task, destination);
         if (exported.skipped.length > 0) {
           throw new Error(
             `${exported.skipped.length} 件を取り出せなかったので削除を中止しました。取り出せた分は ${exported.path} にあります / ` +
@@ -292,9 +361,9 @@ export function deleteTask(
 
 export function importIntoTask(id: string, paths: readonly string[]): Promise<ImportSummary> {
   return withTaskLock(id, async () => {
-    const ref = refOf(getTask(id));
-    await ensureTaskContainer(ref);
-    return importIntoWorkspace(ref, paths);
+    const task = getTask(id);
+    await ensureTaskContainer(task);
+    return importIntoWorkspace(refOf(task), paths);
   });
 }
 
@@ -351,4 +420,19 @@ export async function forgetProfile(profileId: string): Promise<readonly string[
   }
   if (affected.size === 0) return [];
   return provisionRunningTasks((task) => affected.has(task.id));
+}
+
+/** Removes an environment nobody uses; a task still pointing at it keeps it alive. */
+export function deleteEnvironment(environmentId: string): AppConfig {
+  const environment = environmentFor(environmentId);
+  if (environment === null) throw new Error(`環境が見つかりません / no such environment: ${environmentId}`);
+  const users = listTasks().filter((task) => task.environmentId === environmentId);
+  if (users.length > 0) {
+    const names = users.map((task) => task.name).join(', ');
+    throw new Error(
+      `${environment.name}: ${users.length} 件のタスクが使っているので削除できません (${names}) / still used by ${users.length} task(s): ${names}`,
+    );
+  }
+  logInfo('app', `環境を削除しました / environment deleted: ${environment.name}`);
+  return removeEnvironment(environmentId);
 }

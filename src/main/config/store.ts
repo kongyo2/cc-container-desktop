@@ -3,9 +3,10 @@ import { join } from 'node:path';
 
 import { safeStorage } from 'electron';
 
+import { environmentById } from '../../shared/environments.ts';
 import { isPlainObject } from '../../shared/json.ts';
 import { profileById } from '../../shared/profiles.ts';
-import type { AppConfig, ConfigPatch, Profile } from '../../shared/types.ts';
+import type { AppConfig, ConfigPatch, Environment, EnvironmentDraft, Profile } from '../../shared/types.ts';
 import { describeError, logError, logWarn } from '../logger.ts';
 import { brokenCopyPath, userDataDir } from '../paths.ts';
 import { defaultConfig, readConfig } from './schema.ts';
@@ -112,7 +113,7 @@ export function saveConfig(next: AppConfig): AppConfig {
 }
 
 export function patchConfig(patch: ConfigPatch & Partial<Pick<AppConfig, 'language' | 'extensions'>>): AppConfig {
-  return saveConfig({ ...getConfig(), ...patch, version: 2 });
+  return saveConfig({ ...getConfig(), ...patch, version: 3 });
 }
 
 export function profileFor(id: string | null): Profile | null {
@@ -137,6 +138,54 @@ export function deleteProfile(id: string): AppConfig {
   const defaultProfileId = config.defaultProfileId === id ? (profiles[0]?.id ?? null) : config.defaultProfileId;
   deleteSecret(id);
   return saveConfig({ ...config, profiles, defaultProfileId });
+}
+
+export function environmentFor(id: string | null): Environment | null {
+  return environmentById(getConfig(), id);
+}
+
+function requireEnvironment(config: AppConfig, id: string): { index: number; environment: Environment } {
+  const index = config.environments.findIndex((environment) => environment.id === id);
+  const environment = config.environments[index];
+  if (index === -1 || environment === undefined) {
+    throw new Error(`環境が見つかりません / no such environment: ${id}`);
+  }
+  return { index, environment };
+}
+
+/** Creates or edits an environment; timestamps are set here, never trusted from the caller. */
+export function upsertEnvironment(draft: EnvironmentDraft): AppConfig {
+  const config = getConfig();
+  const now = new Date().toISOString();
+  const index = config.environments.findIndex((environment) => environment.id === draft.id);
+  const existing = index === -1 ? null : (config.environments[index] ?? null);
+  const unchanged =
+    existing !== null &&
+    existing.name === draft.name &&
+    existing.envText === draft.envText &&
+    existing.setupScript === draft.setupScript;
+  const next: Environment = {
+    ...draft,
+    archived: existing?.archived ?? false,
+    createdAt: existing?.createdAt === undefined || existing.createdAt === '' ? now : existing.createdAt,
+    updatedAt: unchanged ? existing.updatedAt : now,
+  };
+  const environments = existing === null ? [...config.environments, next] : config.environments.with(index, next);
+  return saveConfig({ ...config, environments });
+}
+
+export function setEnvironmentArchived(id: string, archived: boolean): AppConfig {
+  const config = getConfig();
+  const { index, environment } = requireEnvironment(config, id);
+  if (environment.archived === archived) return config;
+  const next: Environment = { ...environment, archived, updatedAt: new Date().toISOString() };
+  return saveConfig({ ...config, environments: config.environments.with(index, next) });
+}
+
+export function removeEnvironment(id: string): AppConfig {
+  const config = getConfig();
+  requireEnvironment(config, id);
+  return saveConfig({ ...config, environments: config.environments.filter((environment) => environment.id !== id) });
 }
 
 export function secretsAreEncrypted(): boolean {

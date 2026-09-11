@@ -107,7 +107,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The base image carries every toolchain; building it alone takes ~20 min.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
 
@@ -134,8 +135,12 @@ jobs:
         if: steps.creds.outputs.present == 'true'
         run: npm run build
 
+      # Built here, with the same classic builder the app uses, so the suites
+      # start from a ready image and the app's own (cached) build is quick.
       - name: Build the container image
         if: steps.creds.outputs.present == 'true'
+        env:
+          DOCKER_BUILDKIT: '0'
         run: docker build -f docker/Dockerfile -t cc-container-desktop:latest docker/
 
       - name: Workbench suite
@@ -149,6 +154,7 @@ jobs:
         if: steps.creds.outputs.present == 'true'
         env:
           CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CC_E2E_SKIP_BUILD: '1'
         run: xvfb-run -a node tests/e2e/deep.mjs
 
       - name: Live model suite

@@ -11,7 +11,6 @@ import type {
   ExecResult,
   ExportSummary,
   Extensions,
-  ImageSources,
   ImportPick,
   ImportSummary,
   Language,
@@ -26,7 +25,7 @@ import type {
   TaskPatch,
 } from '../shared/types.ts';
 import { isHttpUrl, parseUrl } from '../shared/url.ts';
-import { parseConfigPatch } from './config/schema.ts';
+import { parseConfigPatch, parseEnvironmentDraft } from './config/schema.ts';
 import {
   appDataDir,
   deleteProfile,
@@ -34,17 +33,20 @@ import {
   getSecret,
   patchConfig,
   secretsAreEncrypted,
+  setEnvironmentArchived,
   setSecret,
+  upsertEnvironment,
   upsertProfile,
 } from './config/store.ts';
 import { MISSING_CONTAINER } from './docker/container.ts';
 import { inspectImage, probeDocker } from './docker/engine.ts';
-import { buildImage, readImageSources, resetImageSources, writeImageSources } from './docker/image.ts';
+import { buildImage } from './docker/image.ts';
 import { closeTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
 import { describeError, notifyStateChanged } from './logger.ts';
 import { isInside } from './paths.ts';
 import {
   createTask,
+  deleteEnvironment,
   deleteTask,
   execInTask,
   exportTask,
@@ -111,7 +113,12 @@ async function snapshot(): Promise<Snapshot> {
     return {
       ...base,
       image: { tag: config.imageTag, exists: false, id: null, createdAt: null, sizeBytes: null },
-      tasks: listTasks().map((task) => ({ task, container: MISSING_CONTAINER, imageStale: false })),
+      tasks: listTasks().map((task) => ({
+        task,
+        container: MISSING_CONTAINER,
+        imageStale: false,
+        environmentStale: false,
+      })),
     };
   }
 
@@ -147,6 +154,16 @@ async function pickDirectory(defaultPath: string | null): Promise<string | null>
 function requireTaskId(id: unknown): string {
   if (typeof id !== 'string' || id === '') throw new Error('タスク ID がありません / missing task id');
   return id;
+}
+
+function requireEnvironmentId(id: unknown): string {
+  if (typeof id !== 'string' || id === '') throw new Error('環境 ID がありません / missing environment id');
+  return id;
+}
+
+function requireArchivedFlag(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new Error('アーカイブ状態がありません / missing archived state');
+  return value;
 }
 
 export function registerIpc(version: string): void {
@@ -196,17 +213,20 @@ export function registerIpc(version: string): void {
   handle<[string], string>(CHANNELS.secretGet, (profileId) => getSecret(profileId));
   handleVoid<[string, string]>(CHANNELS.secretSet, (profileId, secret) => setSecret(profileId, secret));
 
+  handleConfigEdit<[unknown]>(CHANNELS.environmentUpsert, (draft) => upsertEnvironment(parseEnvironmentDraft(draft)));
+  handleConfigEdit<[unknown, unknown]>(CHANNELS.environmentArchive, (id, archived) =>
+    setEnvironmentArchived(requireEnvironmentId(id), requireArchivedFlag(archived)),
+  );
+  handleConfigEdit<[unknown]>(CHANNELS.environmentDelete, (id) => deleteEnvironment(requireEnvironmentId(id)));
+
   handle<[], Snapshot>(CHANNELS.dockerProbe, snapshot);
   handleVoid<[BuildRequest]>(CHANNELS.imageBuild, async (request) => {
-    await buildImage(getConfig().imageTag, request.noCache);
+    await buildImage(getConfig().imageTag, {
+      noCache: request.noCache === true,
+      refreshClaudeCode: request.refreshClaudeCode === true,
+    });
     notifyStateChanged();
   });
-  handle<[], ImageSources>(CHANNELS.imageSourcesGet, readImageSources);
-  handle<[Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>], ImageSources>(
-    CHANNELS.imageSourcesSave,
-    (sources) => writeImageSources(sources),
-  );
-  handle<[], ImageSources>(CHANNELS.imageSourcesReset, resetImageSources);
 
   handleConfigEdit<[Extensions]>(CHANNELS.extensionsSave, (extensions) => patchConfig({ extensions }));
   handle<[], readonly string[]>(CHANNELS.extensionsApply, async () => {

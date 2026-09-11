@@ -5,8 +5,8 @@ import { useEffect } from 'react';
 import { Banner } from './components/ui.tsx';
 import { StatusStrip } from './components/StatusStrip.tsx';
 import { useT } from './i18n.ts';
+import { EnvironmentsPanel } from './panels/EnvironmentsPanel.tsx';
 import { ExtensionsPanel } from './panels/ExtensionsPanel.tsx';
-import { ImagePanel } from './panels/ImagePanel.tsx';
 import { LogPanel } from './panels/LogPanel.tsx';
 import { NewTaskPanel } from './panels/NewTaskPanel.tsx';
 import { ProfilesPanel } from './panels/ProfilesPanel.tsx';
@@ -46,8 +46,8 @@ function Panel({ view }: { view: Exclude<View, 'tasks'> }): JSX.Element {
       return <ProfilesPanel />;
     case 'extensions':
       return <ExtensionsPanel />;
-    case 'image':
-      return <ImagePanel />;
+    case 'environments':
+      return <EnvironmentsPanel />;
     case 'log':
       return <LogPanel />;
     case 'settings':

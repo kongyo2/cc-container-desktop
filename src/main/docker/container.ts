@@ -6,6 +6,8 @@ import {
   CONTAINER_HOME,
   CONTAINER_USER,
   CONTAINER_WORKSPACE,
+  ENVIRONMENT_LABEL,
+  ENVIRONMENT_REVISION_LABEL,
   MANAGED_LABEL,
   TASK_LABEL,
 } from '../../shared/presets.ts';
@@ -15,10 +17,21 @@ import { docker, isNotFound, requireImageBuilt } from './engine.ts';
 
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
+const BASE_ENV: readonly string[] = ['TERM=xterm-256color', 'LANG=C.UTF-8'];
+
 export interface ContainerRef {
   readonly taskId: string;
   readonly containerName: string;
   readonly volumeName: string;
+}
+
+/** Everything a task's container is created with, beyond its name and volume. */
+export interface ContainerSpec {
+  readonly imageTag: string;
+  /** `KEY=VALUE` entries from the task's environment, applied after the base ones. */
+  readonly env: readonly string[];
+  readonly environmentId: string;
+  readonly environmentRevision: string;
 }
 
 export function refOf(task: Task): ContainerRef {
@@ -59,6 +72,8 @@ export const MISSING_CONTAINER: ContainerState = {
   imageId: null,
   startedAt: null,
   homeVolume: null,
+  environmentId: null,
+  environmentRevision: null,
 };
 
 async function nullIfNotFound<T>(read: () => Promise<T>): Promise<T | null> {
@@ -82,8 +97,18 @@ async function inspectRaw(ref: ContainerRef): Promise<InspectResponse | null> {
   return nullIfNotFound(async () => (await containerHandle(ref).inspect()) as InspectResponse);
 }
 
+function labelsOf(labels: unknown): Record<string, unknown> {
+  return typeof labels === 'object' && labels !== null ? (labels as Record<string, unknown>) : {};
+}
+
+function labelString(labels: Record<string, unknown>, key: string): string | null {
+  const value = labels[key];
+  return typeof value === 'string' ? value : null;
+}
+
 function stateOf(raw: InspectResponse): ContainerState {
   const running = raw.State?.Running === true;
+  const labels = labelsOf(raw.Config?.Labels);
   return {
     exists: true,
     running,
@@ -92,16 +117,14 @@ function stateOf(raw: InspectResponse): ContainerState {
     imageId: raw.Image ?? null,
     startedAt: running ? (raw.State?.StartedAt ?? null) : null,
     homeVolume: homeVolumeOf(raw),
+    environmentId: labelString(labels, ENVIRONMENT_LABEL),
+    environmentRevision: labelString(labels, ENVIRONMENT_REVISION_LABEL),
   };
 }
 
 export async function inspectContainer(ref: ContainerRef): Promise<ContainerState> {
   const raw = await inspectRaw(ref);
   return raw === null ? MISSING_CONTAINER : stateOf(raw);
-}
-
-function labelsOf(labels: unknown): Record<string, unknown> {
-  return typeof labels === 'object' && labels !== null ? (labels as Record<string, unknown>) : {};
 }
 
 function ownedBy(labels: unknown, taskId: string): boolean {
@@ -111,6 +134,14 @@ function ownedBy(labels: unknown, taskId: string): boolean {
 
 function ownerLabels(taskId: string): Record<string, string> {
   return { [MANAGED_LABEL]: 'true', [TASK_LABEL]: taskId };
+}
+
+function containerLabels(ref: ContainerRef, spec: ContainerSpec): Record<string, string> {
+  return {
+    ...ownerLabels(ref.taskId),
+    [ENVIRONMENT_LABEL]: spec.environmentId,
+    [ENVIRONMENT_REVISION_LABEL]: spec.environmentRevision,
+  };
 }
 
 function foreignError(name: string, noun: string): Error {
@@ -159,20 +190,25 @@ async function ownedRaw(ref: ContainerRef): Promise<InspectResponse | null> {
   return raw;
 }
 
-async function createContainer(ref: ContainerRef, imageTag: string): Promise<void> {
-  await requireImageBuilt(imageTag);
+async function createContainer(ref: ContainerRef, spec: ContainerSpec): Promise<void> {
+  await requireImageBuilt(spec.imageTag);
   await ensureVolume(ref);
-  logInfo('app', `コンテナを作成します / creating container: ${ref.containerName}`);
+  logInfo(
+    'app',
+    `コンテナを作成します / creating container: ${ref.containerName} (${spec.env.length} env var${spec.env.length === 1 ? '' : 's'} from the environment)`,
+  );
   await docker().createContainer({
     name: ref.containerName,
-    Image: imageTag,
+    Image: spec.imageTag,
     Hostname: ref.containerName,
     User: CONTAINER_USER,
     WorkingDir: CONTAINER_WORKSPACE,
     Tty: false,
     OpenStdin: false,
-    Env: ['TERM=xterm-256color', 'LANG=C.UTF-8'],
-    Labels: ownerLabels(ref.taskId),
+    // The environment's variables come last so they win over the base ones;
+    // every `docker exec` into the container inherits them.
+    Env: [...BASE_ENV, ...spec.env],
+    Labels: containerLabels(ref, spec),
     Cmd: ['sleep', 'infinity'],
     HostConfig: {
       Binds: [`${ref.volumeName}:${CONTAINER_HOME}`],
@@ -182,15 +218,15 @@ async function createContainer(ref: ContainerRef, imageTag: string): Promise<voi
   });
 }
 
-export async function ensureContainer(ref: ContainerRef, imageTag: string): Promise<ContainerState> {
+export async function ensureContainer(ref: ContainerRef, spec: ContainerSpec): Promise<ContainerState> {
   const raw = await ownedRaw(ref);
   if (raw !== null) return stateOf(raw);
-  await createContainer(ref, imageTag);
+  await createContainer(ref, spec);
   return inspectContainer(ref);
 }
 
-export async function startContainer(ref: ContainerRef, imageTag: string): Promise<ContainerState> {
-  const state = await ensureContainer(ref, imageTag);
+export async function startContainer(ref: ContainerRef, spec: ContainerSpec): Promise<ContainerState> {
+  const state = await ensureContainer(ref, spec);
   if (!state.running) {
     await containerHandle(ref).start();
     logInfo('app', `コンテナを起動しました / container started: ${ref.containerName}`);

@@ -1,6 +1,7 @@
-import { FileCode2, ListTodo, Plus, Puzzle, ScrollText, Settings, Boxes } from 'lucide-react';
+import { Layers, ListTodo, Plus, Puzzle, ScrollText, Settings, Boxes } from 'lucide-react';
 import type { JSX } from 'react';
 
+import { environmentById } from '../../../shared/environments.ts';
 import type { TaskView } from '../../../shared/types.ts';
 import type { MessageKey } from '../../../shared/i18n.ts';
 import { profileById } from '../../../shared/profiles.ts';
@@ -11,7 +12,7 @@ import type { View } from '../store.ts';
 const NAV: ReadonlyArray<{ id: View; icon: JSX.Element; key: MessageKey }> = [
   { id: 'profiles', icon: <Boxes size={15} />, key: 'navProfiles' },
   { id: 'extensions', icon: <Puzzle size={15} />, key: 'navExtensions' },
-  { id: 'image', icon: <FileCode2 size={15} />, key: 'navImage' },
+  { id: 'environments', icon: <Layers size={15} />, key: 'navEnvironments' },
   { id: 'log', icon: <ScrollText size={15} />, key: 'navLog' },
   { id: 'settings', icon: <Settings size={15} />, key: 'navSettings' },
 ];
@@ -54,6 +55,8 @@ export function TaskSidebar(): JSX.Element {
         {tasks.length === 0 ? <p className="empty">{t('taskListEmpty')}</p> : null}
         {tasks.map((item) => {
           const profile = snapshot === null ? null : profileById(snapshot.config, item.task.profileId);
+          const environment = snapshot === null ? null : environmentById(snapshot.config, item.task.environmentId);
+          const stale = item.imageStale || item.environmentStale;
           const selected = view === 'tasks' && item.task.id === selectedTaskId;
           return (
             <button
@@ -67,7 +70,9 @@ export function TaskSidebar(): JSX.Element {
               <span className="task-item-body">
                 <span className="task-item-name">{item.task.name}</span>
                 <span className="task-item-meta">
-                  {item.imageStale ? `${t('taskImageStale')} · ` : ''}
+                  {stale ? `${item.imageStale ? t('taskImageStale') : t('taskEnvironmentStale')} · ` : ''}
+                  {environment === null ? t('taskEnvironmentNone') : environment.name}
+                  {' · '}
                   {profile === null ? t('commonUnset') : profile.name}
                 </span>
               </span>

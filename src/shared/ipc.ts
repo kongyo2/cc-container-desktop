@@ -4,10 +4,10 @@ import type {
   CreateTaskResult,
   DeleteTaskRequest,
   DeleteTaskSummary,
+  EnvironmentDraft,
   ExecResult,
   ExportSummary,
   Extensions,
-  ImageSources,
   ImportPick,
   ImportSummary,
   Language,
@@ -40,11 +40,12 @@ export const CHANNELS = {
   secretGet: 'secret:get',
   secretSet: 'secret:set',
 
+  environmentUpsert: 'environment:upsert',
+  environmentArchive: 'environment:archive',
+  environmentDelete: 'environment:delete',
+
   dockerProbe: 'docker:probe',
   imageBuild: 'image:build',
-  imageSourcesGet: 'image:sourcesGet',
-  imageSourcesSave: 'image:sourcesSave',
-  imageSourcesReset: 'image:sourcesReset',
 
   extensionsSave: 'ext:save',
   extensionsApply: 'ext:apply',
@@ -82,7 +83,10 @@ export interface ExecRequest {
 }
 
 export interface BuildRequest {
+  /** Rebuild every layer, pulling the base image again. */
   readonly noCache: boolean;
+  /** Reinstall Claude Code (and the other global npm tools) without redoing the layers above. */
+  readonly refreshClaudeCode: boolean;
 }
 
 export interface Api {
@@ -100,13 +104,12 @@ export interface Api {
   secretGet(profileId: string): Promise<Result<string>>;
   secretSet(profileId: string, secret: string): Promise<Result<null>>;
 
+  environmentUpsert(environment: EnvironmentDraft): Promise<Result<AppConfig>>;
+  environmentArchive(id: string, archived: boolean): Promise<Result<AppConfig>>;
+  environmentDelete(id: string): Promise<Result<AppConfig>>;
+
   dockerProbe(): Promise<Result<Snapshot>>;
   imageBuild(request: BuildRequest): Promise<Result<null>>;
-  imageSourcesGet(): Promise<Result<ImageSources>>;
-  imageSourcesSave(
-    sources: Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>,
-  ): Promise<Result<ImageSources>>;
-  imageSourcesReset(): Promise<Result<ImageSources>>;
 
   extensionsSave(extensions: Extensions): Promise<Result<AppConfig>>;
   extensionsApply(): Promise<Result<readonly string[]>>;

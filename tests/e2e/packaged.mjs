@@ -31,28 +31,43 @@ try {
   const snapshot = await page.evaluate(() => window.cc.snapshot());
   check('snapshot works', snapshot.ok === true, snapshot.ok ? '' : snapshot.error);
   check('config has the default profile', snapshot.ok && snapshot.value.config.profiles.length >= 1);
-  check('config is the v2 shape', snapshot.ok && snapshot.value.config.version === 2);
+  check('config is the v3 shape', snapshot.ok && snapshot.value.config.version === 3);
+  check(
+    'config seeds a default environment',
+    snapshot.ok &&
+      snapshot.value.config.environments.length === 1 &&
+      snapshot.value.config.defaultEnvironmentId === snapshot.value.config.environments[0].id,
+  );
   check('task list starts empty', snapshot.ok && snapshot.value.tasks.length === 0);
   check('docker reachable from the packaged app', snapshot.ok && snapshot.value.docker.available === true);
 
-  const sources = await page.evaluate(() => window.cc.imageSourcesGet());
-  check('image sources resolved from resourcesPath', sources.ok === true, sources.ok ? '' : sources.error);
+  // The Dockerfile must be a real file outside the asar, or the Engine API
+  // cannot read it as a build context.
+  const dockerfile = await app.evaluate(() => {
+    const fs = process.getBuiltinModule('node:fs');
+    const path = process.getBuiltinModule('node:path');
+    const file = path.join(process.resourcesPath, 'docker', 'Dockerfile');
+    return {
+      file,
+      exists: fs.existsSync(file),
+      head: fs.existsSync(file) ? fs.readFileSync(file, 'utf8').slice(0, 2000) : '',
+    };
+  });
   check(
-    'Dockerfile content is the real one',
-    sources.ok && sources.value.dockerfile.includes('FROM ubuntu:24.04'),
-    sources.ok ? sources.value.dockerfile.slice(0, 60) : '',
+    'the bundled Dockerfile ships outside the asar',
+    dockerfile.exists && !dockerfile.file.includes('app.asar'),
+    dockerfile.file,
   );
-  check('post-create content is the real one', sources.ok && sources.value.postCreate.includes('post-create'));
-  check(
-    'sources were seeded into userData, not read from the asar',
-    sources.ok && !sources.value.dir.includes('app.asar'),
-    sources.ok ? sources.value.dir : '',
+  check('and it is the real base image', dockerfile.head.includes('FROM ubuntu:24.04'), dockerfile.head.slice(0, 60));
+
+  await page.click('.sidebar-nav button[data-view="environments"]');
+  await page.waitForTimeout(500);
+  const tools = await page.evaluate(
+    () => document.querySelectorAll('[data-testid="base-image-tools"] tbody tr').length,
   );
-  check(
-    'sources landed in the scratch userData',
-    sources.ok && sources.value.dir.startsWith(userData),
-    sources.ok ? sources.value.dir : '',
-  );
+  check('the environments page lists the base image tools', tools === 11, String(tools));
+  const rows = await page.evaluate(() => document.querySelectorAll('[data-testid="env-list"] .env-row').length);
+  check('and the seeded environment', rows === 1, String(rows));
 
   const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
   check('window rendered', painted);

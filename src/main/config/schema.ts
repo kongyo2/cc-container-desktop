@@ -1,8 +1,17 @@
 import { z } from 'zod';
 
+import { environmentEnvProblems, normalizeEnvironmentName, normalizeScriptText } from '../../shared/environments.ts';
 import { isPlainObject } from '../../shared/json.ts';
 import { DEFAULT_IMAGE_TAG, ENDPOINT_PRESETS } from '../../shared/presets.ts';
-import type { AppConfig, ConfigPatch, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
+import type {
+  AppConfig,
+  ConfigPatch,
+  Environment,
+  EnvironmentDraft,
+  Extensions,
+  ManagedNames,
+  Profile,
+} from '../../shared/types.ts';
 
 const profileSchema = z.object({
   id: z.string().min(1),
@@ -20,6 +29,16 @@ const profileSchema = z.object({
   disableTelemetry: z.boolean().default(true),
   extraEnv: z.record(z.string(), z.string()).default({}),
   note: z.string().default(''),
+});
+
+const environmentSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().default(''),
+  envText: z.string().default(''),
+  setupScript: z.string().default(''),
+  archived: z.boolean().default(false),
+  createdAt: z.string().default(''),
+  updatedAt: z.string().default(''),
 });
 
 const mcpServerSchema = z.object({
@@ -69,10 +88,12 @@ const extensionsSchema = z.object({
 });
 
 const appConfigSchema = z.object({
-  version: z.literal(2).catch(2).default(2),
+  version: z.literal(3).catch(3).default(3),
   language: z.enum(['ja', 'en']).catch('ja').default('ja'),
   defaultProfileId: z.string().nullable().default(null),
   profiles: z.array(profileSchema).default([]),
+  defaultEnvironmentId: z.string().nullable().default(null),
+  environments: z.array(environmentSchema).default([]),
   imageTag: z.string().min(1).catch(DEFAULT_IMAGE_TAG).default(DEFAULT_IMAGE_TAG),
   autoOnboarding: z.boolean().default(true),
   autoApproveApiKey: z.boolean().default(true),
@@ -83,6 +104,7 @@ const appConfigSchema = z.object({
 
 const configPatchSchema = z.strictObject({
   defaultProfileId: z.string().nullable().optional(),
+  defaultEnvironmentId: z.string().nullable().optional(),
   imageTag: z.string().trim().min(1).optional(),
   autoOnboarding: z.boolean().optional(),
   autoApproveApiKey: z.boolean().optional(),
@@ -100,6 +122,27 @@ export function parseConfigPatch(raw: unknown): ConfigPatch {
     if (value !== undefined) patch[key] = value;
   }
   return patch as ConfigPatch;
+}
+
+const environmentDraftSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  envText: z.string(),
+  setupScript: z.string(),
+});
+
+/** Checks what the renderer sent for an environment and normalizes it. */
+export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
+  const parsed = environmentDraftSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`環境の内容が不正です / invalid environment: ${parsed.error.issues[0]?.message ?? ''}`);
+  }
+  const name = normalizeEnvironmentName(parsed.data.name);
+  if (name === '') throw new Error('環境の名前が空です / the environment name is empty');
+  const envText = normalizeScriptText(parsed.data.envText);
+  const problem = environmentEnvProblems(envText)[0];
+  if (problem !== undefined) throw new Error(`環境変数 / environment variables: ${problem}`);
+  return { id: parsed.data.id, name, envText, setupScript: normalizeScriptText(parsed.data.setupScript) };
 }
 
 export function starterProfile(): Profile {
@@ -123,6 +166,20 @@ export function starterProfile(): Profile {
   };
 }
 
+/** The environment every fresh install starts with: the base image as it is. */
+export function starterEnvironment(): Environment {
+  const now = new Date().toISOString();
+  return {
+    id: 'environment-default',
+    name: '環境1',
+    envText: '',
+    setupScript: '',
+    archived: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function emptyExtensions(): Extensions {
   return { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 }
@@ -133,11 +190,14 @@ export function emptyManagedNames(): ManagedNames {
 
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
+  const environment = starterEnvironment();
   return {
-    version: 2,
+    version: 3,
     language: 'ja',
     defaultProfileId: profile.id,
     profiles: [profile],
+    defaultEnvironmentId: environment.id,
+    environments: [environment],
     imageTag: DEFAULT_IMAGE_TAG,
     autoOnboarding: true,
     autoApproveApiKey: true,
@@ -173,7 +233,16 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
     source['defaultProfileId'] = source['activeProfileId'];
   }
 
+  // A config written before environments existed gets the starter one a fresh
+  // install has, so the next task can be created without a detour.
+  if (source['environments'] === undefined) {
+    const starter = starterEnvironment();
+    source['environments'] = [starter];
+    if (source['defaultEnvironmentId'] === undefined) source['defaultEnvironmentId'] = starter.id;
+  }
+
   source['profiles'] = keepValid(profileSchema, source['profiles'], report);
+  source['environments'] = keepValid(environmentSchema, source['environments'], report);
 
   const extensions = source['extensions'];
   if (isPlainObject(extensions)) {
@@ -208,12 +277,37 @@ function resolveDefaultProfile(defaultProfileId: string | null, profiles: readon
   return profiles[0]?.id ?? null;
 }
 
+function resolveDefaultEnvironment(
+  defaultEnvironmentId: string | null,
+  environments: readonly Environment[],
+): string | null {
+  const usable = environments.filter((environment) => !environment.archived);
+  if (defaultEnvironmentId !== null && usable.some((environment) => environment.id === defaultEnvironmentId)) {
+    return defaultEnvironmentId;
+  }
+  return usable[0]?.id ?? null;
+}
+
+function dedupeById<T extends { readonly id: string }>(items: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    kept.push(item);
+  }
+  return kept;
+}
+
 function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
+  const environments = dedupeById(value.environments);
   return {
-    version: 2,
+    version: 3,
     language: value.language,
     defaultProfileId: resolveDefaultProfile(value.defaultProfileId, value.profiles),
     profiles: value.profiles,
+    defaultEnvironmentId: resolveDefaultEnvironment(value.defaultEnvironmentId, environments),
+    environments,
     imageTag: value.imageTag,
     autoOnboarding: value.autoOnboarding,
     autoApproveApiKey: value.autoApproveApiKey,

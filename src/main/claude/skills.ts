@@ -3,21 +3,13 @@ import { formatArgv, skillInstallArgv, skillInstallProblem } from '../../shared/
 import type { SkillInstallConfig } from '../../shared/types.ts';
 import { execCapture } from '../docker/container.ts';
 import type { ContainerRef } from '../docker/container.ts';
-import { logInfo, logWarn } from '../logger.ts';
+import { logInfo, logWarn, redactSecrets as redact } from '../logger.ts';
 
 const LOG_TAIL_LINES = 24;
 
 const INSTALL_TIMEOUT_SECONDS = 900;
 
 const ANSI = new RegExp(`${String.fromCodePoint(27)}\\[[0-?]*[ -/]*[@-~]`, 'gu');
-
-const USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/\s@]+@/gu;
-
-const TOKEN_PARAM = /([?&](?:token|access_token|api_key|apikey|key|password)=)[^&\s]+/giu;
-
-function redact(text: string): string {
-  return text.replaceAll(USERINFO, '$1***@').replaceAll(TOKEN_PARAM, '$1***');
-}
 
 function logOutput(text: string, level: 'info' | 'warn'): void {
   const lines = redact(text)

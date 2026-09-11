@@ -1,60 +1,10 @@
-import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ImageSources } from '../../shared/types.ts';
-import { describeError, logError, logInfo } from '../logger.ts';
-import { bundledDockerDir, dockerfilePath, postCreatePath, setupPath, userDockerDir } from '../paths.ts';
+import type { BuildRequest } from '../../shared/ipc.ts';
+import { describeError, logInfo } from '../logger.ts';
+import { bundledDockerDir } from '../paths.ts';
 import { docker } from './engine.ts';
-
-const SOURCE_FILES = ['Dockerfile', 'setup.sh', 'post-create.sh'] as const;
-
-export function ensureImageSources(force = false): void {
-  const from = bundledDockerDir();
-  const to = userDockerDir();
-  for (const name of SOURCE_FILES) {
-    const target = join(to, name);
-    if (!force && existsSync(target)) continue;
-    const source = join(from, name);
-    if (!existsSync(source)) {
-      logError('app', `既定の ${name} が見つかりません / bundled ${name} is missing at ${source}`);
-      continue;
-    }
-    copyFileSync(source, target);
-  }
-}
-
-function readTextOr(path: string, fallback: string): string {
-  return existsSync(path) ? readFileSync(path, 'utf8') : fallback;
-}
-
-export function readImageSources(): ImageSources {
-  ensureImageSources();
-  return {
-    dockerfile: readTextOr(dockerfilePath(), ''),
-    setup: readTextOr(setupPath(), ''),
-    postCreate: readTextOr(postCreatePath(), ''),
-    dir: userDockerDir(),
-  };
-}
-
-export function writeImageSources(
-  sources: Partial<Pick<ImageSources, 'dockerfile' | 'setup' | 'postCreate'>>,
-): ImageSources {
-  const current = readImageSources();
-
-  const normalize = (next: string | undefined, fallback: string): string =>
-    (typeof next === 'string' ? next : fallback).replaceAll('\r\n', '\n');
-
-  writeFileSync(dockerfilePath(), normalize(sources.dockerfile, current.dockerfile), 'utf8');
-  writeFileSync(setupPath(), normalize(sources.setup, current.setup), 'utf8');
-  writeFileSync(postCreatePath(), normalize(sources.postCreate, current.postCreate), 'utf8');
-  return readImageSources();
-}
-
-export function resetImageSources(): ImageSources {
-  ensureImageSources(true);
-  return readImageSources();
-}
 
 interface BuildProgress {
   readonly stream?: unknown;
@@ -72,18 +22,31 @@ function progressText(event: BuildProgress): string | null {
   return null;
 }
 
-export async function buildImage(tag: string, noCache: boolean): Promise<void> {
-  ensureImageSources();
-  const context = userDockerDir();
-  const src = readdirSync(context);
-  logInfo(
-    'build',
-    `イメージをビルドします / building image: ${tag}${noCache ? ' (--no-cache)' : ''} — context: ${src.length} entries`,
-  );
+function buildContext(): { readonly context: string; readonly src: readonly string[] } {
+  const context = bundledDockerDir();
+  if (!existsSync(join(context, 'Dockerfile'))) {
+    throw new Error(`同梱の Dockerfile が見つかりません / the bundled Dockerfile is missing at ${context}`);
+  }
+  return { context, src: readdirSync(context) };
+}
+
+/**
+ * Builds the base image from the Dockerfile that ships with the app. The
+ * Engine API's classic builder is used, so the Dockerfile stays free of
+ * BuildKit-only syntax.
+ */
+export async function buildImage(tag: string, request: BuildRequest): Promise<void> {
+  const { context, src } = buildContext();
+  const mode = request.noCache ? ' (--no-cache)' : request.refreshClaudeCode ? ' (refresh Claude Code)' : '';
+  logInfo('build', `イメージをビルドします / building image: ${tag}${mode} — context: ${context}`);
+
+  const buildargs: Record<string, string> = request.refreshClaudeCode
+    ? { CLAUDE_CODE_REFRESH: Date.now().toString(36) }
+    : {};
 
   const stream = await docker().buildImage(
-    { context, src },
-    { t: tag, nocache: noCache, pull: noCache, dockerfile: 'Dockerfile' },
+    { context, src: [...src] },
+    { t: tag, nocache: request.noCache, pull: request.noCache, dockerfile: 'Dockerfile', buildargs },
   );
 
   await new Promise<void>((resolve, reject) => {

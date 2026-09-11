@@ -84,17 +84,20 @@ try {
   if (!boot.docker.available) throw new Error('docker is not available');
   if (!boot.image.exists) {
     console.log('  … image missing, building it first');
-    await ok(page, 'imageBuild', [{ noCache: false }]);
+    await ok(page, 'imageBuild', [{ noCache: false, refreshClaudeCode: false }]);
   }
+  const defaultEnvironmentId = boot.config.defaultEnvironmentId;
 
   await page.evaluate(() => {
     window.__ccBuildLogs = [];
     window.__ccProvisionLogs = [];
+    window.__ccSetupLogs = [];
     window.__ccAppLogs = [];
     window.__ccResets = [];
     window.cc.onLog((line) => {
       if (line.stream === 'build') window.__ccBuildLogs.push(line.text);
       if (line.stream === 'provision') window.__ccProvisionLogs.push(line.text);
+      if (line.stream === 'setup') window.__ccSetupLogs.push(line.text);
       if (line.stream === 'app') window.__ccAppLogs.push(line.text);
     });
     window.cc.onTerminalsReset((reset) => window.__ccResets.push(reset.taskId));
@@ -106,6 +109,43 @@ try {
   check('a config key that no longer exists is rejected', unknownKey.ok === false, unknownKey.error ?? '');
   const emptyTag = await call(page, 'configSave', [{ imageTag: '   ' }]);
   check('an empty image tag is rejected', emptyTag.ok === false, emptyTag.error ?? '');
+  check(
+    'a fresh config seeds exactly one environment and makes it the default',
+    boot.config.environments.length === 1 && boot.config.environments[0].id === defaultEnvironmentId,
+  );
+  const ghostDefault = await ok(page, 'configSave', [{ defaultEnvironmentId: 'ghost' }]);
+  check(
+    'an unknown default environment falls back to a real one',
+    ghostDefault.defaultEnvironmentId === defaultEnvironmentId,
+  );
+  const badEnvName = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: '   ', envText: '', setupScript: '' },
+  ]);
+  check('an environment needs a name', badEnvName.ok === false, badEnvName.error ?? '');
+  const badVarName = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'x', envText: '1BAD=1', setupScript: '' },
+  ]);
+  check('an invalid variable name is refused', badVarName.ok === false, badVarName.error ?? '');
+  const badVarLine = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'x', envText: 'not a pair', setupScript: '' },
+  ]);
+  check('a line that is not KEY=VALUE is refused', badVarLine.ok === false, badVarLine.error ?? '');
+  const extraEnvKey = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'x', envText: '', setupScript: '', archived: true },
+  ]);
+  check('an environment draft with extra keys is refused', extraEnvKey.ok === false);
+  const reservedName = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'x', envText: 'HOME=/elsewhere', setupScript: '' },
+  ]);
+  check('a variable the app sets itself is refused', reservedName.ok === false, reservedName.error ?? '');
+  const archiveNoFlag = await call(page, 'environmentArchive', [defaultEnvironmentId, 'true']);
+  check('a non-boolean archive state is refused', archiveNoFlag.ok === false);
+  const unknownEnvironment = await call(page, 'taskCreate', [
+    { name: 'x', note: '', profileId: null, environmentId: 'no-such-env', source: { kind: 'empty' } },
+  ]);
+  check('an unknown environment is refused', unknownEnvironment.ok === false, unknownEnvironment.error ?? '');
+  const archiveGhost = await call(page, 'environmentArchive', ['no-such-env', true]);
+  check('archiving an unknown environment is an error', archiveGhost.ok === false);
 
   const noName = await call(page, 'taskCreate', [
     { name: '   ', note: '', profileId: null, source: { kind: 'empty' } },
@@ -514,11 +554,13 @@ try {
   await page.waitForTimeout(600);
   const REPEATS = 20000;
   await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
+  // The typed line is echoed back first and already contains the marker, so
+  // wait for its second appearance: the one printf writes after the run.
   const termText = await waitFor(
     page,
     () => page.evaluate(() => window.__ccTermText ?? ''),
-    (text) => text.includes('DONE-CJK'),
-    30000,
+    (text) => (text.match(/DONE-CJK/gu) ?? []).length >= 2,
+    60000,
   );
   check('a 60KB run of 3-byte characters survives the pty stream intact', !termText.includes('�'));
   check(
@@ -647,17 +689,14 @@ try {
   console.log('\n[J] an image rebuild is detected per task');
 
   const realTag = boot.config.imageTag;
-  const savedSources = await ok(page, 'imageSourcesGet');
+  // The Dockerfile is fixed now, so the "new image" is derived from the real
+  // one with the docker CLI; the app's own build path is exercised right after.
+  execFileSync('docker', ['build', '-q', '-t', SCRATCH_TAG, '-'], {
+    input: `FROM ${realTag}\nRUN echo E2E-LAYER > /tmp/e2e-layer\n`,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
   try {
     await ok(page, 'configSave', [{ imageTag: SCRATCH_TAG }]);
-    await ok(page, 'imageSourcesSave', [
-      {
-        dockerfile: `FROM ${realTag}\nRUN echo E2E-LAYER > /tmp/e2e-layer\n`,
-        setup: savedSources.setup,
-        postCreate: savedSources.postCreate,
-      },
-    ]);
-    await ok(page, 'imageBuild', [{ noCache: false }]);
     snapshot = await ok(page, 'snapshot');
     check('the scratch image exists', snapshot.image.exists === true && snapshot.image.tag === SCRATCH_TAG);
     check(
@@ -687,13 +726,7 @@ try {
       typeof (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env?.ANTHROPIC_BASE_URL ===
         'string',
     );
-
-    const buildLogs = await page.evaluate(() => window.__ccBuildLogs ?? []);
-    check('build progress was streamed to the log pane', buildLogs.length > 1, `${buildLogs.length} lines`);
   } finally {
-    await ok(page, 'imageSourcesSave', [
-      { dockerfile: savedSources.dockerfile, setup: savedSources.setup, postCreate: savedSources.postCreate },
-    ]);
     await ok(page, 'configSave', [{ imageTag: realTag }]);
   }
   snapshot = await ok(page, 'snapshot');
@@ -704,9 +737,185 @@ try {
     'recreating again lands on the real image',
     taskById(await ok(page, 'snapshot'), alpha.id)?.imageStale === false,
   );
-  try {
-    execFileSync('docker', ['rmi', '-f', SCRATCH_TAG], { stdio: 'ignore' });
-  } catch {}
+
+  // With every layer cached this only proves the bundled context reaches the
+  // Engine and its progress reaches the log pane. Skipped where the image was
+  // built by another builder (no shared cache), the same switch the workbench
+  // suite honours.
+  if (process.env['CC_E2E_SKIP_BUILD'] !== '1') {
+    const appBuild = await call(page, 'imageBuild', [{ noCache: false, refreshClaudeCode: false }]);
+    check('the app can (re)build the fixed base image', appBuild.ok === true, appBuild.error ?? '');
+    const buildLogs = await page.evaluate(() => window.__ccBuildLogs ?? []);
+    check('build progress was streamed to the log pane', buildLogs.length > 1, `${buildLogs.length} lines`);
+    check(
+      'the image is still current for the recreated task',
+      taskById(await ok(page, 'snapshot'), alpha.id)?.imageStale === false,
+    );
+  }
+
+  console.log('\n[J2] environments: variables and a setup script, once per container');
+
+  const envLabels = dockerLabelsOf(alpha.containerName);
+  check(
+    'a task created on the default environment carries its label',
+    envLabels['com.cc-container-desktop.environment'] === defaultEnvironmentId &&
+      typeof envLabels['com.cc-container-desktop.environment-revision'] === 'string',
+    JSON.stringify(envLabels),
+  );
+  check('and is not flagged as stale', taskById(snapshot, alpha.id)?.environmentStale === false);
+
+  const envText = 'CC_E2E_MARKER=deep\r\nCC_E2E_MULTI="line one\nline two"\n# a comment\nCC_E2E_QUOTED=\'single\'';
+  const setupScript = [
+    '#!/bin/bash',
+    'set -e',
+    'echo "setup ran with $CC_E2E_MARKER"',
+    'echo "$CC_E2E_MARKER" >> ~/workspace/setup-ran.txt',
+    'test "$(pwd)" = /home/claude/workspace',
+    'test "$(id -un)" = claude',
+    'node --version > ~/workspace/setup-node.txt',
+    '',
+  ].join('\n');
+  const savedEnv = await ok(page, 'environmentUpsert', [{ id: 'e2e-env', name: '  E2E   env ', envText, setupScript }]);
+  const e2eEnv = savedEnv.environments.find((environment) => environment.id === 'e2e-env');
+  check('the environment is saved with a normalized name', e2eEnv?.name === 'E2E env', JSON.stringify(e2eEnv?.name));
+  check('CRLF is normalized on save', e2eEnv !== undefined && !e2eEnv.envText.includes('\r'));
+  check('the seeded environment stays the default', savedEnv.defaultEnvironmentId === defaultEnvironmentId);
+
+  const gamma = (await session.createTask({ name: `${TASK_PREFIX}gamma`, environmentId: 'e2e-env' })).task;
+  check('the task records its environment', gamma.environmentId === 'e2e-env');
+  const gammaEnv = await sh(page, gamma.id, 'printf "%s|%s|%s" "$CC_E2E_MARKER" "$CC_E2E_QUOTED" "$CC_E2E_MULTI"');
+  check(
+    'the variables are in the container environment, multi-line value included',
+    gammaEnv.stdout === 'deep|single|line one\nline two',
+    JSON.stringify(gammaEnv.stdout),
+  );
+  const gammaLabels = dockerLabelsOf(gamma.containerName);
+  check(
+    'the container is labelled with the environment and its revision',
+    gammaLabels['com.cc-container-desktop.environment'] === 'e2e-env' &&
+      gammaLabels['com.cc-container-desktop.environment-revision'] !==
+        envLabels['com.cc-container-desktop.environment-revision'],
+  );
+  const ranOnce = await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt');
+  check(
+    'the setup script ran once, in the workspace, with the variables',
+    ranOnce === 'deep\n',
+    JSON.stringify(ranOnce),
+  );
+  check(
+    'the setup script runs with the image tools on PATH',
+    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-node.txt')).startsWith('v'),
+  );
+  check(
+    'the done-marker was written',
+    (await sh(page, gamma.id, 'test -e /opt/cc/.setup-done && echo yes || echo no')).stdout.trim() === 'yes',
+  );
+  const setupStreamed = await page.evaluate(() =>
+    window.__ccSetupLogs.some((line) => line.includes('setup ran with deep')),
+  );
+  check('setup output streams to the log pane', setupStreamed);
+
+  await ok(page, 'taskStop', [gamma.id]);
+  await ok(page, 'taskStart', [gamma.id]);
+  check(
+    'stop/start does not rerun the setup script',
+    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt')) === 'deep\n',
+  );
+
+  await ok(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'E2E env', envText: 'CC_E2E_MARKER=edited', setupScript },
+  ]);
+  snapshot = await ok(page, 'snapshot');
+  check('editing the environment flags the task that uses it', taskById(snapshot, gamma.id)?.environmentStale === true);
+  check('a task on another environment is unaffected', taskById(snapshot, alpha.id)?.environmentStale === false);
+  await ok(page, 'taskRecreate', [gamma.id]);
+  snapshot = await ok(page, 'snapshot');
+  check('recreate applies the edited environment', taskById(snapshot, gamma.id)?.environmentStale === false);
+  check(
+    'the new value is in the container',
+    (await sh(page, gamma.id, 'printf %s "$CC_E2E_MARKER"')).stdout === 'edited',
+  );
+  check(
+    'recreate reruns the setup script and keeps the workspace',
+    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt')) === 'deep\nedited\n',
+  );
+  await ok(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'E2E env', envText: '# only a comment was added\nCC_E2E_MARKER=edited', setupScript },
+  ]);
+  check(
+    'a comment-only edit does not flag the task',
+    taskById(await ok(page, 'snapshot'), gamma.id)?.environmentStale === false,
+  );
+
+  const switchedEnv = await ok(page, 'taskUpdate', [gamma.id, { environmentId: defaultEnvironmentId }]);
+  check('taskUpdate switches the environment', switchedEnv.environmentId === defaultEnvironmentId);
+  check(
+    'a switched task is flagged until it is recreated',
+    taskById(await ok(page, 'snapshot'), gamma.id)?.environmentStale === true,
+  );
+  await ok(page, 'taskUpdate', [gamma.id, { environmentId: 'e2e-env' }]);
+  check('switching back clears the flag', taskById(await ok(page, 'snapshot'), gamma.id)?.environmentStale === false);
+
+  await ok(page, 'environmentArchive', ['e2e-env', true]);
+  const onArchived = await call(page, 'taskCreate', [
+    { name: 'x', note: '', profileId: null, environmentId: 'e2e-env', source: { kind: 'empty' } },
+  ]);
+  check('an archived environment cannot be picked for a new task', onArchived.ok === false, onArchived.error ?? '');
+  const switchToArchived = await call(page, 'taskUpdate', [alpha.id, { environmentId: 'e2e-env' }]);
+  check('nor switched to', switchToArchived.ok === false);
+  check(
+    'the task that already has it keeps it',
+    taskById(await ok(page, 'snapshot'), gamma.id)?.task.environmentId === 'e2e-env',
+  );
+  const deleteInUse = await call(page, 'environmentDelete', ['e2e-env']);
+  check('an environment a task uses cannot be deleted', deleteInUse.ok === false, deleteInUse.error ?? '');
+  await ok(page, 'environmentArchive', [defaultEnvironmentId, true]);
+  check(
+    'archiving the last active environment leaves no default',
+    (await ok(page, 'snapshot')).config.defaultEnvironmentId === null,
+  );
+  await ok(page, 'environmentArchive', [defaultEnvironmentId, false]);
+  check(
+    'restoring it makes it the default again',
+    (await ok(page, 'snapshot')).config.defaultEnvironmentId === defaultEnvironmentId,
+  );
+
+  await ok(page, 'environmentUpsert', [
+    {
+      id: 'e2e-broken',
+      name: 'broken setup',
+      envText: '',
+      setupScript: 'echo attempt >> ~/workspace/attempts.txt\nexit 3\n',
+    },
+  ]);
+  const delta = await session.createTask({ name: `${TASK_PREFIX}delta`, environmentId: 'e2e-broken' });
+  check(
+    'a failing setup script does not fail task creation, but warns',
+    delta.warning !== null && /exit 3/u.test(delta.warning),
+    delta.warning ?? 'no warning',
+  );
+  check(
+    'no done-marker after a failure',
+    (await sh(page, delta.task.id, 'test -e /opt/cc/.setup-done && echo yes || echo no')).stdout.trim() === 'no',
+  );
+  await ok(page, 'taskStop', [delta.task.id]);
+  await ok(page, 'taskStart', [delta.task.id]);
+  check(
+    'the next start retries the setup script',
+    (await readContainerFile(page, delta.task.id, '/home/claude/workspace/attempts.txt')) === 'attempt\nattempt\n',
+  );
+  await ok(page, 'taskDelete', [delta.task.id, { exportFirst: false }]);
+  session.forgetTask(delta.task.id);
+  await ok(page, 'environmentArchive', ['e2e-broken', true]);
+  await ok(page, 'environmentDelete', ['e2e-broken']);
+
+  await ok(page, 'taskDelete', [gamma.id, { exportFirst: false }]);
+  session.forgetTask(gamma.id);
+  const deletedEnv = await ok(page, 'environmentDelete', ['e2e-env']);
+  check(
+    'an unused archived environment can be deleted',
+    !deletedEnv.environments.some((environment) => environment.id === 'e2e-env'),
+  );
 
   console.log('\n[K] importing host files');
 
@@ -783,6 +992,46 @@ try {
   );
   check('starting from the header brings it back', runningAgain === true);
 
+  await goView(page, 'environments');
+  const toolRows = await page.evaluate(
+    () => document.querySelectorAll('[data-testid="base-image-tools"] tbody tr').length,
+  );
+  check('the environments page lists the base image tools', toolRows === 11, String(toolRows));
+  await page.click('[data-testid="env-new"]');
+  await page.waitForSelector('[data-testid="environment-dialog"]');
+  const dialogTitle = await page.evaluate(() => document.querySelector('#env-modal-title')?.textContent ?? '');
+  check('the create dialog opens', dialogTitle === '環境を作成', dialogTitle);
+  await page.fill('#env-dialog-name', 'UI env');
+  await page.fill('#env-dialog-vars', 'UI_MARKER=1');
+  await page.fill('#env-dialog-setup', 'echo ui');
+  await page.click('[data-testid="environment-save"]');
+  await page.waitForSelector('[data-testid="environment-dialog"]', { state: 'detached' });
+  snapshot = await ok(page, 'snapshot');
+  const uiEnv = snapshot.config.environments.find((environment) => environment.name === 'UI env');
+  check(
+    'the dialog created the environment',
+    uiEnv !== undefined && uiEnv.envText === 'UI_MARKER=1' && uiEnv.setupScript === 'echo ui',
+    JSON.stringify(uiEnv),
+  );
+  await page.click(`.env-row[data-environment-id="${uiEnv.id}"] [data-testid="env-edit"]`);
+  await page.waitForSelector('[data-testid="environment-dialog"]');
+  const editTitle = await page.evaluate(() => document.querySelector('#env-modal-title')?.textContent ?? '');
+  check('the edit dialog opens with the reference title', editTitle === '環境を編集', editTitle);
+  await shoot(page, 'deep-environment-dialog');
+  await page.fill('#env-dialog-vars', 'UI_MARKER=1\nBROKEN LINE');
+  await page.waitForTimeout(200);
+  const saveBlocked = await page.evaluate(() => document.querySelector('[data-testid="environment-save"]').disabled);
+  check('an invalid variables box blocks saving', saveBlocked === true);
+  await page.click('[data-testid="environment-archive"]');
+  await page.waitForSelector('[data-testid="environment-dialog"]', { state: 'detached' });
+  check(
+    'archive from the dialog archives it',
+    (await ok(page, 'snapshot')).config.environments.find((environment) => environment.id === uiEnv.id)?.archived ===
+      true,
+  );
+  await ok(page, 'environmentDelete', [uiEnv.id]);
+  await shoot(page, 'deep-environments');
+
   await ok(page, 'setLanguage', ['en']);
   await page.waitForTimeout(700);
   const englishNav = await page.evaluate(
@@ -835,6 +1084,9 @@ try {
 } finally {
   await session.close();
   rmSync(scratch, { recursive: true, force: true });
+  try {
+    execFileSync('docker', ['rmi', '-f', SCRATCH_TAG], { stdio: 'ignore' });
+  } catch {}
 }
 
 finish();

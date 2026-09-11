@@ -25,11 +25,12 @@ const api: Api = {
   secretGet: (profileId) => ipcRenderer.invoke(CHANNELS.secretGet, profileId),
   secretSet: (profileId, secret) => ipcRenderer.invoke(CHANNELS.secretSet, profileId, secret),
 
+  environmentUpsert: (environment) => ipcRenderer.invoke(CHANNELS.environmentUpsert, environment),
+  environmentArchive: (id, archived) => ipcRenderer.invoke(CHANNELS.environmentArchive, id, archived),
+  environmentDelete: (id) => ipcRenderer.invoke(CHANNELS.environmentDelete, id),
+
   dockerProbe: () => ipcRenderer.invoke(CHANNELS.dockerProbe),
   imageBuild: (request) => ipcRenderer.invoke(CHANNELS.imageBuild, request),
-  imageSourcesGet: () => ipcRenderer.invoke(CHANNELS.imageSourcesGet),
-  imageSourcesSave: (sources) => ipcRenderer.invoke(CHANNELS.imageSourcesSave, sources),
-  imageSourcesReset: () => ipcRenderer.invoke(CHANNELS.imageSourcesReset),
 
   extensionsSave: (extensions) => ipcRenderer.invoke(CHANNELS.extensionsSave, extensions),
   extensionsApply: () => ipcRenderer.invoke(CHANNELS.extensionsApply),

@@ -20,11 +20,30 @@ export interface Profile {
   readonly note: string;
 }
 
+/**
+ * What a task's container is created with, on top of the fixed base image:
+ * environment variables (kept as the .env text the user typed) and a bash
+ * script that runs once, when the container is created, before Claude Code.
+ */
+export interface Environment {
+  readonly id: string;
+  readonly name: string;
+  readonly envText: string;
+  readonly setupScript: string;
+  readonly archived: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export type EnvironmentDraft = Pick<Environment, 'id' | 'name' | 'envText' | 'setupScript'>;
+
 export interface AppConfig {
-  readonly version: 2;
+  readonly version: 3;
   readonly language: Language;
   readonly defaultProfileId: string | null;
   readonly profiles: readonly Profile[];
+  readonly defaultEnvironmentId: string | null;
+  readonly environments: readonly Environment[];
   readonly imageTag: string;
   readonly autoOnboarding: boolean;
   readonly autoApproveApiKey: boolean;
@@ -36,7 +55,13 @@ export interface AppConfig {
 export type ConfigPatch = Partial<
   Pick<
     AppConfig,
-    'defaultProfileId' | 'imageTag' | 'autoOnboarding' | 'autoApproveApiKey' | 'skipPermissions' | 'lastExportDir'
+    | 'defaultProfileId'
+    | 'defaultEnvironmentId'
+    | 'imageTag'
+    | 'autoOnboarding'
+    | 'autoApproveApiKey'
+    | 'skipPermissions'
+    | 'lastExportDir'
   >
 >;
 
@@ -48,6 +73,7 @@ export interface Task {
   readonly name: string;
   readonly note: string;
   readonly profileId: string | null;
+  readonly environmentId: string | null;
   readonly source: WorkspaceSource;
   readonly containerName: string;
   readonly volumeName: string;
@@ -59,6 +85,7 @@ export interface NewTaskInput {
   readonly name: string;
   readonly note: string;
   readonly profileId: string | null;
+  readonly environmentId: string | null;
   readonly source: WorkspaceSource;
 }
 
@@ -66,6 +93,7 @@ export interface TaskPatch {
   readonly name?: string;
   readonly note?: string;
   readonly profileId?: string | null;
+  readonly environmentId?: string | null;
 }
 
 export interface CreateTaskResult {
@@ -97,12 +125,18 @@ export interface ContainerState {
   readonly imageId: string | null;
   readonly startedAt: string | null;
   readonly homeVolume: string | null;
+  /** The environment the container was created with, read back from its labels. */
+  readonly environmentId: string | null;
+  readonly environmentRevision: string | null;
 }
 
 export interface TaskView {
   readonly task: Task;
   readonly container: ContainerState;
+  /** The container was created from an image that is no longer the current one. */
   readonly imageStale: boolean;
+  /** The task's environment changed (or was switched) after the container was created. */
+  readonly environmentStale: boolean;
 }
 
 export interface ExecResult {
@@ -122,7 +156,7 @@ export interface Snapshot {
 }
 
 export interface LogLine {
-  readonly stream: 'build' | 'app' | 'provision';
+  readonly stream: 'build' | 'app' | 'provision' | 'setup';
   readonly level: 'info' | 'warn' | 'error';
   readonly text: string;
   readonly at: number;
@@ -156,13 +190,6 @@ export interface OpenTerminalResult {
 }
 
 export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
-
-export interface ImageSources {
-  readonly dockerfile: string;
-  readonly setup: string;
-  readonly postCreate: string;
-  readonly dir: string;
-}
 
 export interface ExportSummary {
   readonly path: string;
