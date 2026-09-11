@@ -3,23 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
 
+import { check, finish, harnessFailure } from './helpers.mjs';
+
 const executablePath = process.argv[2] ?? '';
 if (executablePath === '' || !existsSync(executablePath)) {
   console.error(`packaged binary not found: ${JSON.stringify(executablePath)}`);
   process.exit(2);
-}
-
-let failures = 0;
-let step = 0;
-
-function check(label, condition, detail = '') {
-  step += 1;
-  const tag = String(step).padStart(2, '0');
-  if (condition) console.log(`  ✓ ${tag} ${label}${detail === '' ? '' : ` — ${detail}`}`);
-  else {
-    failures += 1;
-    console.error(`  ✗ ${tag} ${label} — ${detail === '' ? 'assertion failed' : detail}`);
-  }
 }
 
 // A scratch userData so the smoke test never reads or writes the real config.
@@ -68,15 +57,10 @@ try {
   const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
   check('window rendered', painted);
 } catch (error) {
-  step += 1;
-  failures += 1;
-  console.error(
-    `  ✗ ${String(step).padStart(2, '0')} harness — ${error instanceof Error ? error.message : String(error)}`,
-  );
+  harnessFailure(error);
 } finally {
   await app.close().catch(() => undefined);
   rmSync(userData, { recursive: true, force: true });
 }
 
-console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`} (${step} checks)\n`);
-process.exit(failures === 0 ? 0 : 1);
+finish();

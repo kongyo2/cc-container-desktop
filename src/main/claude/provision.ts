@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { isPlainObject } from '../../shared/json.ts';
 import { CONTAINER_HOME, CONTAINER_SCRIPT_DIR, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import type { AppConfig, ManagedNames, Profile, Task } from '../../shared/types.ts';
 import { getConfig, getSecret, profileFor } from '../config/store.ts';
@@ -10,7 +11,7 @@ import { describeError, logInfo, logWarn } from '../logger.ts';
 import { ensureImageSources } from '../docker/image.ts';
 import { planExtensions } from './extensions.ts';
 import { installSkills } from './skills.ts';
-import { postCreatePath } from '../paths.ts';
+import { brokenCopyPath, postCreatePath } from '../paths.ts';
 
 const CLAUDE_JSON = `${CONTAINER_HOME}/.claude.json`;
 const CLAUDE_DIR = `${CONTAINER_HOME}/.claude`;
@@ -192,11 +193,11 @@ async function readJsonFromContainer(ref: ContainerRef, path: string): Promise<R
     const raw = await readFileRaw(ref, path);
     if (raw.length === 0) return {};
     const parsed = JSON.parse(raw.toString('utf8')) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (!isPlainObject(parsed)) {
       await keepAside(ref, path);
       return {};
     }
-    return parsed as Record<string, unknown>;
+    return parsed;
   } catch (error) {
     await keepAside(ref, path);
     logWarn(
@@ -208,7 +209,7 @@ async function readJsonFromContainer(ref: ContainerRef, path: string): Promise<R
 }
 
 async function keepAside(ref: ContainerRef, path: string): Promise<void> {
-  const backup = `${path}.broken-${Date.now().toString(36)}`;
+  const backup = brokenCopyPath(path);
   const result = await execCapture(ref, ['cp', '-p', path, backup], { workdir: '/' });
   if (result.exitCode === 0) {
     logWarn('provision', `退避しました / kept a copy of the unreadable file at ${backup}`);
@@ -250,7 +251,6 @@ export interface ProvisionOutcome {
   readonly managed: ManagedNames;
 }
 
-/** Writes the task's profile, onboarding flags, extensions and tmux settings into its container. */
 export async function provisionTask(task: Task): Promise<ProvisionOutcome> {
   const config = getConfig();
   const ref = refOf(task);

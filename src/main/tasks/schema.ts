@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isPlainObject } from '../../shared/json.ts';
 import { TASK_ID_PATTERN } from '../../shared/tasks.ts';
 import type { Task } from '../../shared/types.ts';
 import { keepValid } from '../config/schema.ts';
@@ -39,11 +40,11 @@ export interface TaskFileRead {
 }
 
 export function readTaskFile(raw: unknown): TaskFileRead {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+  if (!isPlainObject(raw)) {
     return { tasks: [], dropped: 0, reset: raw !== null };
   }
   const report = { dropped: 0 };
-  const source: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  const source: Record<string, unknown> = { ...raw };
   source['tasks'] = keepValid(taskSchema, source['tasks'], report);
   const parsed = taskFileSchema.safeParse(source);
   if (!parsed.success) return { tasks: [], dropped: report.dropped, reset: true };

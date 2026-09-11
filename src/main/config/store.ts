@@ -3,9 +3,11 @@ import { join } from 'node:path';
 
 import { safeStorage } from 'electron';
 
+import { isPlainObject } from '../../shared/json.ts';
+import { profileById } from '../../shared/profiles.ts';
 import type { AppConfig, ConfigPatch, Profile } from '../../shared/types.ts';
 import { describeError, logError, logWarn } from '../logger.ts';
-import { userDataDir } from '../paths.ts';
+import { brokenCopyPath, userDataDir } from '../paths.ts';
 import { defaultConfig, readConfig } from './schema.ts';
 
 type SecretEncoding = 'safeStorage' | 'plain';
@@ -49,7 +51,7 @@ export function readJson(path: string): unknown {
 
 function keepAside(path: string): string | null {
   if (!existsSync(path)) return null;
-  const backup = `${path}.broken-${Date.now().toString(36)}`;
+  const backup = brokenCopyPath(path);
   try {
     copyFileSync(path, backup);
     return backup;
@@ -62,6 +64,13 @@ function keepAside(path: string): string | null {
 export function keptCopyNote(path: string): string {
   const backup = keepAside(path);
   return backup === null ? '' : ` — 退避先 / kept a copy at ${backup}`;
+}
+
+export function droppedEntriesNote(count: number, subjectJa: string, subjectEn: string, path: string): string {
+  return (
+    `${subjectJa}の ${count} 件を読み飛ばしました / dropped ${count} unreadable ${subjectEn} entr` +
+    `${count === 1 ? 'y' : 'ies'}${keptCopyNote(path)}`
+  );
 }
 
 export function getConfig(): AppConfig {
@@ -80,11 +89,7 @@ export function getConfig(): AppConfig {
         keptCopyNote(configPath()),
     );
   } else if (result.dropped > 0) {
-    logWarn(
-      'app',
-      `設定の ${result.dropped} 件を読み飛ばしました / dropped ${result.dropped} unreadable config entr` +
-        `${result.dropped === 1 ? 'y' : 'ies'}${keptCopyNote(configPath())}`,
-    );
+    logWarn('app', droppedEntriesNote(result.dropped, '設定', 'config', configPath()));
   }
   cache = result.config;
   return cache;
@@ -111,8 +116,7 @@ export function patchConfig(patch: ConfigPatch & Partial<Pick<AppConfig, 'langua
 }
 
 export function profileFor(id: string | null): Profile | null {
-  if (id === null) return null;
-  return getConfig().profiles.find((profile) => profile.id === id) ?? null;
+  return profileById(getConfig(), id);
 }
 
 export function rememberExportDir(directory: string): AppConfig {
@@ -144,14 +148,13 @@ export function secretsAreEncrypted(): boolean {
 }
 
 function parseSecretFile(raw: unknown): SecretFile | null {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
-  const candidate = raw as { encrypted?: unknown; entries?: unknown };
-  const source = candidate.entries;
-  if (typeof source !== 'object' || source === null || Array.isArray(source)) return null;
+  if (!isPlainObject(raw)) return null;
+  const source = raw['entries'];
+  if (!isPlainObject(source)) return null;
 
-  const legacyEncoding: SecretEncoding = candidate.encrypted === true ? 'safeStorage' : 'plain';
+  const legacyEncoding: SecretEncoding = raw['encrypted'] === true ? 'safeStorage' : 'plain';
   const entries: Record<string, SecretEntry> = {};
-  for (const [id, stored] of Object.entries(source as Record<string, unknown>)) {
+  for (const [id, stored] of Object.entries(source)) {
     if (typeof stored === 'string') {
       if (stored !== '') entries[id] = { enc: legacyEncoding, value: stored };
       continue;

@@ -21,7 +21,7 @@ import { TerminalView } from '../components/TerminalView.tsx';
 import { Check, Pill, formatTime } from '../components/ui.tsx';
 import type { Tone } from '../components/ui.tsx';
 import { useLanguage, useT } from '../i18n.ts';
-import { selectedTaskView, useApp } from '../store.ts';
+import { selectedTaskView, tabsOfTask, useApp } from '../store.ts';
 
 function statusOf(view: TaskView): {
   tone: Tone;
@@ -29,7 +29,6 @@ function statusOf(view: TaskView): {
 } {
   if (view.container.running) return { tone: 'ok', label: 'taskStatusRunning' };
   if (view.container.exists) return { tone: 'warn', label: 'taskStatusStopped' };
-  // An inspect that failed is not a missing container: Docker could not answer.
   if (view.container.status === 'error') return { tone: 'err', label: 'taskStatusError' };
   return { tone: 'idle', label: 'taskStatusMissing' };
 }
@@ -288,7 +287,7 @@ export function TaskWorkspace(): JSX.Element {
 
   const taskId = selected?.task.id ?? null;
   const running = selected?.container.running === true;
-  const ownTabs = tabs.filter((tab) => tab.taskId === taskId);
+  const ownTabs = tabsOfTask(tabs, taskId);
   const activeKey = taskId === null ? undefined : activeTab[taskId];
 
   const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
@@ -346,7 +345,6 @@ export function TaskWorkspace(): JSX.Element {
       {selected === null ? (
         <p className="empty">{t('taskNoneSelected')}</p>
       ) : (
-        // Keyed by task so a pending delete confirmation never carries over to another task.
         <TaskHeader key={selected.task.id} view={selected} />
       )}
 

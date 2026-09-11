@@ -120,7 +120,6 @@ export const CONTAINER_GID = 1000;
 
 export const DEFAULT_IMAGE_TAG = 'cc-container-desktop:latest';
 
-/** The one tmux session each task's container runs Claude Code in. */
 export const CLAUDE_TMUX_SESSION = 'cc';
 
 export const MANAGED_LABEL = 'com.cc-container-desktop.managed';

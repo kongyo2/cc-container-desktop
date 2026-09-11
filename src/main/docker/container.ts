@@ -11,11 +11,10 @@ import {
 } from '../../shared/presets.ts';
 import type { ContainerState, ExecResult, Task } from '../../shared/types.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
-import { docker, inspectImage, isNotFound } from './engine.ts';
+import { docker, isNotFound, requireImageBuilt } from './engine.ts';
 
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
-/** Everything the Docker layer needs to know about a task; resolved once per operation so a later edit cannot redirect it. */
 export interface ContainerRef {
   readonly taskId: string;
   readonly containerName: string;
@@ -62,13 +61,25 @@ export const MISSING_CONTAINER: ContainerState = {
   homeVolume: null,
 };
 
-async function inspectRaw(ref: ContainerRef): Promise<InspectResponse | null> {
+async function nullIfNotFound<T>(read: () => Promise<T>): Promise<T | null> {
   try {
-    return (await containerHandle(ref).inspect()) as InspectResponse;
+    return await read();
   } catch (error) {
     if (isNotFound(error)) return null;
     throw error;
   }
+}
+
+async function ignoringNotFound(remove: () => Promise<void>): Promise<void> {
+  try {
+    await remove();
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+}
+
+async function inspectRaw(ref: ContainerRef): Promise<InspectResponse | null> {
+  return nullIfNotFound(async () => (await containerHandle(ref).inspect()) as InspectResponse);
 }
 
 function stateOf(raw: InspectResponse): ContainerState {
@@ -98,50 +109,49 @@ function ownedBy(labels: unknown, taskId: string): boolean {
   return map[MANAGED_LABEL] === 'true' && map[TASK_LABEL] === taskId;
 }
 
-function foreignContainerError(ref: ContainerRef): Error {
+function ownerLabels(taskId: string): Record<string, string> {
+  return { [MANAGED_LABEL]: 'true', [TASK_LABEL]: taskId };
+}
+
+function foreignError(name: string, noun: string): Error {
   return new Error(
-    `${ref.containerName} はこのタスクのために作られたコンテナではないので触りません / ${ref.containerName} exists but was not created for this task; it was left alone`,
+    `${name} はこのタスクのために作られた${noun}ではないので触りません / ${name} exists but was not created for this task; it was left alone`,
   );
+}
+
+function foreignContainerError(ref: ContainerRef): Error {
+  return foreignError(ref.containerName, 'コンテナ');
 }
 
 function foreignVolumeError(name: string): Error {
-  return new Error(
-    `${name} はこのタスクのために作られたボリュームではないので触りません / ${name} exists but was not created for this task; it was left alone`,
-  );
+  return foreignError(name, 'ボリューム');
 }
 
 async function inspectVolume(name: string): Promise<{ readonly labels: unknown } | null> {
-  try {
+  return nullIfNotFound(async () => {
     const raw = (await docker().getVolume(name).inspect()) as { Labels?: unknown };
     return { labels: raw.Labels ?? {} };
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw error;
-  }
+  });
 }
 
 export async function volumeExists(name: string): Promise<boolean> {
   return (await inspectVolume(name)) !== null;
 }
 
-async function ensureVolume(ref: ContainerRef): Promise<void> {
+async function ownedVolumeExists(ref: ContainerRef): Promise<boolean> {
   const found = await inspectVolume(ref.volumeName);
-  if (found !== null) {
-    if (!ownedBy(found.labels, ref.taskId)) throw foreignVolumeError(ref.volumeName);
-    return;
-  }
-  logInfo('app', `ボリュームを作成します / creating volume: ${ref.volumeName}`);
-  await docker().createVolume({
-    Name: ref.volumeName,
-    Labels: { [MANAGED_LABEL]: 'true', [TASK_LABEL]: ref.taskId },
-  });
-  // Volume creation is idempotent: a same-name volume that appeared between
-  // the inspect and the create comes back untouched, labels and all.
-  const created = await inspectVolume(ref.volumeName);
-  if (created === null || !ownedBy(created.labels, ref.taskId)) throw foreignVolumeError(ref.volumeName);
+  if (found === null) return false;
+  if (!ownedBy(found.labels, ref.taskId)) throw foreignVolumeError(ref.volumeName);
+  return true;
 }
 
-/** Resolves the container only when it is ours; a same-name container from elsewhere is an error, a missing one is null. */
+async function ensureVolume(ref: ContainerRef): Promise<void> {
+  if (await ownedVolumeExists(ref)) return;
+  logInfo('app', `ボリュームを作成します / creating volume: ${ref.volumeName}`);
+  await docker().createVolume({ Name: ref.volumeName, Labels: ownerLabels(ref.taskId) });
+  if (!(await ownedVolumeExists(ref))) throw foreignVolumeError(ref.volumeName);
+}
+
 async function ownedRaw(ref: ContainerRef): Promise<InspectResponse | null> {
   const raw = await inspectRaw(ref);
   if (raw === null) return null;
@@ -150,11 +160,7 @@ async function ownedRaw(ref: ContainerRef): Promise<InspectResponse | null> {
 }
 
 async function createContainer(ref: ContainerRef, imageTag: string): Promise<void> {
-  if (!(await inspectImage(imageTag)).exists) {
-    throw new Error(
-      `${imageTag} がまだビルドされていません。「イメージ」でビルドしてください / ${imageTag} has not been built yet — build it on the Image page`,
-    );
-  }
+  await requireImageBuilt(imageTag);
   await ensureVolume(ref);
   logInfo('app', `コンテナを作成します / creating container: ${ref.containerName}`);
   await docker().createContainer({
@@ -166,7 +172,7 @@ async function createContainer(ref: ContainerRef, imageTag: string): Promise<voi
     Tty: false,
     OpenStdin: false,
     Env: ['TERM=xterm-256color', 'LANG=C.UTF-8'],
-    Labels: { [MANAGED_LABEL]: 'true', [TASK_LABEL]: ref.taskId },
+    Labels: ownerLabels(ref.taskId),
     Cmd: ['sleep', 'infinity'],
     HostConfig: {
       Binds: [`${ref.volumeName}:${CONTAINER_HOME}`],
@@ -176,7 +182,6 @@ async function createContainer(ref: ContainerRef, imageTag: string): Promise<voi
   });
 }
 
-/** Creates the container when it is missing; never starts it. */
 export async function ensureContainer(ref: ContainerRef, imageTag: string): Promise<ContainerState> {
   const raw = await ownedRaw(ref);
   if (raw !== null) return stateOf(raw);
@@ -205,25 +210,17 @@ export async function stopContainer(ref: ContainerRef): Promise<ContainerState> 
 export async function removeContainer(ref: ContainerRef, removeVolume: boolean): Promise<ContainerState> {
   const raw = await ownedRaw(ref);
   if (raw !== null) {
-    try {
+    await ignoringNotFound(async () => {
       await containerHandle(ref).remove({ force: true, v: false });
       logInfo('app', `コンテナを削除しました / container removed: ${ref.containerName}`);
-    } catch (error) {
-      if (!isNotFound(error)) throw error;
-    }
+    });
   }
 
-  if (removeVolume) {
-    const found = await inspectVolume(ref.volumeName);
-    if (found !== null) {
-      if (!ownedBy(found.labels, ref.taskId)) throw foreignVolumeError(ref.volumeName);
-      try {
-        await docker().getVolume(ref.volumeName).remove();
-        logInfo('app', `ボリュームを削除しました / volume removed: ${ref.volumeName}`);
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-      }
-    }
+  if (removeVolume && (await ownedVolumeExists(ref))) {
+    await ignoringNotFound(async () => {
+      await docker().getVolume(ref.volumeName).remove();
+      logInfo('app', `ボリュームを削除しました / volume removed: ${ref.volumeName}`);
+    });
   }
   return inspectContainer(ref);
 }
@@ -234,7 +231,6 @@ export interface ExecOptions {
   readonly env?: readonly string[];
   readonly stdin?: string;
   readonly container?: Container;
-  /** Called per line as output arrives, for long-running commands whose progress should reach the log. */
   readonly onLine?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
@@ -243,7 +239,6 @@ interface LineSplitter {
   readonly flush: () => void;
 }
 
-/** Turns a byte stream into lines; the decoder carries a UTF-8 sequence split across chunks. */
 function lineSplitter(emit: (line: string) => void): LineSplitter {
   const decoder = new StringDecoder('utf8');
   let pending = '';

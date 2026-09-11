@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Task } from '../../shared/types.ts';
-import { keptCopyNote, readJson, writeAtomic } from '../config/store.ts';
+import { droppedEntriesNote, keptCopyNote, readJson, writeAtomic } from '../config/store.ts';
 import { logError, logWarn } from '../logger.ts';
 import { userDataDir } from '../paths.ts';
 import { readTaskFile } from './schema.ts';
@@ -29,11 +29,7 @@ export function listTasks(): readonly Task[] {
   if (result.reset) {
     logError('app', `タスク一覧を読めませんでした / the task list could not be read${keptCopyNote(path)}`);
   } else if (result.dropped > 0) {
-    logWarn(
-      'app',
-      `タスク一覧の ${result.dropped} 件を読み飛ばしました / dropped ${result.dropped} unreadable task entr` +
-        `${result.dropped === 1 ? 'y' : 'ies'}${keptCopyNote(path)}`,
-    );
+    logWarn('app', droppedEntriesNote(result.dropped, 'タスク一覧', 'task', path));
   }
   cache = result.tasks;
   return cache;

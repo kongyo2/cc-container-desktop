@@ -62,22 +62,21 @@ function dockerLabelsOf(containerName) {
   return JSON.parse(raw);
 }
 
-function dockerVolumeExists(name) {
+function dockerInspectSucceeds(argv) {
   try {
-    execFileSync('docker', ['volume', 'inspect', name], { stdio: 'ignore' });
+    execFileSync('docker', argv, { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
 }
 
+function dockerVolumeExists(name) {
+  return dockerInspectSucceeds(['volume', 'inspect', name]);
+}
+
 function dockerContainerExists(name) {
-  try {
-    execFileSync('docker', ['inspect', '--type', 'container', name], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return dockerInspectSucceeds(['inspect', '--type', 'container', name]);
 }
 
 try {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { isPlainObject } from '../../shared/json.ts';
 import { DEFAULT_IMAGE_TAG, ENDPOINT_PRESETS } from '../../shared/presets.ts';
 import type { AppConfig, ConfigPatch, Extensions, ManagedNames, Profile } from '../../shared/types.ts';
 
@@ -80,7 +81,6 @@ const appConfigSchema = z.object({
   extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }),
 });
 
-/** What the renderer may change through configSave: everything else has its own channel. */
 const configPatchSchema = z.strictObject({
   defaultProfileId: z.string().nullable().optional(),
   imageTag: z.string().trim().min(1).optional(),
@@ -165,12 +165,10 @@ export function keepValid(schema: Checker, raw: unknown, report: { dropped: numb
 }
 
 function salvage(raw: unknown): { source: unknown; dropped: number } {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { source: raw, dropped: 0 };
+  if (!isPlainObject(raw)) return { source: raw, dropped: 0 };
   const report = { dropped: 0 };
-  const source: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  const source: Record<string, unknown> = { ...raw };
 
-  // A v1 config named its selected profile differently; keep that choice as the
-  // default for new tasks rather than silently falling back to the first profile.
   if (source['defaultProfileId'] === undefined && typeof source['activeProfileId'] === 'string') {
     source['defaultProfileId'] = source['activeProfileId'];
   }
@@ -178,8 +176,8 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
   source['profiles'] = keepValid(profileSchema, source['profiles'], report);
 
   const extensions = source['extensions'];
-  if (typeof extensions === 'object' && extensions !== null && !Array.isArray(extensions)) {
-    const next: Record<string, unknown> = { ...(extensions as Record<string, unknown>) };
+  if (isPlainObject(extensions)) {
+    const next: Record<string, unknown> = { ...extensions };
     next['mcpServers'] = keepValid(mcpServerSchema, next['mcpServers'], report);
     next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
     next['plugins'] = keepValid(pluginSchema, next['plugins'], report);

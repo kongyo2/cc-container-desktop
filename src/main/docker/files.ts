@@ -112,7 +112,6 @@ function escapes(root: string, name: string, header: { type?: string; linkname?:
   return !isInside(root, target);
 }
 
-/** Copies the workspace out of the container into `<destinationRoot>/<folderBase>_<timestamp>`. Works on a stopped container. */
 export async function exportWorkspace(
   ref: ContainerRef,
   destinationRoot: string,
@@ -189,8 +188,6 @@ function importName(source: string): string {
 
 async function importDirectory(ref: ContainerRef, source: string, name: string): Promise<number> {
   let entries = 0;
-  // tar-fs emits the folder itself as "." first, then everything under it
-  // relative to the folder; both get re-rooted under the folder's base name.
   const pack = tarFs.pack(source, {
     map: (header) => {
       entries += 1;
@@ -212,7 +209,6 @@ async function importFile(ref: ContainerRef, source: string, name: string, size:
     await pipeline(createReadStream(source), entry);
     pack.finalize();
   } catch (error) {
-    // A read that dies half-way must not leave the upload waiting forever.
     pack.destroy(error instanceof Error ? error : new Error(String(error)));
     upload.catch(() => undefined);
     throw error;
@@ -220,12 +216,6 @@ async function importFile(ref: ContainerRef, source: string, name: string, size:
   await upload;
 }
 
-/**
- * Copies host files and folders into the task's workspace, each under its own
- * base name. A path that is itself a symbolic link is followed, because a host
- * link target means nothing inside the container; links found inside an
- * imported folder are kept as links.
- */
 export async function importIntoWorkspace(ref: ContainerRef, paths: readonly string[]): Promise<ImportSummary> {
   const sources: string[] = [];
   let entries = 0;

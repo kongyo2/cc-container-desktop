@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import { join, resolve } from 'node:path';
 
+import { isHttpUrl, parseUrl } from '../shared/url.ts';
 import { getConfig } from './config/store.ts';
 import { closeAllTerminals, setTerminalTarget } from './docker/terminal.ts';
 import { ensureImageSources } from './docker/image.ts';
@@ -12,21 +13,14 @@ const isDev = !app.isPackaged;
 
 const QUIT_CLEANUP_MS = 3000;
 
-// A test run points this at a scratch folder so it never touches the real
-// config, secrets or task list. It has to land before the single-instance
-// lock, which lives under userData too.
 const userDataOverride = process.env['CC_USER_DATA_DIR'];
 if (userDataOverride !== undefined && userDataOverride.trim() !== '') {
   app.setPath('userData', resolve(userDataOverride));
 }
 
 function isOpenable(url: string): boolean {
-  try {
-    const protocol = new URL(url).protocol;
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    return false;
-  }
+  const parsed = parseUrl(url);
+  return parsed !== null && isHttpUrl(parsed);
 }
 
 function buildMenu(): void {
