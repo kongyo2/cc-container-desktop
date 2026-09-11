@@ -8,7 +8,7 @@ An Electron app for Windows 11 that runs Claude Code inside Docker. Work is orga
 
 1. Start Docker Desktop and build the base image on the Environments page (once; it installs every toolchain, so it takes tens of minutes).
 2. Set up an endpoint and API key on the Profiles page.
-3. Optionally create environments on the Environments page: a name, variables in `.env` form, and a bash setup script that runs when a session starts. A fresh install comes with one ("環境1").
+3. Optionally create environments on the Environments page: a name, variables in `.env` form, and a bash setup script that runs once, right after a task's container is created. A fresh install comes with one ("環境1").
 4. Press "+" at the top of the sidebar to create a task: pick an environment, then start from an empty workspace or a public git repository.
 5. "Claude Code" on the task page drops you into a tmux session inside the container. Closing the tab or the app leaves Claude Code running; the same button reattaches.
 6. Drop files or folders onto the task page (or use the import buttons) to copy them into the workspace, and "Export" to write the workspace out to a host folder.
@@ -39,7 +39,8 @@ Node.js versions are installed at `/opt/node20`, `/opt/node21`, and `/opt/node22
 
 An environment is a name, variables in `.env` form, and a setup script.
 
-- The variables are set when the task's container is created and reach every process inside it (shells, Claude Code, its tools).
+- The variables are set when the task's container is created and reach every process inside it (shells, Claude Code, its tools). `HOME`, `USER`, `TERM`, `COLORTERM` and `LANG` are set by the app and cannot be given here.
+- Variables are stored in plain text in `config.json` and are visible through `docker inspect`. Keep API keys and other secrets out of them; a profile's API key field (the OS encrypted store) is the place for those. A "session" in the dialog means a task's container.
 - The setup script runs once, right after the container is created — after the clone, before Claude Code is opened — in the workspace, as the `claude` user. Stop/start does not rerun it; "Recreate" does. A failed script gets another attempt on the next start.
 - Changes to an environment apply to new containers. Tasks that already have one show "environment updated"; "Recreate" applies the change while keeping the home volume.
 - Environments can be archived. An archived environment cannot be picked for new tasks, but tasks that have it keep working. Only an environment no task uses can be deleted.

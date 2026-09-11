@@ -229,6 +229,18 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
   const report = { dropped: 0 };
   const source: Record<string, unknown> = { ...raw };
 
+  if (source['defaultProfileId'] === undefined && typeof source['activeProfileId'] === 'string') {
+    source['defaultProfileId'] = source['activeProfileId'];
+  }
+
+  // A config written before environments existed gets the starter one a fresh
+  // install has, so the next task can be created without a detour.
+  if (source['environments'] === undefined) {
+    const starter = starterEnvironment();
+    source['environments'] = [starter];
+    if (source['defaultEnvironmentId'] === undefined) source['defaultEnvironmentId'] = starter.id;
+  }
+
   source['profiles'] = keepValid(profileSchema, source['profiles'], report);
   source['environments'] = keepValid(environmentSchema, source['environments'], report);
 

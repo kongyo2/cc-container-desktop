@@ -1,4 +1,4 @@
-import { normalizeScriptText } from '../../shared/environments.ts';
+import { environmentEnvEntries, normalizeScriptText } from '../../shared/environments.ts';
 import {
   CONTAINER_HOME,
   CONTAINER_SETUP_MARKER,
@@ -16,6 +16,27 @@ import { taskEnvironment } from '../tasks/environment.ts';
 const SETUP_TIMEOUT_SECONDS = 1800;
 
 const ANSI = new RegExp(`${String.fromCodePoint(27)}\\[[0-?]*[ -/]*[@-~]`, 'gu');
+
+const SENSITIVE_NAME = /key|token|secret|password|passwd|credential/iu;
+
+/**
+ * The values of the environment's own credential-looking variables, so a
+ * script that echoes them (or runs under `set -x`) does not put them in the
+ * log. Tiny values are left alone: masking "1" would garble every line.
+ */
+function sensitiveValues(entries: readonly string[]): readonly string[] {
+  return entries
+    .map((entry) => {
+      const separator = entry.indexOf('=');
+      return { name: entry.slice(0, separator), value: entry.slice(separator + 1) };
+    })
+    .filter(({ name, value }) => SENSITIVE_NAME.test(name) && value.length >= 4)
+    .map(({ value }) => value);
+}
+
+function maskValues(text: string, values: readonly string[]): string {
+  return values.reduce((masked, value) => masked.split(value).join('***'), text);
+}
 
 export interface SetupOutcome {
   /** False when the container had already run its setup script (the marker exists). */
@@ -61,6 +82,7 @@ export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
 
   const ref = refOf(task);
   const label = environment?.name ?? '';
+  const secrets = sensitiveValues(environmentEnvEntries(environment));
   await writeFileText(ref, CONTAINER_SETUP_SCRIPT, `${script}\n`, 0o755);
   logInfo('setup', `[${task.name}] セットアップスクリプトを実行します / running the setup script of "${label}"`);
 
@@ -71,7 +93,7 @@ export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
       workdir: CONTAINER_WORKSPACE,
       env: [`HOME=${CONTAINER_HOME}`, `USER=${CONTAINER_USER}`],
       onLine: (line, stream) => {
-        const text = redactSecrets(line.replaceAll(ANSI, '')).trimEnd();
+        const text = redactSecrets(maskValues(line.replaceAll(ANSI, ''), secrets)).trimEnd();
         if (text === '') return;
         if (stream === 'stderr' && /^(fatal|error)\b/iu.test(text)) logWarn('setup', text);
         else logInfo('setup', text);

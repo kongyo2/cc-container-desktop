@@ -134,6 +134,12 @@ try {
     { id: 'e2e-env', name: 'x', envText: '', setupScript: '', archived: true },
   ]);
   check('an environment draft with extra keys is refused', extraEnvKey.ok === false);
+  const reservedName = await call(page, 'environmentUpsert', [
+    { id: 'e2e-env', name: 'x', envText: 'HOME=/elsewhere', setupScript: '' },
+  ]);
+  check('a variable the app sets itself is refused', reservedName.ok === false, reservedName.error ?? '');
+  const archiveNoFlag = await call(page, 'environmentArchive', [defaultEnvironmentId, 'true']);
+  check('a non-boolean archive state is refused', archiveNoFlag.ok === false);
   const unknownEnvironment = await call(page, 'taskCreate', [
     { name: 'x', note: '', profileId: null, environmentId: 'no-such-env', source: { kind: 'empty' } },
   ]);
@@ -731,9 +737,6 @@ try {
     'recreating again lands on the real image',
     taskById(await ok(page, 'snapshot'), alpha.id)?.imageStale === false,
   );
-  try {
-    execFileSync('docker', ['rmi', '-f', SCRATCH_TAG], { stdio: 'ignore' });
-  } catch {}
 
   // With every layer cached this only proves the bundled context reaches the
   // Engine and its progress reaches the log pane. Skipped where the image was
@@ -1081,6 +1084,9 @@ try {
 } finally {
   await session.close();
   rmSync(scratch, { recursive: true, force: true });
+  try {
+    execFileSync('docker', ['rmi', '-f', SCRATCH_TAG], { stdio: 'ignore' });
+  } catch {}
 }
 
 finish();

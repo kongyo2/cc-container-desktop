@@ -33,10 +33,23 @@ export function environmentNameProblem(name: string, language: Language): string
   return null;
 }
 
+/**
+ * Names the app itself sets on every process it starts inside a container
+ * (terminals, the setup script). A value for one of these would be silently
+ * overridden, so the dialog refuses them instead.
+ */
+export const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG'];
+
 /** Everything wrong with the variables box, in the order it should be shown. */
 export function environmentEnvProblems(envText: string): readonly string[] {
   const parsed = parseEnvText(envText);
-  return [...parsed.problems, ...envNameProblems(parsed.env)];
+  const reserved = Object.keys(parsed.env)
+    .filter((name) => RESERVED_ENV_NAMES.includes(name))
+    .map(
+      (name) =>
+        `${name}: アプリがコンテナ内の各プロセスに設定する変数なので、環境では上書きできません / set by the app on every process it starts, so an environment cannot override it`,
+    );
+  return [...parsed.problems, ...envNameProblems(parsed.env), ...reserved];
 }
 
 export function normalizeScriptText(text: string): string {

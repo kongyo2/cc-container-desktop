@@ -100,6 +100,16 @@ async function applyProvision(task: Task): Promise<string> {
 /** Runs the setup script when this container has not had it yet; a failure is reported, not thrown. */
 async function applySetup(task: Task): Promise<string | null> {
   try {
+    // A container created with other variables (or before environments
+    // existed) must not run the current environment's script and then claim
+    // it is set up; "Recreate" is the way to apply the environment there.
+    if (environmentStaleFor(task, await inspectContainer(refOf(task)))) {
+      logWarn(
+        'setup',
+        `[${task.name}] コンテナが今の環境とは違う設定で作られているので、セットアップスクリプトは実行しません。「作り直す」で反映してください / the container was created with a different environment; its setup script is skipped until the task is recreated`,
+      );
+      return null;
+    }
     const outcome = await runSetupIfPending(task);
     return outcome.exitCode === null || outcome.exitCode === 0 ? null : setupFailureMessage(outcome.exitCode);
   } catch (error) {
@@ -150,9 +160,14 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
   const name = normalizeTaskName(input.name);
   if (name === '') throw new Error('タスク名が空です / the task name is empty');
   const source = checkedSource(input.source);
+  checkedProfileId(input.profileId);
+  checkedEnvironmentId(input.environmentId);
+  await requireImage();
+  // Checked again after the only await: the profile and environment handlers
+  // take no task lock, so either could have been removed meanwhile. From here
+  // to addTask() nothing yields.
   const profileId = checkedProfileId(input.profileId);
   const environmentId = checkedEnvironmentId(input.environmentId);
-  await requireImage();
 
   const id = newTaskId();
   const task: Task = {

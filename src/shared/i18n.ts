@@ -127,7 +127,7 @@ const ja = {
 
   envListTitle: '環境',
   envListHint:
-    '環境は、タスクのコンテナを作るときに適用される環境変数とセットアップスクリプトの組です。タスクを作るときに 1 つ選びます。環境への変更は新しいコンテナに適用され、すでにあるタスクには「環境更新あり」が出ます (「作り直す」で反映)。',
+    '環境は、タスクのコンテナを作るときに適用される環境変数とセットアップスクリプトの組です。タスクを作るときに 1 つ選びます。環境への変更は新しいコンテナに適用され、すでにあるタスクには「環境更新あり」が出ます (「作り直す」で反映)。環境変数は config.json に平文で保存され docker inspect でも見えるので、API キーはプロファイルの API キー欄に入れてください。',
   envNew: '環境を作成',
   envEdit: '編集',
   envDefault: '既定',
@@ -406,7 +406,7 @@ const en: Record<MessageKey, string> = {
 
   envListTitle: 'Environments',
   envListHint:
-    'An environment is a set of variables and a setup script applied when a task\'s container is created; every task picks one. Changes apply to new containers, and existing tasks show "environment updated" until they are recreated.',
+    'An environment is a set of variables and a setup script applied when a task\'s container is created; every task picks one. Changes apply to new containers, and existing tasks show "environment updated" until they are recreated. Variables are stored in plain text in config.json and are visible through docker inspect, so keep API keys in a profile\'s API key field instead.',
   envNew: 'Create environment',
   envEdit: 'Edit',
   envDefault: 'default',

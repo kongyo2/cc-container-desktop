@@ -161,6 +161,11 @@ function requireEnvironmentId(id: unknown): string {
   return id;
 }
 
+function requireArchivedFlag(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new Error('アーカイブ状態がありません / missing archived state');
+  return value;
+}
+
 export function registerIpc(version: string): void {
   appVersion = version;
 
@@ -210,7 +215,7 @@ export function registerIpc(version: string): void {
 
   handleConfigEdit<[unknown]>(CHANNELS.environmentUpsert, (draft) => upsertEnvironment(parseEnvironmentDraft(draft)));
   handleConfigEdit<[unknown, unknown]>(CHANNELS.environmentArchive, (id, archived) =>
-    setEnvironmentArchived(requireEnvironmentId(id), archived === true),
+    setEnvironmentArchived(requireEnvironmentId(id), requireArchivedFlag(archived)),
   );
   handleConfigEdit<[unknown]>(CHANNELS.environmentDelete, (id) => deleteEnvironment(requireEnvironmentId(id)));
 

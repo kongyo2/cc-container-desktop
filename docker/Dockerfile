@@ -100,15 +100,21 @@ RUN set -eu; \
       arm64) node_arch=arm64 ;; \
       *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
+    mkdir -p /tmp/node; \
     for major in $NODE_MAJORS; do \
       dist="https://nodejs.org/dist/latest-v${major}.x"; \
       sums="$(curl -fsSL --retry 5 "${dist}/SHASUMS256.txt")"; \
-      file="$(grep -o "node-v[0-9.]*-linux-${node_arch}[.]tar[.]xz" <<< "$sums" | head -n 1)"; \
-      test -n "$file"; \
+      entry="$(grep -E " node-v[0-9.]+-linux-${node_arch}[.]tar[.]xz$" <<< "$sums" | head -n 1)"; \
+      test -n "$entry"; \
+      file="${entry##* }"; \
+      curl -fsSL --retry 5 -o "/tmp/node/${file}" "${dist}/${file}"; \
+      (cd /tmp/node && sha256sum -c --strict <<< "$entry"); \
       mkdir -p "/opt/node${major}"; \
-      curl -fsSL --retry 5 "${dist}/${file}" | tar -xJ -C "/opt/node${major}" --strip-components=1; \
+      tar -xJ -C "/opt/node${major}" --strip-components=1 -f "/tmp/node/${file}"; \
+      rm -f "/tmp/node/${file}"; \
       "/opt/node${major}/bin/node" --version; \
-    done
+    done; \
+    rmdir /tmp/node
 
 ENV PATH="/opt/node${DEFAULT_NODE}/bin:${PATH}"
 # One global prefix shared by every Node version, so `npm install -g` lands on
@@ -194,10 +200,10 @@ RUN pip3 install --no-cache-dir --break-system-packages uv black mypy pytest ruf
 ARG CLAUDE_CODE_VERSION=latest
 ARG CLAUDE_CODE_REFRESH=0
 RUN echo "claude-code refresh token: ${CLAUDE_CODE_REFRESH}" \
-    && npm install -g yarn pnpm eslint prettier "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-    && (npm install -g chromedriver || echo "warning: chromedriver could not be installed; continuing without it") \
+    && npm install -g yarn pnpm eslint prettier chromedriver "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && npm cache clean --force \
-    && test -x /usr/local/bin/claude
+    && test -x /usr/local/bin/claude \
+    && chromedriver --version
 
 # --- The claude user (uid 1000) -----------------------------------------------
 # Ubuntu 24.04 ships an `ubuntu` account on uid 1000. Reclaim that uid so files

@@ -89,6 +89,7 @@ export function NewTaskPanel(): JSX.Element {
         <TextField label={t('taskName')} value={name} mono={false} onChange={setName} />
         <Field label={t('taskEnvironment')} hint={t('taskEnvironmentHint')}>
           <select
+            aria-label={t('taskEnvironment')}
             value={environmentId ?? ''}
             disabled={environments.length === 0}
             onChange={(event) => setEnvironmentChoice(event.target.value)}
@@ -119,6 +120,7 @@ export function NewTaskPanel(): JSX.Element {
       <div className="grid2">
         <Field label={t('taskProfile')}>
           <select
+            aria-label={t('taskProfile')}
             value={profileId ?? ''}
             onChange={(event) => setProfileChoice(event.target.value === '' ? null : event.target.value)}
           >
