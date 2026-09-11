@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-11T06:31:07.058Z",
-  "repository": "docker.io/kongyo2/cc-workbench",
+  "generatedAt": "2026-09-11T11:29:34.599Z",
+  "repository": "docker.io/kongyokongyo/cc-workbench",
   "entries": [
     {
-      "id": "base@2026.09.1",
+      "id": "base@2026.09.11",
       "variant": "base",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Base",
         "en": "Base"
@@ -21,24 +21,24 @@
       },
       "recommended": false,
       "inherits": null,
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "base-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "base-2026.09.11",
+      "indexDigest": "sha256:01b8957e7365369da46ca86db1cfaa662e2f635edf63c56a722cdec19367ddd3",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:cdf7903a8b9dd4018e78a97b7951efdfff289860af4010789d5ac6088246b8ac",
+          "compressedLayerBytes": 376584213
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:d5abc0ab6915b2c6ea25cb2b727170077da543c03729b87ba8d0640b1bb50fd5",
+          "compressedLayerBytes": 367684971
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -67,43 +67,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -115,33 +115,33 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         }
       ]
     },
     {
-      "id": "web@2026.09.1",
+      "id": "web@2026.09.11",
       "variant": "web",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Web 開発",
         "en": "Web"
@@ -156,24 +156,24 @@
       },
       "recommended": true,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "web-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "web-2026.09.11",
+      "indexDigest": "sha256:c56e4158370fc9b2da2ef52e026c1e1c1e058bc02458492aba11afe1d4219420",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:53ec78db137bf1af1020e503a79e70ea3ee0c077fe11b5ead7e81787530b2816",
+          "compressedLayerBytes": 451027574
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:b97f5dac6c051a1d8805d4cfa6bc3f5180452491edf21ade04e4c48ce759d450",
+          "compressedLayerBytes": 440543972
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -202,43 +202,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -250,25 +250,25 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -310,9 +310,9 @@
       ]
     },
     {
-      "id": "python@2026.09.1",
+      "id": "python@2026.09.11",
       "variant": "python",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Python 開発",
         "en": "Python"
@@ -327,24 +327,24 @@
       },
       "recommended": false,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "python-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "python-2026.09.11",
+      "indexDigest": "sha256:1ef1085b0c16d4ad0cca0c938d17a69dca5adf5284b6dc0292c78c1f83d6b452",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:526572c701ad07d5c6b34420109eb9b238b9f48763ac1044bfdf20efaff47e16",
+          "compressedLayerBytes": 480192648
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:10664afeff5acf20134991716b5142c06b5fa646398a61d40aea2ae79877186e",
+          "compressedLayerBytes": 466237673
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -373,43 +373,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -421,43 +421,43 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
           "id": "python3",
           "name": "Python 3",
-          "version": "",
+          "version": "3.12.3",
           "highlight": true
         },
         {
           "id": "pip",
           "name": "pip",
-          "version": "",
+          "version": "26.2.1",
           "highlight": false
         },
         {
           "id": "venv",
           "name": "venv",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -499,9 +499,9 @@
       ]
     },
     {
-      "id": "go@2026.09.1",
+      "id": "go@2026.09.11",
       "variant": "go",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Go 開発",
         "en": "Go"
@@ -516,24 +516,24 @@
       },
       "recommended": false,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "go-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "go-2026.09.11",
+      "indexDigest": "sha256:4b35cff9bc249ad8e712b5eb7dd0d223581879d1c66889dfc1b83749156f528c",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:f95d6bd2b98e64647bfdc137190ad2b4c4073fd44b129dd9a8904e406792802a",
+          "compressedLayerBytes": 447665198
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:a5cd95bac48818b07f6460057c01438e790d665a3e7a4efed5aaf08ef9eb24c3",
+          "compressedLayerBytes": 435342546
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -562,43 +562,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -610,25 +610,25 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -640,9 +640,9 @@
       ]
     },
     {
-      "id": "rust@2026.09.1",
+      "id": "rust@2026.09.11",
       "variant": "rust",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Rust 開発",
         "en": "Rust"
@@ -657,24 +657,24 @@
       },
       "recommended": false,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "rust-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "rust-2026.09.11",
+      "indexDigest": "sha256:65612fd3228d1fe4968e11dce413122f0fb675db2410bf0245ab22e0d8a015ea",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:cd8d70924e2045edda7251144197a8443281c604bed830c6bf3652bd68957a76",
+          "compressedLayerBytes": 604383184
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:517289bb3de35f037d20269f5e46469777faf384562a6c4a43f50bf7d2c65495",
+          "compressedLayerBytes": 562466974
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -703,43 +703,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -751,25 +751,25 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -781,21 +781,21 @@
         {
           "id": "rustfmt",
           "name": "rustfmt",
-          "version": "1.98.1",
+          "version": "1.9.0-stable",
           "highlight": false
         },
         {
           "id": "clippy",
           "name": "clippy",
-          "version": "1.98.1",
+          "version": "0.1.98",
           "highlight": false
         }
       ]
     },
     {
-      "id": "jvm@2026.09.1",
+      "id": "jvm@2026.09.11",
       "variant": "jvm",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "JVM 開発",
         "en": "JVM"
@@ -810,24 +810,24 @@
       },
       "recommended": false,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "jvm-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "jvm-2026.09.11",
+      "indexDigest": "sha256:2f113c340638bd6ddce89c49ea5d0f7cd4d727a02b6f2600329b0e57c5c1943f",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:66c6b324eaa36ec3cecb48ee5e35dcbde7fd1773bba120f8d25bbc83a8ba198b",
+          "compressedLayerBytes": 694914621
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:edca2ad66a67e922708927fe20c327212066cf552bc193aaf88369f80cf44948",
+          "compressedLayerBytes": 684408541
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -856,43 +856,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -904,37 +904,37 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
           "id": "openjdk",
           "name": "OpenJDK 21",
-          "version": "",
+          "version": "21.0.12",
           "highlight": true
         },
         {
           "id": "maven",
           "name": "Maven",
-          "version": "",
+          "version": "3.8.7",
           "highlight": true
         },
         {
@@ -946,9 +946,9 @@
       ]
     },
     {
-      "id": "ruby@2026.09.1",
+      "id": "ruby@2026.09.11",
       "variant": "ruby",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Ruby 開発",
         "en": "Ruby"
@@ -963,24 +963,24 @@
       },
       "recommended": false,
       "inherits": "base",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "ruby-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "ruby-2026.09.11",
+      "indexDigest": "sha256:afb7213a17541b877ca95ea18ddf5bd7ec09010db33b2247cf7b5a9e2163b900",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:715fef7673acb67e92c4310836e467eb77a81c00ebe472582339b3b745399239",
+          "compressedLayerBytes": 427510117
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:7823dfbfa9e287740d871f09da2774219075e4c20dac8292a28055e692965b10",
+          "compressedLayerBytes": 418427809
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -1009,43 +1009,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -1057,25 +1057,25 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -1087,15 +1087,15 @@
         {
           "id": "bundler",
           "name": "Bundler",
-          "version": "",
+          "version": "4.0.20",
           "highlight": true
         }
       ]
     },
     {
-      "id": "full@2026.09.1",
+      "id": "full@2026.09.11",
       "variant": "full",
-      "release": "2026.09.1",
+      "release": "2026.09.11",
       "title": {
         "ja": "Full",
         "en": "Full"
@@ -1110,24 +1110,24 @@
       },
       "recommended": false,
       "inherits": "web",
-      "repository": "docker.io/kongyo2/cc-workbench",
-      "tag": "full-2026.09.1",
-      "indexDigest": null,
+      "repository": "docker.io/kongyokongyo/cc-workbench",
+      "tag": "full-2026.09.11",
+      "indexDigest": "sha256:555a397ff292a2390e5ab93adf13e38e2fa921b0a980db53d97747ff0708ff02",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:e7ae3981b6cae7c83811a5eddb19eba6a1f24d1be1f1667d907b5716728435a9",
+          "compressedLayerBytes": 1497120813
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": null,
-          "compressedLayerBytes": null
+          "manifestDigest": "sha256:d15844d53c17f8ff656a129127e234942e65c277d068f0e3dfc782d505b0cb1e",
+          "compressedLayerBytes": 1436676720
         }
       ],
       "runtimeContract": 1,
-      "sourceRevision": null,
-      "publishedAt": null,
+      "sourceRevision": "b73d9595521cbabb8a613b7395033e4c3ade9194",
+      "publishedAt": "2026-09-11T11:29:34Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -1156,43 +1156,43 @@
         {
           "id": "git",
           "name": "git",
-          "version": "",
+          "version": "2.43.0",
           "highlight": false
         },
         {
           "id": "git-lfs",
           "name": "git-lfs",
-          "version": "",
+          "version": "3.4.1",
           "highlight": false
         },
         {
           "id": "gh",
           "name": "GitHub CLI",
-          "version": "",
+          "version": "2.100.0",
           "highlight": true
         },
         {
           "id": "tmux",
           "name": "tmux",
-          "version": "",
+          "version": "3.4",
           "highlight": false
         },
         {
           "id": "ripgrep",
           "name": "ripgrep",
-          "version": "",
+          "version": "14.1.0",
           "highlight": false
         },
         {
           "id": "fd",
           "name": "fd",
-          "version": "",
+          "version": "9.0.0",
           "highlight": false
         },
         {
           "id": "jq",
           "name": "jq",
-          "version": "",
+          "version": "1.7",
           "highlight": false
         },
         {
@@ -1204,25 +1204,25 @@
         {
           "id": "curl",
           "name": "curl",
-          "version": "",
+          "version": "8.5.0",
           "highlight": false
         },
         {
           "id": "ssh",
           "name": "OpenSSH client",
-          "version": "",
+          "version": "9.6",
           "highlight": false
         },
         {
           "id": "build-essential",
           "name": "gcc / make",
-          "version": "",
+          "version": "13.3.0-6ubuntu2",
           "highlight": false
         },
         {
           "id": "python3-system",
           "name": "Python 3 (system)",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -1264,19 +1264,19 @@
         {
           "id": "python3",
           "name": "Python 3",
-          "version": "",
+          "version": "3.12.3",
           "highlight": true
         },
         {
           "id": "pip",
           "name": "pip",
-          "version": "",
+          "version": "26.2.1",
           "highlight": false
         },
         {
           "id": "venv",
           "name": "venv",
-          "version": "",
+          "version": "3.12.3",
           "highlight": false
         },
         {
@@ -1330,25 +1330,25 @@
         {
           "id": "rustfmt",
           "name": "rustfmt",
-          "version": "1.98.1",
+          "version": "1.9.0-stable",
           "highlight": false
         },
         {
           "id": "clippy",
           "name": "clippy",
-          "version": "1.98.1",
+          "version": "0.1.98",
           "highlight": false
         },
         {
           "id": "openjdk",
           "name": "OpenJDK 21",
-          "version": "",
+          "version": "21.0.12",
           "highlight": true
         },
         {
           "id": "maven",
           "name": "Maven",
-          "version": "",
+          "version": "3.8.7",
           "highlight": true
         },
         {
@@ -1366,37 +1366,37 @@
         {
           "id": "bundler",
           "name": "Bundler",
-          "version": "",
+          "version": "4.0.20",
           "highlight": true
         },
         {
           "id": "php",
           "name": "PHP",
-          "version": "",
+          "version": "8.3.6",
           "highlight": true
         },
         {
           "id": "composer",
           "name": "Composer",
-          "version": "",
+          "version": "2.7.1",
           "highlight": false
         },
         {
           "id": "clang",
           "name": "Clang / LLD",
-          "version": "",
+          "version": "18.1.3",
           "highlight": true
         },
         {
           "id": "cmake",
           "name": "CMake",
-          "version": "",
+          "version": "3.28.3",
           "highlight": false
         },
         {
           "id": "ninja",
           "name": "Ninja",
-          "version": "",
+          "version": "1.11.1",
           "highlight": false
         },
         {
@@ -1408,37 +1408,37 @@
         {
           "id": "postgresql",
           "name": "PostgreSQL 16",
-          "version": "",
+          "version": "16.15",
           "highlight": true
         },
         {
           "id": "redis",
           "name": "Redis",
-          "version": "",
+          "version": "7.0.15",
           "highlight": true
         },
         {
           "id": "sqlite3",
           "name": "SQLite",
-          "version": "",
+          "version": "3.45.1",
           "highlight": false
         },
         {
           "id": "docker-cli",
           "name": "Docker CLI",
-          "version": "",
+          "version": "29.8.0",
           "highlight": true
         },
         {
           "id": "docker-compose",
           "name": "Docker Compose",
-          "version": "",
+          "version": "5.5.1",
           "highlight": false
         },
         {
           "id": "docker-buildx",
           "name": "Docker Buildx",
-          "version": "",
+          "version": "0.37.0",
           "highlight": false
         }
       ]
