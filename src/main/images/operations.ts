@@ -87,7 +87,7 @@ export function listOperations(): readonly ImageOperation[] {
   return sortForDisplay([...[...live.values()].map((entry) => entry.operation), ...history]);
 }
 
-export function findOperation(id: string): ImageOperation | null {
+function findOperation(id: string): ImageOperation | null {
   loadHistory();
   return live.get(id)?.operation ?? history.find((operation) => operation.id === id) ?? null;
 }
@@ -107,11 +107,6 @@ function cancelledFailure(): AppFailure {
   return new AppFailure('CANCELLED', '操作をキャンセルしました / the operation was cancelled');
 }
 
-/**
- * Queues an operation. Operations run one at a time in arrival order; the
- * work receives a context that reports progress, checks for cancellation and
- * carries the abort signal for the pull.
- */
 export function enqueueOperation(
   input: NewOperationInput,
   work: (context: OperationContext) => Promise<void>,
@@ -126,10 +121,7 @@ export function enqueueOperation(
   live.set(input.id, entry);
   persist();
   emit(entry, true);
-  logInfo(
-    'image',
-    `操作を受け付けました / queued ${input.kind} of ${input.target.variant}@${input.target.release} (${input.id})`,
-  );
+  logInfo('image', `操作を受け付けました / queued ${input.kind} of ${input.target.title.en} (${input.id})`);
 
   const context: OperationContext = {
     id: input.id,
@@ -150,7 +142,6 @@ export function enqueueOperation(
 
   const run = async (): Promise<void> => {
     if (entry.operation.cancelRequested) {
-      // Cancelled before it started: not an error, just a user decision.
       settle(entry, finishOperation(entry.operation, 'cancelled', null));
       return;
     }
@@ -180,10 +171,7 @@ function settle(entry: LiveOperation, finished: ImageOperation): void {
   emit(entry, true);
   notifyStateChanged();
   const outcome = finished.error === null ? finished.phase : `${finished.phase}: ${finished.error.message}`;
-  logInfo(
-    'image',
-    `操作が終了しました / ${finished.kind} of ${finished.target.variant}@${finished.target.release} → ${outcome}`,
-  );
+  logInfo('image', `操作が終了しました / ${finished.kind} of ${finished.target.title.en} → ${outcome}`);
 }
 
 export function requestCancel(id: string): ImageOperation {
@@ -208,7 +196,6 @@ export function markSucceeded(context: OperationContext, registeredImageId: stri
   context.update({ phase: 'succeeded', registeredImageId, error: null, step: '' }, true);
 }
 
-/** Called once at startup: nothing can still be running, so the history is reconciled with the ledger. */
 export function recoverOperationsOnStartup(): number {
   loadHistory();
   const images = listRegisteredImages();

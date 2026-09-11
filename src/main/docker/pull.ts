@@ -33,15 +33,9 @@ interface PullStream extends NodeJS.ReadableStream {
   destroy?: (error?: Error) => void;
 }
 
-/**
- * Pulls one reference for one platform and reports layer progress. Resolves
- * only when the daemon closed the stream cleanly without an error event; an
- * aborted signal, a premature close, an in-stream error or a dead daemon after
- * a long silence all reject.
- */
 export async function pullImage(
   reference: string,
-  platform: ImagePlatform,
+  platform: ImagePlatform | null,
   signal: AbortSignal,
   onProgress: (progress: PullProgress) => void,
 ): Promise<PullOutcome> {
@@ -49,7 +43,10 @@ export async function pullImage(
 
   let stream: PullStream;
   try {
-    stream = (await docker().pull(reference, { platform, abortSignal: signal })) as PullStream;
+    stream = (await docker().pull(reference, {
+      ...(platform === null ? {} : { platform }),
+      abortSignal: signal,
+    })) as PullStream;
   } catch (error) {
     if (signal.aborted) throw cancelledFailure();
     throw classifyDockerError(error, 'pull');
@@ -85,9 +82,7 @@ export async function pullImage(
     const tearDown = (): void => {
       try {
         stream.destroy?.();
-      } catch {
-        // the stream may already be gone
-      }
+      } catch {}
     };
 
     const onAbort = (): void => {

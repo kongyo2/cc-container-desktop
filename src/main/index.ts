@@ -3,14 +3,12 @@ import { join, resolve } from 'node:path';
 
 import { isHttpUrl, parseUrl } from '../shared/url.ts';
 import { getConfig } from './config/store.ts';
-import { probeDocker } from './docker/engine.ts';
 import { closeAllTerminals, setTerminalTarget } from './docker/terminal.ts';
 import { cancelAllOperations, recoverOperationsOnStartup } from './images/operations.ts';
 import { activeCatalog } from './images/service.ts';
 import { listRegisteredImages } from './images/store.ts';
-import { cleanupVerifyContainers } from './images/verify.ts';
 import { registerIpc } from './ipc.ts';
-import { describeError, logError, logInfo, logWarn, setLogTarget } from './logger.ts';
+import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
 import { listTasks } from './tasks/store.ts';
 import { setMainWindow } from './window.ts';
 
@@ -110,7 +108,6 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-/** Reads every state file once (creating the config on a fresh install) and reconciles unfinished image operations. */
 function initializeState(): void {
   const config = getConfig();
   const tasks = listTasks();
@@ -122,22 +119,6 @@ function initializeState(): void {
     'app',
     `起動しました / started — instance=${config.dataInstanceId} catalog=${catalog.entries.length} images=${images.length} environments=${config.environments.length} tasks=${tasks.length} data=${app.getPath('userData')}`,
   );
-}
-
-async function tidyDockerLeftovers(): Promise<void> {
-  const docker = await probeDocker();
-  if (!docker.available) {
-    logWarn('app', `Docker に接続できません / Docker is unreachable: ${docker.error ?? ''}`);
-    return;
-  }
-  try {
-    await cleanupVerifyContainers();
-  } catch (error) {
-    logWarn(
-      'image',
-      `検証用コンテナの確認に失敗しました / could not check for leftover verification containers: ${describeError(error)}`,
-    );
-  }
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -156,7 +137,6 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc(app.getVersion());
     createWindow();
     initializeState();
-    void tidyDockerLeftovers();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

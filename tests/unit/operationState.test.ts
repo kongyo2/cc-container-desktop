@@ -21,9 +21,7 @@ function operation(now = '2026-09-11T10:00:00.000Z'): ImageOperation {
     catalogEntryId: 'web@2026.09.1',
     registeredImageId: null,
     target: {
-      variant: 'web',
-      release: '2026.09.1',
-      title: { ja: 'Web', en: 'Web' },
+      title: { ja: 'Web / 2026.09.1', en: 'Web / 2026.09.1' },
       repository: 'docker.io/kongyo2/cc-workbench',
       tag: 'web-2026.09.1',
       pinnedDigest: DIGEST,
@@ -33,24 +31,19 @@ function operation(now = '2026-09-11T10:00:00.000Z'): ImageOperation {
   });
 }
 
-function registered(verifiedAt: string): RegisteredImage {
+function registered(registeredAt: string): RegisteredImage {
   return {
-    id: registeredImageIdFor('docker.io/kongyo2/cc-workbench', DIGEST, 'linux/amd64'),
+    id: registeredImageIdFor('docker.io/kongyo2/cc-workbench', DIGEST, 'web-2026.09.1', 'linux/amd64'),
     catalogEntryId: 'web@2026.09.1',
     variant: 'web',
     release: '2026.09.1',
-    title: { ja: 'Web', en: 'Web' },
+    title: { ja: 'Web / 2026.09.1', en: 'Web / 2026.09.1' },
     repository: 'docker.io/kongyo2/cc-workbench',
     tag: 'web-2026.09.1',
-    indexDigest: null,
     pinnedDigest: DIGEST,
-    digestKind: 'manifest',
     platform: 'linux/amd64',
-    runtimeContract: 1,
-    sourceRevision: null,
     tools: [],
-    registeredAt: verifiedAt,
-    lastVerified: { engineId: 'e', localImageId: 'sha256:l', localSizeBytes: 1, verifiedAt, checksPassed: 1 },
+    registeredAt,
   };
 }
 

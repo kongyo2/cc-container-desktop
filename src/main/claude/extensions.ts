@@ -18,7 +18,7 @@ function trimmedRecord(record: Readonly<Record<string, string>>): Record<string,
   return out;
 }
 
-export function mcpEntry(server: McpServerConfig): Record<string, unknown> {
+function mcpEntry(server: McpServerConfig): Record<string, unknown> {
   const entry: Record<string, unknown> = {};
 
   if (server.transport === 'stdio') {
@@ -206,11 +206,6 @@ export function planExtensions(
   };
 }
 
-interface RawMcpStatus {
-  readonly name?: unknown;
-  readonly status?: unknown;
-}
-
 export async function readMcpStatus(ref: ContainerRef): Promise<readonly McpServerStatus[]> {
   const result = await execCapture(ref, ['claude', 'mcp', 'list'], { workdir: CONTAINER_HOME });
   const text = `${result.stdout}\n${result.stderr}`;
@@ -233,5 +228,3 @@ export async function readMcpStatus(ref: ContainerRef): Promise<readonly McpServ
   }
   return statuses;
 }
-
-export type { RawMcpStatus };

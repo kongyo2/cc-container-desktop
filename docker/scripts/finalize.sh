@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Runs last in every final target: records what actually got installed into
-# /opt/cc/image-info.json (the app and CI compare it with the catalog), keeps a
-# copy of the lock for reference, and removes the build scripts.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 variant="${1:?variant}"
@@ -11,8 +7,6 @@ release="${IMAGE_RELEASE:?IMAGE_RELEASE}"
 revision="${SOURCE_REVISION:-unknown}"
 built_at="${BUILT_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
-# Every version is read the way a user would see it: as the claude user, in a
-# login shell, so PATH problems show up here rather than in a task.
 probe() {
   local name="$1"
   shift
@@ -76,8 +70,6 @@ versions="$(
   probe docker-buildx 'docker buildx version'
 )"
 
-# The first version-looking token of each probe line, so "git version 2.43.0"
-# becomes "2.43.0" and "go version go1.27.1 linux/amd64" becomes "1.27.1".
 tools_json="$(
   printf '%s\n' "$versions" | jq -R -s '
     split("\n") | map(select(length > 0) | split("\t")) |
@@ -106,7 +98,6 @@ jq -n \
     project: "cc-container-desktop",
     variant: $variant,
     release: $release,
-    runtimeContract: 1,
     sourceRevision: $revision,
     builtAt: $builtAt,
     platform: $platform,
@@ -115,7 +106,6 @@ jq -n \
   }' > /opt/cc/image-info.json
 chmod 0644 /opt/cc/image-info.json /opt/cc/image-versions.lock.json
 
-# Record apt package versions for the provenance trail (not read by the app).
 dpkg-query -W -f='${Package}\t${Version}\n' | sort > /opt/cc/apt-packages.txt
 chmod 0644 /opt/cc/apt-packages.txt
 

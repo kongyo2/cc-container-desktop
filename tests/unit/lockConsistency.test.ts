@@ -19,8 +19,6 @@ const lock = JSON.parse(readFileSync(join(ROOT, 'docker', 'image-versions.lock.j
 };
 const dockerfile = readFileSync(join(ROOT, 'docker', 'Dockerfile'), 'utf8');
 
-// The lock updater rewrites the Dockerfile's base reference; this guards
-// against the two being edited apart by hand.
 test('the Dockerfile builds from the base image the lock pins', () => {
   const match = /^ARG UBUNTU_REF=(\S+)$/mu.exec(dockerfile);
   assert.ok(match !== null, 'the Dockerfile declares ARG UBUNTU_REF');

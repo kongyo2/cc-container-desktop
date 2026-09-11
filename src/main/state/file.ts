@@ -4,15 +4,13 @@ import { AppFailure, describeError } from '../errors.ts';
 import { logError, logWarn } from '../logger.ts';
 import { brokenCopyPath } from '../paths.ts';
 
-export function writeAtomic(path: string, content: string): void {
+function writeAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, path);
 }
 
-export function readJsonFile(
-  path: string,
-): { readonly exists: false } | { readonly exists: true; readonly value: unknown } {
+function readJsonFile(path: string): { readonly exists: false } | { readonly exists: true; readonly value: unknown } {
   if (!existsSync(path)) return { exists: false };
   try {
     return { exists: true, value: JSON.parse(readFileSync(path, 'utf8')) as unknown };
@@ -21,7 +19,7 @@ export function readJsonFile(
   }
 }
 
-export function keepAside(path: string): string | null {
+function keepAside(path: string): string | null {
   if (!existsSync(path)) return null;
   const backup = brokenCopyPath(path);
   try {
@@ -45,12 +43,6 @@ export interface StateFileOptions<T> {
   readonly persistInitial: boolean;
 }
 
-/**
- * One strictly-validated JSON file under state-v1/. A file that exists but
- * cannot be read stays untouched: reads return the in-memory initial value,
- * writes refuse, and the problem is reported to the UI until the file is
- * fixed or removed.
- */
 export class StateFile<T> {
   private cache: T | null = null;
   private failure: string | null = null;

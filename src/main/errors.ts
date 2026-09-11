@@ -16,8 +16,6 @@ export type AppErrorCode =
   | 'NETWORK_ERROR'
   | 'PULL_STALLED'
   | 'NO_SPACE'
-  | 'DIGEST_MISMATCH'
-  | 'RUNTIME_CONTRACT_MISMATCH'
   | 'REGISTRATION_WRITE_FAILED'
   | 'IMAGE_IN_USE'
   | 'IMAGE_NOT_REGISTERED'
@@ -65,10 +63,6 @@ export function toAppError(error: unknown): AppError {
   return { code: 'APP_ERROR', message: describeError(error), retryable: false };
 }
 
-export function isFailure(error: unknown, code: AppErrorCode): boolean {
-  return error instanceof AppFailure && error.code === code;
-}
-
 function statusCodeOf(error: unknown): number | null {
   if (typeof error !== 'object' || error === null) return null;
   const status = (error as { statusCode?: unknown }).statusCode;
@@ -87,7 +81,7 @@ export function isNotFound(error: unknown): boolean {
 
 const CONNECTION_ERRNOS: readonly string[] = ['ENOENT', 'ECONNREFUSED', 'EACCES', 'EPIPE', 'ECONNRESET', 'ENOTFOUND'];
 
-export function isDaemonUnreachable(error: unknown): boolean {
+function isDaemonUnreachable(error: unknown): boolean {
   const errno = errnoOf(error);
   if (errno !== null && CONNECTION_ENOS_HAS(errno)) return true;
   const message = describeError(error);

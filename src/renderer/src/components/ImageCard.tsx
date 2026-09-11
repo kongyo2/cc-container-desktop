@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, Info, Layers, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Download, Info, Layers, RefreshCw, RotateCcw } from 'lucide-react';
 import type { JSX } from 'react';
 
 import { catalogPlatform, highlightTools, isTerminalPhase, toolLabel } from '../../../shared/images.ts';
@@ -94,8 +94,7 @@ export function ImageCard({
           </button>
         );
       }
-      if (availability.kind === 'missing' || availability.kind === 'unverified' || availability.kind === 'error') {
-        const missing = availability.kind === 'missing';
+      if (availability.kind === 'missing' || availability.kind === 'error') {
         return (
           <button
             className="btn primary sm"
@@ -105,8 +104,7 @@ export function ImageCard({
             onClick={() => onRepair(registered)}
             data-testid="image-repair"
           >
-            {missing ? <RefreshCw size={13} /> : <ShieldCheck size={13} />}{' '}
-            {missing ? t('imageRedownload') : t('imageVerify')}
+            <RefreshCw size={13} /> {t('imageRedownload')}
           </button>
         );
       }

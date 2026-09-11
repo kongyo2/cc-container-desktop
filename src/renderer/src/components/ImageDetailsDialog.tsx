@@ -2,14 +2,21 @@ import { Copy, ExternalLink, X } from 'lucide-react';
 import type { JSX, MouseEvent } from 'react';
 import { useEffect } from 'react';
 
-import { dockerHubUrl, pullCommand, repositoryDisplay, toolLabel } from '../../../shared/images.ts';
+import {
+  dockerHubUrl,
+  imageDisplayName,
+  imageReference,
+  pullCommand,
+  repositoryDisplay,
+  toolLabel,
+} from '../../../shared/images.ts';
 import type { ImageCatalogEntry, ImagePlatform, RegisteredImageView } from '../../../shared/images.ts';
 import { useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 import { formatBytes, formatTime } from './ui.tsx';
 
 export interface ImageDetailsDialogProps {
-  readonly entry: ImageCatalogEntry;
+  readonly entry: ImageCatalogEntry | null;
   readonly registered: RegisteredImageView | null;
   readonly platform: ImagePlatform | null;
   readonly onClose: () => void;
@@ -36,14 +43,25 @@ export function ImageDetailsDialog({ entry, registered, platform, onClose }: Ima
     void window.cc.clipboardWrite(text).then(() => setToast(t('commonCopied')));
   };
 
-  const shownPlatform = registered?.image.platform ?? platform ?? entry.platforms[0]?.platform ?? 'linux/amd64';
+  const image = registered?.image ?? null;
+  const repository = image?.repository ?? entry?.repository ?? '';
+  const tag = image?.tag ?? entry?.tag ?? null;
+  const shownPlatform = image?.platform ?? platform ?? entry?.platforms[0]?.platform ?? 'linux/amd64';
   const pinned =
-    registered?.image.pinnedDigest ??
-    entry.platforms.find((candidate) => candidate.platform === shownPlatform)?.manifestDigest ??
+    image?.pinnedDigest ??
+    entry?.platforms.find((candidate) => candidate.platform === shownPlatform)?.manifestDigest ??
     null;
-  const command = pullCommand(entry.repository, pinned, entry.tag, shownPlatform);
-  const hub = dockerHubUrl(entry.repository);
-  const tools = registered?.image.tools ?? entry.tools;
+  const command = pullCommand(repository, pinned, tag, shownPlatform);
+  const hub = dockerHubUrl(repository);
+  const tools = image !== null && image.tools.length > 0 ? image.tools : (entry?.tools ?? []);
+  const title =
+    image !== null
+      ? imageDisplayName(image, language)
+      : entry === null
+        ? ''
+        : `${entry.title[language]} / ${entry.release}`;
+  const lead = entry?.description[language] ?? (image === null ? '' : imageReference(repository, pinned, tag));
+  const availability = registered?.availability ?? null;
 
   return (
     <div className="modal-backdrop" onMouseDown={onBackdrop}>
@@ -56,19 +74,19 @@ export function ImageDetailsDialog({ entry, registered, platform, onClose }: Ima
       >
         <header className="modal-head">
           <h1 id="image-details-title">
-            {t('detailsTitle')} — {entry.title[language]} / {entry.release}
+            {t('detailsTitle')} — {title}
           </h1>
           <button className="modal-x" type="button" onClick={onClose} aria-label={t('commonClose')}>
             <X size={20} />
           </button>
         </header>
         <div className="modal-body">
-          <p className="modal-lead">{entry.description[language]}</p>
+          {lead === '' ? null : <p className="modal-lead">{lead}</p>}
 
           <dl className="kv details-kv">
             <dt>{t('detailsRepository')}</dt>
             <dd>
-              {repositoryDisplay(entry.repository)}
+              {repositoryDisplay(repository)}
               {hub === null ? null : (
                 <button
                   className="modal-link"
@@ -81,36 +99,50 @@ export function ImageDetailsDialog({ entry, registered, platform, onClose }: Ima
               )}
             </dd>
             <dt>{t('detailsTag')}</dt>
-            <dd>{entry.tag}</dd>
-            <dt>{t('detailsIndexDigest')}</dt>
-            <dd>{registered?.image.indexDigest ?? entry.indexDigest ?? t('commonNone')}</dd>
-            <dt>{t('detailsPlatforms')}</dt>
-            <dd>
-              {entry.platforms.map((candidate) => (
-                <div key={candidate.platform}>
-                  {candidate.platform}: {candidate.manifestDigest ?? t('detailsNotPublished')}
-                  {candidate.compressedLayerBytes === null ? '' : ` (${formatBytes(candidate.compressedLayerBytes)})`}
-                </div>
-              ))}
-            </dd>
-            {registered === null ? null : (
+            <dd>{tag ?? t('commonNone')}</dd>
+            {entry === null ? null : (
+              <>
+                <dt>{t('detailsIndexDigest')}</dt>
+                <dd>{entry.indexDigest ?? t('commonNone')}</dd>
+                <dt>{t('detailsPlatforms')}</dt>
+                <dd>
+                  {entry.platforms.map((candidate) => (
+                    <div key={candidate.platform}>
+                      {candidate.platform}: {candidate.manifestDigest ?? t('detailsNotPublished')}
+                      {candidate.compressedLayerBytes === null
+                        ? ''
+                        : ` (${formatBytes(candidate.compressedLayerBytes)})`}
+                    </div>
+                  ))}
+                </dd>
+              </>
+            )}
+            {image === null ? null : (
               <>
                 <dt>{t('detailsPinnedDigest')}</dt>
                 <dd>
-                  {registered.image.pinnedDigest} ({registered.image.digestKind}, {registered.image.platform})
+                  {image.pinnedDigest ?? t('detailsPinnedNone')} ({image.platform})
                 </dd>
-                <dt>{t('detailsLocalImageId')}</dt>
-                <dd>{registered.image.lastVerified.localImageId}</dd>
-                <dt>{t('detailsLocalSize')}</dt>
-                <dd>{formatBytes(registered.image.lastVerified.localSizeBytes)}</dd>
-                <dt>{t('imageVerifiedAt')}</dt>
-                <dd>{formatTime(registered.image.lastVerified.verifiedAt)}</dd>
+                <dt>{t('imageRegisteredAt')}</dt>
+                <dd>{formatTime(image.registeredAt)}</dd>
               </>
             )}
-            <dt>{t('detailsRevision')}</dt>
-            <dd>{registered?.image.sourceRevision ?? entry.sourceRevision ?? t('commonNone')}</dd>
-            <dt>{t('detailsPublishedAt')}</dt>
-            <dd>{entry.publishedAt === null ? t('detailsNotPublished') : formatTime(entry.publishedAt)}</dd>
+            {availability !== null && availability.kind === 'ready' ? (
+              <>
+                <dt>{t('detailsLocalImageId')}</dt>
+                <dd>{availability.localImageId}</dd>
+                <dt>{t('detailsLocalSize')}</dt>
+                <dd>{formatBytes(availability.localSizeBytes)}</dd>
+              </>
+            ) : null}
+            {entry === null ? null : (
+              <>
+                <dt>{t('detailsRevision')}</dt>
+                <dd>{entry.sourceRevision ?? t('commonNone')}</dd>
+                <dt>{t('detailsPublishedAt')}</dt>
+                <dd>{entry.publishedAt === null ? t('detailsNotPublished') : formatTime(entry.publishedAt)}</dd>
+              </>
+            )}
           </dl>
 
           <p className="modal-label">{t('detailsPullCommand')}</p>
@@ -124,16 +156,20 @@ export function ImageDetailsDialog({ entry, registered, platform, onClose }: Ima
           </div>
 
           <p className="modal-label">{t('detailsTools')}</p>
-          <table className="tools-table" data-testid="image-tools">
-            <tbody>
-              {tools.map((tool) => (
-                <tr key={tool.id}>
-                  <td>{tool.name}</td>
-                  <td>{tool.version === '' ? t('commonNone') : toolLabel({ ...tool, name: '' }).trim()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {tools.length === 0 ? (
+            <p className="modal-note">{t('detailsToolsUnknown')}</p>
+          ) : (
+            <table className="tools-table" data-testid="image-tools">
+              <tbody>
+                {tools.map((tool) => (
+                  <tr key={tool.id}>
+                    <td>{tool.name}</td>
+                    <td>{tool.version === '' ? t('commonNone') : toolLabel({ ...tool, name: '' }).trim()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
         <footer className="modal-foot">
           <span className="spacer" />

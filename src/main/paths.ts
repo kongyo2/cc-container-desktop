@@ -12,7 +12,7 @@ export function userDataDir(): string {
   return ensureDir(app.getPath('userData'));
 }
 
-export const STATE_DIR_NAME = 'state-v1';
+const STATE_DIR_NAME = 'state-v1';
 
 export function stateDir(): string {
   return ensureDir(join(userDataDir(), STATE_DIR_NAME));

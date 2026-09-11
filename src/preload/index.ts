@@ -33,6 +33,7 @@ const api: Api = {
   dockerProbe: () => ipcRenderer.invoke(CHANNELS.dockerProbe),
 
   imageDownloadStart: (request) => ipcRenderer.invoke(CHANNELS.imageDownloadStart, request),
+  imageCustomStart: (request) => ipcRenderer.invoke(CHANNELS.imageCustomStart, request),
   imageRepairStart: (request) => ipcRenderer.invoke(CHANNELS.imageRepairStart, request),
   imageCancel: (request) => ipcRenderer.invoke(CHANNELS.imageCancel, request),
   imageUnregister: (request) => ipcRenderer.invoke(CHANNELS.imageUnregister, request),

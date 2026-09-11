@@ -6,7 +6,7 @@ import { _electron as electron } from 'playwright';
 
 import { ensureTestImages } from './fixtures/registry.mjs';
 
-export const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
+const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
 
 export const TASK_PREFIX = 'e2e-';
 
@@ -130,7 +130,7 @@ export function taskById(snapshot, taskId) {
   return snapshot.tasks.find((view) => view.task.id === taskId) ?? null;
 }
 
-export function operationById(snapshot, operationId) {
+function operationById(snapshot, operationId) {
   return snapshot.operations.find((operation) => operation.id === operationId) ?? null;
 }
 
@@ -140,7 +140,6 @@ export function imageByEntry(snapshot, catalogEntryId) {
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
 
-/** Polls the snapshot until the operation reaches a terminal phase. */
 export async function waitForOperation(page, operationId, timeoutMs = 600_000) {
   const done = await waitFor(
     page,
@@ -152,11 +151,6 @@ export async function waitForOperation(page, operationId, timeoutMs = 600_000) {
   return done;
 }
 
-/**
- * Launches the app in a scratch userData directory. When `withImages` is
- * true (the default) the local registry fixture is prepared first and the
- * app is pointed at its catalog, so `registerImage` and `createTask` work.
- */
 export async function launchIsolated({ extraEnv = {}, withImages = true, userData: reuseUserData = null } = {}) {
   const fixture = withImages ? ensureTestImages() : null;
   const userData = reuseUserData ?? mkdtempSync(join(tmpdir(), 'cc-e2e-'));
@@ -182,7 +176,6 @@ export async function launchIsolated({ extraEnv = {}, withImages = true, userDat
     created,
     fixture,
 
-    /** Downloads and registers a catalog entry, returning the registered image view. */
     async registerImage(catalogEntryId = fixture?.releaseOne.id) {
       const operation = await ok(page, 'imageDownloadStart', [{ catalogEntryId }]);
       const done = await waitForOperation(page, operation.id);
@@ -194,7 +187,6 @@ export async function launchIsolated({ extraEnv = {}, withImages = true, userDat
       return view;
     },
 
-    /** Makes sure one active environment exists (registering the first fixture image if needed) and returns its id. */
     async ensureEnvironment({ name = 'e2e-env', imageId = null } = {}) {
       const snapshot = await ok(page, 'snapshot');
       const existing = snapshot.config.environments.find((environment) => !environment.archived);

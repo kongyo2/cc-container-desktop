@@ -27,7 +27,7 @@ import { readMcpStatus } from '../claude/extensions.ts';
 import { provisionTask as provisionInto } from '../claude/provision.ts';
 import { runSetupIfPending, setupFailureMessage } from '../claude/setup.ts';
 import { emptyManagedNames } from '../config/schema.ts';
-import { environmentFor, getConfig, profileFor, rememberExportDir, removeEnvironment } from '../config/store.ts';
+import { environmentFor, profileFor, rememberExportDir, removeEnvironment } from '../config/store.ts';
 import {
   ensureContainer,
   execCapture,
@@ -53,7 +53,7 @@ import { addTask, getTask, listTasks, newTaskId, removeTask, updateTask } from '
 
 const queues = new Map<string, Promise<void>>();
 
-export function withTaskLock<T>(id: string, work: () => Promise<T>): Promise<T> {
+function withTaskLock<T>(id: string, work: () => Promise<T>): Promise<T> {
   const previous = queues.get(id) ?? Promise.resolve();
   const next = previous.then(work, work);
   const settled = next.then(
@@ -230,7 +230,6 @@ function appliedRuntimeOf(runtime: ResolvedTaskRuntime): AppliedRuntime {
   };
 }
 
-/** Creates (if needed) and starts the container from a runtime fixed for the whole operation, recording what was applied. */
 async function startFromRuntime(task: Task, runtime: ResolvedTaskRuntime): Promise<ContainerState> {
   const release = leaseImage(runtime.registeredImageId);
   try {
@@ -331,7 +330,6 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
   });
 }
 
-/** Starting an existing container never depends on the desired image; only a missing container needs one. */
 export function startTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
@@ -357,7 +355,6 @@ export function stopTask(id: string): Promise<void> {
   });
 }
 
-/** The target image is verified before the old container is touched; the home volume is always kept. */
 export function recreateTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
@@ -388,7 +385,6 @@ async function hasWorkspace(ref: ContainerRef): Promise<boolean> {
   return volumeExists(ref.volumeName);
 }
 
-/** For file operations: the existing container if there is one, otherwise a container from the desired or last applied image. */
 async function ensureTaskContainer(task: Task): Promise<ContainerState> {
   return ensureContainer(refOf(task), async () => {
     const runtime = await resolveTaskRuntime(task, { allowLastApplied: true });
@@ -536,12 +532,4 @@ export function deleteEnvironment(environmentId: string): AppConfig {
   }
   logInfo('app', `環境を削除しました / environment deleted: ${environment.name}`);
   return removeEnvironment(environmentId);
-}
-
-export function tasksUsingEnvironment(environmentId: string): number {
-  return listTasks().filter((task) => task.environmentId === environmentId).length;
-}
-
-export function configSnapshot(): AppConfig {
-  return getConfig();
 }

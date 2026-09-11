@@ -2,22 +2,28 @@ import { readFileSync } from 'node:fs';
 
 import {
   catalogPlatform,
-  digestReference,
   entryById,
+  imageReference,
   isTerminalPhase,
-  RUNTIME_CONTRACT,
-  tagReference,
+  normalizeRepository,
+  parseImageReference,
+  registrationIdentity,
 } from '../../shared/images.ts';
 import type {
+  CatalogTool,
   ImageAvailability,
   ImageCatalog,
   ImageCatalogEntry,
   ImageOperation,
+  ImageOperationKind,
   ImageOperationTarget,
   ImagePlatform,
+  ImageVariant,
+  LocalizedText,
   RegisteredImage,
   RegisteredImageView,
 } from '../../shared/images.ts';
+import type { ImageCustomRequest } from '../../shared/ipc.ts';
 import { INSTANCE_LABEL, MANAGED_LABEL, REGISTERED_IMAGE_LABEL, ROLE_LABEL } from '../../shared/presets.ts';
 import type { DockerStatus } from '../../shared/types.ts';
 import { dataInstanceId, environmentsUsingImage } from '../config/store.ts';
@@ -41,14 +47,6 @@ import {
 } from './operations.ts';
 import type { OperationContext } from './operations.ts';
 import { commitRegistration, dropRegistration, listRegisteredImages, registeredImageFor } from './store.ts';
-import {
-  checkImageMetadata,
-  repoDigestOf,
-  runContractChecks,
-  sourceRevisionOf,
-  toolsWithMeasuredVersions,
-} from './verify.ts';
-import type { ExpectedImage } from './verify.ts';
 
 let catalogCache: { readonly catalog: ImageCatalog; readonly problem: string | null } | null = null;
 
@@ -59,7 +57,6 @@ const EMPTY_CATALOG: ImageCatalog = {
   entries: [],
 };
 
-/** The bundled catalog, or in development only, the file named by CC_IMAGE_CATALOG_FILE. */
 export function activeCatalog(): { readonly catalog: ImageCatalog; readonly problem: string | null } {
   if (catalogCache !== null) return catalogCache;
   const override = process.env['CC_IMAGE_CATALOG_FILE'];
@@ -91,10 +88,6 @@ function requireCatalogEntry(id: string): ImageCatalogEntry {
   return entry;
 }
 
-function pinnedReference(image: RegisteredImage): string {
-  return `${image.repository}@${image.pinnedDigest}`;
-}
-
 export async function imageAvailability(image: RegisteredImage, docker: DockerStatus): Promise<ImageAvailability> {
   if (!docker.available) {
     return {
@@ -110,23 +103,20 @@ export async function imageAvailability(image: RegisteredImage, docker: DockerSt
     };
   }
   try {
-    const local = await inspectImage(pinnedReference(image));
+    const local = await inspectImage(imageReference(image.repository, image.pinnedDigest, image.tag));
     if (local === null) return { kind: 'missing' };
-    if (docker.engineId === image.lastVerified.engineId && local.id === image.lastVerified.localImageId) {
-      return { kind: 'ready', localImageId: local.id, localSizeBytes: local.sizeBytes };
-    }
-    return { kind: 'unverified', localImageId: local.id };
+    return { kind: 'ready', localImageId: local.id, localSizeBytes: local.sizeBytes };
   } catch (error) {
     return { kind: 'error', message: describeError(error) };
   }
 }
 
-export interface ImageUsage {
+interface ImageUsage {
   readonly environmentIds: readonly string[];
   readonly appliedTaskIds: readonly string[];
 }
 
-export function imageUsage(imageId: string): ImageUsage {
+function imageUsage(imageId: string): ImageUsage {
   return {
     environmentIds: environmentsUsingImage(imageId).map((environment) => environment.id),
     appliedTaskIds: tasksAppliedTo(imageId).map((task) => task.id),
@@ -143,7 +133,7 @@ export async function imageViews(docker: DockerStatus): Promise<readonly Registe
       image,
       availability: await imageAvailability(image, docker),
       ...imageUsage(image.id),
-      inCatalog: entryById(catalog, image.catalogEntryId) !== null,
+      inCatalog: image.catalogEntryId === null || entryById(catalog, image.catalogEntryId) !== null,
     });
   }
   /* oxlint-enable no-await-in-loop */
@@ -152,7 +142,6 @@ export async function imageViews(docker: DockerStatus): Promise<readonly Registe
 
 const leases = new Map<string, number>();
 
-/** A lease keeps a registration from being removed while a task is being created or recreated from it. */
 export function leaseImage(imageId: string): () => void {
   leases.set(imageId, (leases.get(imageId) ?? 0) + 1);
   let released = false;
@@ -165,64 +154,56 @@ export function leaseImage(imageId: string): () => void {
   };
 }
 
-export function leaseCount(imageId: string): number {
+function leaseCount(imageId: string): number {
   return leases.get(imageId) ?? 0;
 }
 
-function targetOf(
-  entry: ImageCatalogEntry,
-  pinnedDigest: string | null,
-  platform: ImagePlatform | null,
-): ImageOperationTarget {
+interface FetchTarget {
+  readonly catalogEntryId: string | null;
+  readonly variant: ImageVariant | null;
+  readonly release: string | null;
+  readonly title: LocalizedText;
+  readonly repository: string;
+  readonly tag: string | null;
+  readonly digest: string | null;
+  readonly tools: readonly CatalogTool[];
+}
+
+function operationTarget(target: FetchTarget, platform: ImagePlatform | null): ImageOperationTarget {
   return {
-    variant: entry.variant,
-    release: entry.release,
-    title: entry.title,
-    repository: entry.repository,
-    tag: entry.tag,
-    pinnedDigest,
+    title: target.title,
+    repository: target.repository,
+    tag: target.tag,
+    pinnedDigest: target.digest,
     platform,
   };
 }
 
-interface FetchPlan {
-  readonly daemon: DaemonInfo & { readonly platform: ImagePlatform };
-  readonly reference: string;
-  readonly pinnedDigest: string | null;
-}
-
-async function planFetch(
-  context: OperationContext,
-  entry: ImageCatalogEntry,
-  pinned: string | null,
-): Promise<FetchPlan> {
-  context.update({ phase: 'checking', step: 'daemon' }, true);
-  const daemon = await requireLinuxDaemon();
-  const platformEntry = catalogPlatform(entry, daemon.platform);
-  if (platformEntry === null && pinned === null) {
-    throw new AppFailure(
-      'UNSUPPORTED_PLATFORM',
-      `${entry.title.en} は ${daemon.platform} 向けに配布されていません / ${entry.title.en} is not published for ${daemon.platform}`,
-    );
+function repoDigestOf(inspect: ImageInspect, repository: string): string | null {
+  const wanted = normalizeRepository(repository);
+  for (const entry of inspect.repoDigests) {
+    const at = entry.indexOf('@');
+    if (at === -1) continue;
+    if (normalizeRepository(entry.slice(0, at)) === wanted) return entry.slice(at + 1);
   }
-  const pinnedDigest = pinned ?? platformEntry?.manifestDigest ?? null;
-  const reference =
-    pinnedDigest === null ? tagReference(entry.repository, entry.tag) : digestReference(entry.repository, pinnedDigest);
-  context.update({ target: targetOf(entry, pinnedDigest, daemon.platform), step: 'local' });
-  return { daemon, reference, pinnedDigest };
+  return null;
 }
 
-async function ensureLocal(context: OperationContext, plan: FetchPlan): Promise<ImageInspect> {
+async function ensureLocal(
+  context: OperationContext,
+  reference: string,
+  platform: ImagePlatform | null,
+): Promise<ImageInspect> {
   context.throwIfCancelled();
-  const found = await inspectImage(plan.reference);
+  const found = await inspectImage(reference);
   if (found !== null) {
     context.update({ step: 'local-found' }, true);
-    logInfo('image', `取得済みのイメージを確認しています / found ${plan.reference} locally; skipping the download`);
+    logInfo('image', `取得済みのイメージを使います / found ${reference} locally; skipping the download`);
     return found;
   }
   context.update({ phase: 'pulling', step: 'pull', pulled: true }, true);
-  logInfo('image', `ダウンロードします / pulling ${plan.reference} for ${plan.daemon.platform}`);
-  const outcome = await pullImage(plan.reference, plan.daemon.platform, context.signal, (progress) => {
+  logInfo('image', `ダウンロードします / pulling ${reference}${platform === null ? '' : ` for ${platform}`}`);
+  const outcome = await pullImage(reference, platform, context.signal, (progress) => {
     context.update({
       downloadedBytes: progress.downloadedBytes,
       totalBytes: progress.totalBytes,
@@ -238,129 +219,150 @@ async function ensureLocal(context: OperationContext, plan: FetchPlan): Promise<
       `取得ストリームに読めない行が ${outcome.malformed} 件ありました / ${outcome.malformed} unreadable line(s) in the pull stream`,
     );
   }
-  const pulled = await inspectImage(plan.reference);
+  const pulled = await inspectImage(reference);
   if (pulled === null) {
     throw new AppFailure(
-      'DIGEST_MISMATCH',
-      `取得後に ${plan.reference} を解決できません / ${plan.reference} cannot be resolved after the pull`,
+      'DOCKER_ERROR',
+      `取得後に ${reference} を解決できません / ${reference} cannot be resolved after the pull`,
+      { retryable: true },
     );
   }
-  logInfo('image', `ダウンロードが完了しました / pulled ${plan.reference} (${outcome.events} events)`);
+  logInfo('image', `ダウンロードが完了しました / pulled ${reference} (${outcome.events} events)`);
   return pulled;
 }
 
-async function verifyAndRegister(
+async function fetchAndRegister(
   context: OperationContext,
-  entry: ImageCatalogEntry,
-  plan: FetchPlan,
-  local: ImageInspect,
-  existing: RegisteredImage | null,
+  resolve: (daemon: DaemonInfo & { readonly platform: ImagePlatform }) => FetchTarget,
+  pinPlatform: boolean,
 ): Promise<RegisteredImage> {
-  context.throwIfCancelled();
-  context.update({ phase: 'verifying', step: 'metadata' }, true);
+  context.update({ phase: 'checking', step: 'daemon' }, true);
+  const daemon = await requireLinuxDaemon();
+  const target = resolve(daemon);
+  const reference = imageReference(target.repository, target.digest, target.tag);
+  context.update({ target: operationTarget(target, daemon.platform), step: 'local' });
 
-  const digest = plan.pinnedDigest ?? repoDigestOf(local, entry.repository);
-  if (digest === null) {
-    throw new AppFailure(
-      'DIGEST_MISMATCH',
-      `取得したイメージに ${entry.repository} のダイジェストが記録されていません / the pulled image carries no digest for ${entry.repository}`,
-    );
-  }
-  const expected: ExpectedImage = {
-    repository: entry.repository,
-    pinnedDigest: digest,
-    platform: plan.daemon.platform,
-    variant: entry.variant,
-    release: entry.release,
-  };
-  checkImageMetadata(local, expected);
-  context.update({ target: targetOf(entry, digest, plan.daemon.platform), step: 'contract' }, true);
-  const contract = await runContractChecks(local.id, expected, context.id, context.signal);
+  const local = await ensureLocal(context, reference, pinPlatform ? daemon.platform : null);
 
   context.throwIfCancelled();
   context.update({ phase: 'registering', step: 'ledger' }, true);
-
-  const id = registeredImageIdFor(entry.repository, digest, plan.daemon.platform);
-  const now = new Date().toISOString();
+  const digest = target.digest ?? (target.catalogEntryId === null ? null : repoDigestOf(local, target.repository));
   const image: RegisteredImage = {
-    id,
-    catalogEntryId: entry.id,
-    variant: entry.variant,
-    release: entry.release,
-    title: entry.title,
-    repository: entry.repository,
-    tag: entry.tag,
-    indexDigest: entry.indexDigest,
+    id: registeredImageIdFor(target.repository, digest, target.tag, daemon.platform),
+    catalogEntryId: target.catalogEntryId,
+    variant: target.variant,
+    release: target.release,
+    title: target.title,
+    repository: target.repository,
+    tag: target.tag,
     pinnedDigest: digest,
-    digestKind: plan.pinnedDigest !== null ? 'manifest' : 'index',
-    platform: plan.daemon.platform,
-    runtimeContract: RUNTIME_CONTRACT,
-    sourceRevision: sourceRevisionOf(local) ?? contract.imageInfo.sourceRevision ?? entry.sourceRevision,
-    tools: toolsWithMeasuredVersions(entry.tools, contract.imageInfo),
-    registeredAt: existing?.registeredAt ?? now,
-    lastVerified: {
-      engineId: plan.daemon.engineId,
-      localImageId: local.id,
-      localSizeBytes: local.sizeBytes,
-      verifiedAt: now,
-      checksPassed: contract.checksPassed,
-    },
+    platform: daemon.platform,
+    tools: target.tools,
+    registeredAt: new Date().toISOString(),
   };
   const committed = commitRegistration(image);
+  context.update({ target: operationTarget({ ...target, digest }, daemon.platform) });
   markSucceeded(context, committed.id);
   notifyStateChanged();
   return committed;
 }
 
-function entryForRegistered(image: RegisteredImage): ImageCatalogEntry {
-  const { catalog } = activeCatalog();
-  const fromCatalog = entryById(catalog, image.catalogEntryId);
-  if (fromCatalog !== null && fromCatalog.repository === image.repository) return fromCatalog;
+function catalogTitle(entry: ImageCatalogEntry): LocalizedText {
+  return { ja: `${entry.title.ja} / ${entry.release}`, en: `${entry.title.en} / ${entry.release}` };
+}
+
+function catalogTarget(entry: ImageCatalogEntry, digest: string | null): FetchTarget {
   return {
-    id: image.catalogEntryId,
+    catalogEntryId: entry.id,
+    variant: entry.variant,
+    release: entry.release,
+    title: catalogTitle(entry),
+    repository: entry.repository,
+    tag: entry.tag,
+    digest,
+    tools: entry.tools,
+  };
+}
+
+function registeredTarget(image: RegisteredImage): FetchTarget {
+  return {
+    catalogEntryId: image.catalogEntryId,
     variant: image.variant,
     release: image.release,
     title: image.title,
-    summary: image.title,
-    description: image.title,
-    recommended: false,
-    inherits: null,
     repository: image.repository,
     tag: image.tag,
-    indexDigest: image.indexDigest,
-    platforms: [{ platform: image.platform, manifestDigest: image.pinnedDigest, compressedLayerBytes: null }],
-    runtimeContract: RUNTIME_CONTRACT,
-    sourceRevision: image.sourceRevision,
-    publishedAt: null,
+    digest: image.pinnedDigest,
     tools: image.tools,
   };
 }
 
-export function startDownload(catalogEntryId: string): ImageOperation {
-  const entry = requireCatalogEntry(catalogEntryId);
-  const targetKey = `catalog:${entry.id}`;
+function start(
+  kind: ImageOperationKind,
+  targetKey: string,
+  ids: { readonly catalogEntryId: string | null; readonly registeredImageId: string | null },
+  initial: FetchTarget,
+  resolve: (daemon: DaemonInfo & { readonly platform: ImagePlatform }) => FetchTarget,
+  pinPlatform: boolean,
+): ImageOperation {
   const running = activeOperationFor(targetKey);
   if (running !== null) return running;
-
   return enqueueOperation(
-    {
-      id: newOperationId(),
-      kind: 'download',
-      targetKey,
-      catalogEntryId: entry.id,
-      registeredImageId: null,
-      target: targetOf(entry, null, null),
-    },
+    { id: newOperationId(), kind, targetKey, ...ids, target: operationTarget(initial, null) },
     async (context) => {
-      const plan = await planFetch(context, entry, null);
-      const existingId =
-        plan.pinnedDigest === null
-          ? null
-          : registeredImageIdFor(entry.repository, plan.pinnedDigest, plan.daemon.platform);
-      const existing = registeredImageFor(existingId);
-      const local = await ensureLocal(context, plan);
-      await verifyAndRegister(context, entry, plan, local, existing);
+      await fetchAndRegister(context, resolve, pinPlatform);
     },
+  );
+}
+
+export function startDownload(catalogEntryId: string): ImageOperation {
+  const entry = requireCatalogEntry(catalogEntryId);
+  return start(
+    'download',
+    `catalog:${entry.id}`,
+    { catalogEntryId: entry.id, registeredImageId: null },
+    catalogTarget(entry, null),
+    (daemon) => {
+      const platformEntry = catalogPlatform(entry, daemon.platform);
+      if (platformEntry === null && entry.platforms.length > 0) {
+        throw new AppFailure(
+          'UNSUPPORTED_PLATFORM',
+          `${entry.title.en} は ${daemon.platform} 向けに配布されていません / ${entry.title.en} is not published for ${daemon.platform}`,
+        );
+      }
+      return catalogTarget(entry, platformEntry?.manifestDigest ?? null);
+    },
+    true,
+  );
+}
+
+export function startCustomRegistration(request: ImageCustomRequest): ImageOperation {
+  const parsed = parseImageReference(request.reference);
+  if (parsed === null) {
+    throw new AppFailure(
+      'INVALID_INPUT',
+      `イメージ参照として読めません / not an image reference: ${request.reference.trim()}`,
+    );
+  }
+  const name = request.name.trim();
+  const shown = name === '' ? imageReference(parsed.repository, parsed.digest, parsed.tag) : name;
+  const target: FetchTarget = {
+    catalogEntryId: null,
+    variant: null,
+    release: null,
+    title: { ja: shown, en: shown },
+    repository: parsed.repository,
+    tag: parsed.tag,
+    digest: parsed.digest,
+    tools: [],
+  };
+  return start(
+    'custom',
+    `custom:${parsed.repository}|${registrationIdentity(parsed.digest, parsed.tag)}`,
+    { catalogEntryId: null, registeredImageId: null },
+    target,
+    () => target,
+    false,
   );
 }
 
@@ -369,31 +371,22 @@ export function startRepair(imageId: string): ImageOperation {
   if (image === null) {
     throw new AppFailure('IMAGE_NOT_REGISTERED', `登録されていないイメージです / not a registered image: ${imageId}`);
   }
-  const targetKey = `registered:${image.id}`;
-  const running = activeOperationFor(targetKey);
-  if (running !== null) return running;
-  const entry = entryForRegistered(image);
-
-  return enqueueOperation(
-    {
-      id: newOperationId(),
-      kind: 'repair',
-      targetKey,
-      catalogEntryId: entry.id,
-      registeredImageId: image.id,
-      target: targetOf(entry, image.pinnedDigest, image.platform),
-    },
-    async (context) => {
-      const plan = await planFetch(context, entry, image.pinnedDigest);
-      if (plan.daemon.platform !== image.platform) {
+  const target = registeredTarget(image);
+  return start(
+    'repair',
+    `registered:${image.id}`,
+    { catalogEntryId: image.catalogEntryId, registeredImageId: image.id },
+    target,
+    (daemon) => {
+      if (daemon.platform !== image.platform) {
         throw new AppFailure(
           'UNSUPPORTED_PLATFORM',
-          `この登録は ${image.platform} 向けで、接続中の Docker は ${plan.daemon.platform} です / this registration is for ${image.platform}; the connected Docker is ${plan.daemon.platform}`,
+          `この登録は ${image.platform} 向けで、接続中の Docker は ${daemon.platform} です / this registration is for ${image.platform}; the connected Docker is ${daemon.platform}`,
         );
       }
-      const local = await ensureLocal(context, plan);
-      await verifyAndRegister(context, entry, plan, local, image);
+      return target;
     },
+    image.catalogEntryId !== null,
   );
 }
 
@@ -408,7 +401,6 @@ function inUse(reason: string): AppFailure {
   );
 }
 
-/** Unregistering only removes the ledger entry; the image itself stays in Docker. */
 export async function unregisterImage(imageId: string): Promise<void> {
   const image = registeredImageFor(imageId);
   if (image === null) {

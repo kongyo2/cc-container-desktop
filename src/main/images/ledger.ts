@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 
-import { imageTargetKey, normalizeRepository } from '../../shared/images.ts';
+import { imageTargetKey, normalizeRepository, registrationIdentity } from '../../shared/images.ts';
 import type { ImagePlatform, RegisteredImage } from '../../shared/images.ts';
 
-/** The registration id is derived from the unique key, so the same content always registers under the same id. */
-export function registeredImageIdFor(repository: string, pinnedDigest: string, platform: ImagePlatform): string {
-  const key = JSON.stringify([normalizeRepository(repository), pinnedDigest, platform]);
+export function registeredImageIdFor(
+  repository: string,
+  pinnedDigest: string | null,
+  tag: string | null,
+  platform: ImagePlatform,
+): string {
+  const key = JSON.stringify([normalizeRepository(repository), registrationIdentity(pinnedDigest, tag), platform]);
   return `img_${createHash('sha256').update(key).digest('hex').slice(0, 24)}`;
 }
 
@@ -20,16 +24,11 @@ export class LedgerConflictError extends Error {
   }
 }
 
-/**
- * Adds a registration or refreshes an existing one. The same key must map to
- * the same id and vice versa; anything else is a corrupted ledger and is
- * refused rather than overwritten.
- */
 export function upsertRegistration(
   images: readonly RegisteredImage[],
   next: RegisteredImage,
 ): readonly RegisteredImage[] {
-  const expectedId = registeredImageIdFor(next.repository, next.pinnedDigest, next.platform);
+  const expectedId = registeredImageIdFor(next.repository, next.pinnedDigest, next.tag, next.platform);
   if (next.id !== expectedId) {
     throw new LedgerConflictError(`registration ${next.id} does not match its key (${expectedId})`);
   }
@@ -43,7 +42,8 @@ export function upsertRegistration(
     throw new LedgerConflictError(`the same image is already registered as ${byKey.id}`);
   }
   if (byId === null) return [...images, next];
-  const merged: RegisteredImage = { ...next, registeredAt: byId.registeredAt };
+  const merged: RegisteredImage =
+    next.catalogEntryId === null && byId.catalogEntryId !== null ? { ...byId, registeredAt: next.registeredAt } : next;
   return images.map((image) => (image.id === next.id ? merged : image));
 }
 

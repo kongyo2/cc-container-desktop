@@ -45,8 +45,7 @@ export function dataInstanceId(): string {
   return getConfig().dataInstanceId;
 }
 
-/** Writes first, publishes to memory only once the file is on disk. */
-export function saveConfig(next: AppConfig): AppConfig {
+function saveConfig(next: AppConfig): AppConfig {
   return configFile.set(normalizeConfig({ ...next, dataInstanceId: getConfig().dataInstanceId }));
 }
 
@@ -91,7 +90,6 @@ function requireEnvironment(config: AppConfig, id: string): { index: number; env
   return { index, environment };
 }
 
-/** The image an environment names must be registered; whether it is currently usable is checked when a task needs it. */
 export function upsertEnvironment(draft: EnvironmentDraft): AppConfig {
   if (registeredImageFor(draft.imageId) === null) {
     throw new AppFailure(
@@ -173,7 +171,7 @@ export function setSecret(profileId: string, secret: string): void {
   secretsFile.set(entries);
 }
 
-export function deleteSecret(profileId: string): void {
+function deleteSecret(profileId: string): void {
   const current = secretsFile.get();
   if (!(profileId in current)) return;
   const entries = { ...current };

@@ -11,8 +11,6 @@ export function phaseKey(phase: ImageOperationPhase): MessageKey {
       return 'opPhaseChecking';
     case 'pulling':
       return 'opPhasePulling';
-    case 'verifying':
-      return 'opPhaseVerifying';
     case 'registering':
       return 'opPhaseRegistering';
     case 'succeeded':
@@ -26,16 +24,23 @@ export function phaseKey(phase: ImageOperationPhase): MessageKey {
   }
 }
 
+export function kindKey(kind: ImageOperation['kind']): MessageKey {
+  switch (kind) {
+    case 'download':
+      return 'opKindDownload';
+    case 'custom':
+      return 'opKindCustom';
+    case 'repair':
+      return 'opKindRepair';
+  }
+}
+
 export function stepKey(operation: ImageOperation): MessageKey | null {
   switch (operation.step) {
     case 'local-found':
       return 'opStepLocalFound';
     case 'stalled':
       return 'opStepStalled';
-    case 'contract':
-      return 'opStepContract';
-    case 'metadata':
-      return 'opStepMetadata';
     default:
       return null;
   }
@@ -47,8 +52,6 @@ export function availabilityKey(availability: ImageAvailability): MessageKey {
       return 'imageStatusReady';
     case 'missing':
       return 'imageStatusMissing';
-    case 'unverified':
-      return 'imageStatusUnverified';
     case 'unavailable':
       return 'imageStatusUnavailable';
     case 'incompatible':
@@ -63,7 +66,6 @@ export function availabilityTone(availability: ImageAvailability): Tone {
     case 'ready':
       return 'ok';
     case 'missing':
-    case 'unverified':
       return 'warn';
     case 'unavailable':
       return 'idle';
@@ -87,7 +89,6 @@ export function phaseTone(phase: ImageOperationPhase): Tone {
   }
 }
 
-/** The operation a catalog card should show: the running one, else the latest finished one that did not succeed. */
 export function operationForTarget(
   operations: readonly ImageOperation[],
   match: (operation: ImageOperation) => boolean,

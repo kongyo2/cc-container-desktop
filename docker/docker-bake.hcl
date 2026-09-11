@@ -1,13 +1,3 @@
-// docker buildx bake definition for the CC Workbench images. Run it from the
-// repository root (paths below are resolved against the working directory):
-//
-//   docker buildx bake -f docker/docker-bake.hcl                      # every variant, linux/amd64, local tags
-//   docker buildx bake -f docker/docker-bake.hcl web --set '*.platform=linux/amd64,linux/arm64'
-//   RELEASE=2026.09.1 REVISION=$(git rev-parse HEAD) docker buildx bake -f docker/docker-bake.hcl --push
-//
-// The publish workflow builds one variant per platform on native runners and
-// merges the results with imagetools instead of using this multi-platform path.
-
 variable "REPOSITORY" {
   default = "docker.io/kongyo2/cc-workbench"
 }

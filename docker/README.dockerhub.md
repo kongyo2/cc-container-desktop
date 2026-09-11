@@ -1,12 +1,12 @@
 # CC Workbench — Claude Code runtime images for CC Container Desktop
 
-Pre-built Linux images that [CC Container Desktop](https://github.com/kongyo2/cc-container-desktop) runs Claude Code in. The app downloads one of them from this repository, verifies it, registers it, and creates one container per task from it. Nothing is installed on the host.
+Pre-built Linux images that [CC Container Desktop](https://github.com/kongyo2/cc-container-desktop) runs Claude Code in. The app downloads one of them from this repository, registers it, and creates one container per task from it. Nothing is installed on the host.
 
-[CC Container Desktop](https://github.com/kongyo2/cc-container-desktop) が Claude Code を動かすために使う、ビルド済みの Linux イメージです。アプリの「イメージ」画面から取得・検証・登録し、タスクごとのコンテナを作ります。
+[CC Container Desktop](https://github.com/kongyo2/cc-container-desktop) が Claude Code を動かすために使う、ビルド済みの Linux イメージです。アプリの「イメージ」画面から取得・登録し、タスクごとのコンテナを作ります。
 
 ## Variants / パターン
 
-Every variant shares the same foundation (`base`) and the same runtime contract, so the app works identically on all of them. Pick by what your repository needs.
+Every variant shares the same foundation (`base`), so the app works identically on all of them. Pick by what your repository needs.
 
 | Tag prefix | For                                     | On top of the foundation                                                                        |
 | ---------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -26,7 +26,7 @@ Every variant shares the same foundation (`base`) and the same runtime contract,
 - Official tags are `<variant>-<release>`, where `<release>` is a calendar version such as `2026.09.1`: `web-2026.09.1`, `python-2026.09.1`, …
 - Official tags are never rewritten. A fix ships as a new release (`2026.09.2`).
 - Every tag is a multi-platform index for `linux/amd64` and `linux/arm64`.
-- The app never pulls by tag: its bundled catalog pins the platform manifest digest of every variant, and the registration it keeps on disk stores that digest. Tags exist for humans.
+- The app pulls catalog images by digest: its bundled catalog pins the platform manifest digest of every variant, and the registration it keeps on disk stores that digest. Tags exist for humans and for the app's "Custom image" field.
 - No `latest` tag is published. The recommended variant is decided by the app's catalog.
 - Candidate tags (`candidate-…`) are build artifacts of the publish workflow and are not meant to be used.
 
@@ -44,6 +44,8 @@ docker buildx imagetools inspect kongyo2/cc-workbench:web-2026.09.1
 
 The images contain no API keys, no personal settings and no work history. Endpoints, models and API keys are set per task through the app's profiles.
 
+Any other image laid out the same way (the `claude` user with uid 1000, `/home/claude/workspace`, and `node`, `claude`, `tmux`, `bash` and `git` on the PATH) can be registered through **Custom image** on the same page: a fork of these images, a derived image with your own tools, or a tag you built locally.
+
 ## Using an image by hand / 手動で使う
 
 ```
@@ -54,7 +56,7 @@ docker run --rm -it --init -v my-home:/home/claude kongyo2/cc-workbench:web-2026
 - The container runs as `claude` (uid/gid 1000) with `HOME=/home/claude` and the workspace at `/home/claude/workspace`. Mount a volume at `/home/claude` to keep work between runs.
 - The default command is `sleep infinity`; the app execs into the container. Pass `--init` (the app sets `HostConfig.Init`) so a proper PID 1 reaps children.
 - Tool binaries live outside the home directory (`/opt/node`, `/opt/pytools`, `/usr/local/go`, `/opt/rustup`, `/opt/ruby`, …), so a mounted home volume never hides them.
-- `/opt/cc/image-info.json` records the variant, release, runtime contract, source revision and the versions of every installed tool; `/opt/cc/apt-packages.txt` lists the apt packages.
+- `/opt/cc/image-info.json` records the variant, release, source revision and the versions of every installed tool; `/opt/cc/apt-packages.txt` lists the apt packages.
 - `full` includes the Docker CLI but no daemon. Point `DOCKER_HOST` at a daemon you control if you need it.
 - PostgreSQL and Redis in `full` are installed but not running: `sudo service postgresql start` / `sudo service redis-server start`.
 

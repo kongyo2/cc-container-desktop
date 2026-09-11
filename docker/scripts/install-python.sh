@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Python variant: a full Python 3 development setup. Tools go into a dedicated
-# venv under /opt/pytools so the OS interpreter stays untouched.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 cc_apt_install python3 python3-venv python3-dev python3-pip

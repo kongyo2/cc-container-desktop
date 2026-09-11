@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Generates src/shared/imageCatalog.json from docker/variants.json,
-// docker/image-versions.lock.json and (after a publish) the digests and
-// image-info.json files CI collected. Run with:
-//
-//   node --experimental-strip-types scripts/generate-image-catalog.mjs [options]
-//
-//   --unpublished              write the catalog without digests (pre-publish state)
-//   --digests <file>           JSON: { "<variant>": { indexDigest, platforms: { "<platform>": { digest, compressedLayerBytes } } } }
-//   --image-info-dir <dir>     directory holding <variant>.image-info.json files from the verify step
-//   --repository <repo>        override docker/variants.json repository
-//   --release <YYYY.MM.N>      override docker/variants.json release
-//   --revision <sha>           source revision the images were built from
-//   --published-at <iso>       publication time
-//   --variants <a,b,...>       a partial publish: generate only these variants from --digests and
-//                              --image-info-dir, and carry every other variant over from --merge
-//   --merge <file>             catalog to carry unlisted variants from (default src/shared/imageCatalog.json)
-//   --out <file>               output path (default src/shared/imageCatalog.json)
-//   --check                    do not write; fail if the output would differ from the file on disk
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -61,7 +43,6 @@ if (selected !== null && selected.length === 0) {
   process.exit(2);
 }
 
-// Only read when some variant is carried over, so a full build never depends on the old catalog.
 const carried =
   selected !== null && variantsFile.variants.some((variant) => !selected.includes(variant.id))
     ? existsSync(mergeFrom)
@@ -69,7 +50,6 @@ const carried =
       : null
     : null;
 
-/** A variant that was not built keeps its entry from the previous catalog, provided that entry is usable. */
 function carriedEntry(variant) {
   if (carried === null) {
     throw new Error(`${variant.id} was not built and there is no ${mergeFrom} to carry it over from`);
@@ -92,7 +72,6 @@ function measuredTools(variant) {
   const info = readJson(file);
   if (info.variant !== variant) throw new Error(`${file} describes ${info.variant}, not ${variant}`);
   if (info.release !== release) throw new Error(`${file} was built for release ${info.release}, not ${release}`);
-  if (info.runtimeContract !== 1) throw new Error(`${file} has runtime contract ${info.runtimeContract}`);
   return info.tools ?? {};
 }
 
@@ -127,7 +106,6 @@ function generatedEntry(variant) {
     tag: officialTag(variant.id, release),
     indexDigest: unpublished ? null : (digests[variant.id]?.indexDigest ?? null),
     platforms: platformsOf(variant.id),
-    runtimeContract: 1,
     sourceRevision: revision,
     publishedAt: unpublished ? null : publishedAt,
     tools: resolveTools(variantsFile.tools, lock, variantsFile.variants, variant.id, measuredTools(variant.id)),

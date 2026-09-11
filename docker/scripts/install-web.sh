@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Web variant: JavaScript / TypeScript tooling on top of the base.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 export PATH="/opt/node/bin:${PATH}"
@@ -17,7 +15,6 @@ npm install -g --no-fund --no-audit \
 npm cache clean --force
 pnpm --version && yarn --version && tsc --version && eslint --version && prettier --version
 
-# Bun, pinned archive.
 bun_url="$(cc_lock_platform_field '.bun.archives' 'url')"
 bun_sha="$(cc_lock_platform_field '.bun.archives' 'sha256')"
 cc_fetch_verified "$bun_url" "$bun_sha" /tmp/bun.zip

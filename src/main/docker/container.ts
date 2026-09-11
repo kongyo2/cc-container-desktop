@@ -13,7 +13,6 @@ import {
   MANAGED_LABEL,
   REGISTERED_IMAGE_LABEL,
   ROLE_LABEL,
-  RUNTIME_CONTRACT_LABEL,
   TASK_LABEL,
 } from '../../shared/presets.ts';
 import type { ContainerState, ExecResult, Task } from '../../shared/types.ts';
@@ -35,8 +34,7 @@ export interface ContainerRef {
 export interface ContainerSpec {
   readonly localImageId: string;
   readonly registeredImageId: string;
-  readonly pinnedDigest: string;
-  readonly runtimeContract: number;
+  readonly pinnedDigest: string | null;
   readonly env: readonly string[];
   readonly environmentId: string;
   readonly environmentRevision: string;
@@ -139,7 +137,6 @@ export async function inspectContainer(ref: ContainerRef): Promise<ContainerStat
   return raw === null ? MISSING_CONTAINER : stateOf(raw);
 }
 
-/** Ownership means: created by this app, for this task, by this data instance. Anything else is left alone. */
 function ownedBy(labels: unknown, taskId: string): boolean {
   const map = labelsOf(labels);
   return map[MANAGED_LABEL] === 'true' && map[TASK_LABEL] === taskId && map[INSTANCE_LABEL] === dataInstanceId();
@@ -155,8 +152,7 @@ function containerLabels(ref: ContainerRef, spec: ContainerSpec): Record<string,
     [ENVIRONMENT_LABEL]: spec.environmentId,
     [ENVIRONMENT_REVISION_LABEL]: spec.environmentRevision,
     [REGISTERED_IMAGE_LABEL]: spec.registeredImageId,
-    [IMAGE_DIGEST_LABEL]: spec.pinnedDigest,
-    [RUNTIME_CONTRACT_LABEL]: String(spec.runtimeContract),
+    ...(spec.pinnedDigest === null ? {} : { [IMAGE_DIGEST_LABEL]: spec.pinnedDigest }),
   };
 }
 
@@ -283,7 +279,6 @@ export interface ExecOptions {
   readonly asRoot?: boolean;
   readonly workdir?: string;
   readonly env?: readonly string[];
-  readonly stdin?: string;
   readonly container?: Container;
   readonly onLine?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
@@ -319,19 +314,18 @@ export async function execCapture(
   options: ExecOptions = {},
 ): Promise<ExecResult> {
   const container = options.container ?? containerHandle(ref);
-  const wantsStdin = options.stdin !== undefined;
   const exec = await container.exec({
     Cmd: [...command],
     AttachStdout: true,
     AttachStderr: true,
-    AttachStdin: wantsStdin,
+    AttachStdin: false,
     Tty: false,
     User: options.asRoot === true ? 'root' : CONTAINER_USER,
     WorkingDir: options.workdir ?? CONTAINER_WORKSPACE,
     Env: options.env === undefined ? [] : [...options.env],
   });
 
-  const stream = await exec.start({ hijack: wantsStdin, stdin: wantsStdin, Tty: false });
+  const stream = await exec.start({ hijack: false, stdin: false, Tty: false });
 
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -355,11 +349,6 @@ export async function execCapture(
     errChunks.push(chunk);
   });
   docker().modem.demuxStream(stream, stdout, stderr);
-
-  if (options.stdin !== undefined) {
-    stream.write(options.stdin);
-    stream.end();
-  }
 
   await new Promise<void>((resolve, reject) => {
     stream.on('end', resolve);
@@ -395,13 +384,18 @@ interface ExecInspect {
   readonly Running?: boolean;
 }
 
+const EXIT_CODE_WAIT_MS = 5000;
+const EXIT_CODE_POLL_MS = 50;
+
 async function settledExitCode(exec: { inspect: () => Promise<unknown> }): Promise<number> {
+  const deadline = Date.now() + EXIT_CODE_WAIT_MS;
   /* oxlint-disable no-await-in-loop */
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (;;) {
     const info = (await exec.inspect()) as ExecInspect;
-    if (typeof info.ExitCode === 'number') return info.ExitCode;
+    if (typeof info.ExitCode === 'number' && info.Running !== true) return info.ExitCode;
+    if (Date.now() >= deadline) break;
     await new Promise((resolve) => {
-      setTimeout(resolve, 25);
+      setTimeout(resolve, EXIT_CODE_POLL_MS);
     });
   }
   /* oxlint-enable no-await-in-loop */
@@ -421,10 +415,10 @@ export async function execChecked(
   return result.stdout;
 }
 
-export const NOT_RUNNING_MESSAGE =
+const NOT_RUNNING_MESSAGE =
   'タスクが起動していません。「起動」を押してください。 / The task is not running — press "Start".';
 
-export async function requireRunning(ref: ContainerRef): Promise<void> {
+async function requireRunning(ref: ContainerRef): Promise<void> {
   let raw: InspectResponse | null;
   try {
     raw = await ownedRaw(ref);
@@ -434,7 +428,7 @@ export async function requireRunning(ref: ContainerRef): Promise<void> {
   if (raw === null || raw.State?.Running !== true) throw new AppFailure('TASK_NOT_RUNNING', NOT_RUNNING_MESSAGE);
 }
 
-export function translateContainerError(error: unknown): unknown {
+function translateContainerError(error: unknown): unknown {
   if (!isNotFound(error)) return error;
   const message = describeError(error);
   if (!/no such container/iu.test(message)) return error;

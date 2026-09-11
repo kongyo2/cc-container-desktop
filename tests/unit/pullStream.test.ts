@@ -103,10 +103,6 @@ test('the aggregate counts bytes once per layer, tracks totals and reused layers
 });
 
 test('a containerd-store stream: the reference is not a layer and a clean end completes the config blob', () => {
-  // Verbatim shape of `docker pull` under the containerd image store: the
-  // first message carries the tag as its id, the config blob only ever reaches
-  // "Download complete", and an image that is already present ends after the
-  // "Pulling from" line with nothing else.
   const aggregate = createPullAggregate();
   const feed = (value: Record<string, unknown>): void => {
     const event = parsePullLine(line(value));

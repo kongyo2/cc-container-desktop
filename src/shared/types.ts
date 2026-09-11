@@ -245,7 +245,7 @@ export interface McpServerConfig {
   readonly note: string;
 }
 
-export type MarketplaceSourceKind = 'github' | 'git';
+type MarketplaceSourceKind = 'github' | 'git';
 
 export interface MarketplaceConfig {
   readonly id: string;

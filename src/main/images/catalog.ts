@@ -8,7 +8,6 @@ import {
   normalizeRepository,
   officialTag,
   RELEASE_PATTERN,
-  RUNTIME_CONTRACT,
 } from '../../shared/images.ts';
 import type { ImageCatalog, ImageCatalogEntry } from '../../shared/images.ts';
 
@@ -40,7 +39,6 @@ const entrySchema = z.strictObject({
   tag: z.string().min(1),
   indexDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   platforms: z.array(platformSchema),
-  runtimeContract: z.literal(RUNTIME_CONTRACT),
   sourceRevision: z
     .string()
     .regex(/^[0-9a-f]{7,64}$/u)
@@ -123,11 +121,6 @@ export function parseCatalog(raw: unknown): ImageCatalog {
   const entries: ImageCatalogEntry[] = parsed.entries.map((entry) => ({
     ...entry,
     repository: normalizeRepository(entry.repository),
-    runtimeContract: RUNTIME_CONTRACT,
   }));
   return { schemaVersion: 1, generatedAt: parsed.generatedAt, repository: parsed.repository, entries };
-}
-
-export function isPublished(entry: ImageCatalogEntry): boolean {
-  return entry.platforms.some((platform) => platform.manifestDigest !== null);
 }

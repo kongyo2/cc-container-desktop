@@ -1,6 +1,6 @@
 import type { Language, WorkspaceSource } from './types.ts';
 
-export const MAX_TASK_NAME = 64;
+const MAX_TASK_NAME = 64;
 
 export const TASK_ID_PATTERN: RegExp = /^[a-z0-9]{6,32}$/u;
 

@@ -4,7 +4,7 @@ import type { Snapshot } from '../../../shared/types.ts';
 import { useT } from '../i18n.ts';
 import { useActiveOperationList } from '../store.ts';
 
-export type Lamp = 'live' | 'hold' | 'fault' | 'off';
+type Lamp = 'live' | 'hold' | 'fault' | 'off';
 
 function Cell({
   legend,

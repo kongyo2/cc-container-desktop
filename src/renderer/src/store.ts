@@ -16,7 +16,7 @@ export interface TerminalTab {
   readonly exited: boolean;
 }
 
-export interface LogEntry extends LogLine {
+interface LogEntry extends LogLine {
   readonly seq: number;
 }
 
@@ -80,7 +80,6 @@ function reconcileSelection(snapshot: Snapshot, selectedTaskId: string | null): 
   return snapshot.tasks[0]?.task.id ?? null;
 }
 
-/** Newer information only: an event or snapshot never rolls an operation back to an earlier sequence. */
 function mergeOperations(
   current: Record<string, ImageOperation>,
   incoming: readonly ImageOperation[],
@@ -93,7 +92,6 @@ function mergeOperations(
   return next;
 }
 
-/** A fresh install lands on the Images page: nothing can be done before an image is registered. */
 function initialView(snapshot: Snapshot): View {
   const nothingYet =
     snapshot.images.length === 0 && snapshot.config.environments.length === 0 && snapshot.tasks.length === 0;
@@ -218,16 +216,10 @@ export function selectedTaskView(state: UiState): TaskView | null {
   return state.snapshot.tasks.find((view) => view.task.id === state.selectedTaskId) ?? null;
 }
 
-/** Newest first. Pure, so it can be memoised on the (stable) operations record. */
-export function operationList(operations: Readonly<Record<string, ImageOperation>>): readonly ImageOperation[] {
+function operationList(operations: Readonly<Record<string, ImageOperation>>): readonly ImageOperation[] {
   return Object.values(operations).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
 }
 
-/**
- * Derived lists are memoised on the store's record rather than computed in a
- * selector: a selector returning a fresh array on every call would make
- * useSyncExternalStore re-render without end.
- */
 export function useOperationList(): readonly ImageOperation[] {
   const operations = useApp((state) => state.operations);
   return useMemo(() => operationList(operations), [operations]);

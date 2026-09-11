@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Shared helpers for the image build scripts. Sourced, not executed.
 set -euo pipefail
 
 CC_BUILD_DIR="${CC_BUILD_DIR:-/opt/cc-build}"
@@ -7,10 +6,6 @@ CC_LOCK="${CC_LOCK:-${CC_BUILD_DIR}/image-versions.lock.json}"
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Builds behind a TLS-inspecting proxy pass the BuildKit secret
-# "build-ca-bundle" (a PEM bundle). install-base.sh adds it to the system
-# store; every later download tool is pointed at that store here. Published
-# images are built without it.
 CC_EXTRA_CA="${CC_BUILD_DIR}/extra-ca.crt"
 if [ -s "$CC_EXTRA_CA" ]; then
   export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
@@ -56,7 +51,6 @@ cc_apt_install() {
 }
 
 cc_profile_append() {
-  # $1: file name under /etc/profile.d, rest: lines
   local file="/etc/profile.d/$1"
   shift
   printf '%s\n' "$@" >> "$file"
@@ -64,7 +58,6 @@ cc_profile_append() {
 }
 
 cc_link_bins() {
-  # $1: directory holding executables, rest: names to expose under /usr/local/bin
   local dir="$1"
   shift
   local name

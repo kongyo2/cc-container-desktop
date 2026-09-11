@@ -17,7 +17,7 @@ import type {
 import { AppFailure } from '../errors.ts';
 import type { ParseOutcome } from '../state/file.ts';
 
-export const INSTANCE_ID_PATTERN: RegExp = /^inst_[0-9a-f]{16}$/u;
+const INSTANCE_ID_PATTERN: RegExp = /^inst_[0-9a-f]{16}$/u;
 
 const profileSchema = z.strictObject({
   id: z.string().min(1),
@@ -180,7 +180,7 @@ export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
   };
 }
 
-export function starterProfile(): Profile {
+function starterProfile(): Profile {
   const openrouter = ENDPOINT_PRESETS.find((preset) => preset.id === 'openrouter');
   return {
     id: 'openrouter-default',
@@ -201,7 +201,7 @@ export function starterProfile(): Profile {
   };
 }
 
-export function emptyExtensions(): Extensions {
+function emptyExtensions(): Extensions {
   return { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 }
 
@@ -209,7 +209,7 @@ export function emptyManagedNames(): ManagedNames {
   return { mcpServers: [], marketplaces: [], plugins: [] };
 }
 
-export function newInstanceId(): string {
+function newInstanceId(): string {
   return `inst_${randomBytes(8).toString('hex')}`;
 }
 
@@ -258,7 +258,6 @@ function duplicateId(items: readonly { readonly id: string }[]): string | null {
   return null;
 }
 
-/** Dangling defaults are re-pointed; everything else must be exactly the current shape. */
 export function normalizeConfig(config: AppConfig): AppConfig {
   return {
     ...config,
