@@ -10,7 +10,10 @@ name: Publish images
 # variants that were not built over from the committed catalog.
 #
 # Required repository secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN.
-# Optional repository variable: DOCKERHUB_REPOSITORY (default docker.io/kongyo2/cc-workbench).
+# Optional DOCKERHUB_REPOSITORY (default docker.io/kongyo2/cc-workbench), read
+# from the repository variables or, failing that, the repository secrets. A
+# variable is the better home for it: a repository name is not sensitive and a
+# secret reads as *** in every log line below.
 
 on:
   workflow_dispatch:
@@ -49,7 +52,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'docker.io/kongyo2/cc-workbench' }}
+  # `vars` and `secrets` are separate namespaces: DOCKERHUB_REPOSITORY stored as
+  # a secret is invisible to `vars` and vice versa, so read both rather than
+  # fall through to the default and publish under the wrong name.
+  REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || secrets.DOCKERHUB_REPOSITORY || 'docker.io/kongyo2/cc-workbench' }}
+  REPOSITORY_SOURCE: ${{ vars.DOCKERHUB_REPOSITORY && 'variable' || secrets.DOCKERHUB_REPOSITORY && 'secret' || 'default' }}
   CANDIDATE_PREFIX: candidate-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
@@ -63,6 +70,29 @@ jobs:
       revision: ${{ steps.plan.outputs.revision }}
       built_at: ${{ steps.plan.outputs.built_at }}
     steps:
+      # Every other job pushes at $REPOSITORY, and a DOCKERHUB_REPOSITORY in the
+      # wrong namespace reads exactly like no DOCKERHUB_REPOSITORY at all, so
+      # name the source here instead of letting the default give itself away
+      # minutes later as a push authorization failure.
+      - name: Resolve the target repository
+        run: |
+          set -euo pipefail
+          echo "publishing to $REPOSITORY (DOCKERHUB_REPOSITORY source: $REPOSITORY_SOURCE)"
+          case "$REPOSITORY_SOURCE" in
+            secret)
+              echo "::notice::DOCKERHUB_REPOSITORY is a secret, so it reads as *** in these logs; move it to the repository variables to keep it legible"
+              ;;
+            default)
+              echo "::notice::no DOCKERHUB_REPOSITORY variable or secret is set; publishing at the built-in default"
+              ;;
+          esac
+          # The workflow appends :<variant>-<release> to this, so the reference
+          # must carry a registry host and namespace and must not carry a tag.
+          if [[ ! "$REPOSITORY" =~ ^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+){2,}$ ]]; then
+            echo "::error::DOCKERHUB_REPOSITORY must be lowercase, host-qualified and untagged, like docker.io/namespace/name"
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
