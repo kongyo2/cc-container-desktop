@@ -1,4 +1,4 @@
-import { cloneRefProblem, cloneUrlProblem, displayCloneUrl, repoNameFromUrl } from '../../shared/git.ts';
+import { assertCloneTarget, displayCloneUrl, repoNameFromUrl } from '../../shared/git.ts';
 import { CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import { logInfo, logWarn } from '../logger.ts';
 import { execCapture } from './container.ts';
@@ -11,12 +11,10 @@ async function workspaceIsEmpty(ref: ContainerRef): Promise<boolean> {
   return result.exitCode === 0 && result.stdout.trim() === '';
 }
 
-/** Clones a public repository into the workspace: into its root when empty, otherwise into a folder named after the repository. */
 export async function cloneIntoWorkspace(ref: ContainerRef, url: string, gitRef: string): Promise<string> {
   const cleanUrl = url.trim();
   const cleanRef = gitRef.trim();
-  const problem = cloneUrlProblem(cleanUrl) ?? cloneRefProblem(cleanRef);
-  if (problem !== null) throw new Error(problem);
+  assertCloneTarget(cleanUrl, cleanRef);
 
   const target = (await workspaceIsEmpty(ref))
     ? CONTAINER_WORKSPACE

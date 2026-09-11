@@ -12,7 +12,6 @@ export function normalizeTaskName(name: string): string {
     .slice(0, MAX_TASK_NAME);
 }
 
-/** A folder name for exports: the task name with anything a filesystem may reject swapped out. */
 export function exportFolderName(taskName: string): string {
   const cleaned = normalizeTaskName(taskName)
     .replaceAll(/[<>:"/\\|?*]/gu, '-')

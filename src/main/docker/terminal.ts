@@ -207,14 +207,17 @@ async function closeMatching(predicate: (session: Session) => boolean): Promise<
   return ids.length;
 }
 
-/** Drops every terminal attached to a task's container, before that container is stopped or removed. */
+function announceReset(taskIds: Iterable<string>): void {
+  for (const taskId of taskIds) send(EVENTS.terminalsReset, { taskId } satisfies TerminalsReset);
+}
+
 export async function closeTaskTerminals(taskId: string): Promise<void> {
   const closed = await closeMatching((session) => session.ref.taskId === taskId);
-  if (closed > 0) send(EVENTS.terminalsReset, { taskId } satisfies TerminalsReset);
+  if (closed > 0) announceReset([taskId]);
 }
 
 export async function closeAllTerminals(): Promise<void> {
   const taskIds = new Set([...sessions.values()].map((session) => session.ref.taskId));
   await closeMatching(() => true);
-  for (const taskId of taskIds) send(EVENTS.terminalsReset, { taskId } satisfies TerminalsReset);
+  announceReset(taskIds);
 }

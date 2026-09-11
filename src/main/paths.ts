@@ -32,6 +32,10 @@ export function setupPath(): string {
   return join(userDockerDir(), 'setup.sh');
 }
 
+export function brokenCopyPath(path: string): string {
+  return `${path}.broken-${Date.now().toString(36)}`;
+}
+
 export function isInside(root: string, target: string): boolean {
   return target === root || target.startsWith(root + sep);
 }

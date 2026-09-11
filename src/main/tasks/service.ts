@@ -1,4 +1,4 @@
-import { cloneRefProblem, cloneUrlProblem } from '../../shared/git.ts';
+import { assertCloneTarget } from '../../shared/git.ts';
 import { taskContainerName, taskVolumeName } from '../../shared/presets.ts';
 import { exportFolderName, normalizeTaskName } from '../../shared/tasks.ts';
 import type {
@@ -36,7 +36,8 @@ import {
   volumeExists,
   withRunningContainer,
 } from '../docker/container.ts';
-import { inspectImage } from '../docker/engine.ts';
+import type { ContainerRef } from '../docker/container.ts';
+import { requireImageBuilt } from '../docker/engine.ts';
 import { exportWorkspace, importIntoWorkspace } from '../docker/files.ts';
 import { cloneIntoWorkspace } from '../docker/git.ts';
 import { closeTaskTerminals, openTerminal } from '../docker/terminal.ts';
@@ -45,7 +46,6 @@ import { addTask, getTask, listTasks, newTaskId, removeTask, updateTask } from '
 
 const queues = new Map<string, Promise<void>>();
 
-/** One operation per task at a time, so a double click or a delete during a start cannot interleave. */
 export function withTaskLock<T>(id: string, work: () => Promise<T>): Promise<T> {
   const previous = queues.get(id) ?? Promise.resolve();
   const next = previous.then(work, work);
@@ -91,8 +91,7 @@ function checkedSource(source: WorkspaceSource): WorkspaceSource {
   if (source.kind === 'empty') return { kind: 'empty' };
   const url = source.url.trim();
   const ref = source.ref.trim();
-  const problem = cloneUrlProblem(url) ?? cloneRefProblem(ref);
-  if (problem !== null) throw new Error(problem);
+  assertCloneTarget(url, ref);
   return { kind: 'git', url, ref };
 }
 
@@ -106,11 +105,7 @@ function checkedProfileId(profileId: string | null): string | null {
 
 async function requireImage(): Promise<string> {
   const tag = getConfig().imageTag;
-  if (!(await inspectImage(tag)).exists) {
-    throw new Error(
-      `${tag} がまだビルドされていません。「イメージ」でビルドしてください / ${tag} has not been built yet — build it on the Image page`,
-    );
-  }
+  await requireImageBuilt(tag);
   return tag;
 }
 
@@ -193,8 +188,6 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
 export function startTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    // The image is only needed when the container has to be created; a stopped
-    // container restarts fine after its tag was rebuilt or renamed.
     await startContainer(refOf(task), getConfig().imageTag);
     return applyProvision(task);
   });
@@ -208,7 +201,6 @@ export function stopTask(id: string): Promise<void> {
   });
 }
 
-/** Rebuilds the container from the current image while keeping the home volume. */
 export function recreateTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
@@ -229,20 +221,32 @@ export function provisionTask(id: string): Promise<string> {
   });
 }
 
+async function hasWorkspace(ref: ContainerRef): Promise<boolean> {
+  if ((await inspectContainer(ref)).exists) return true;
+  return volumeExists(ref.volumeName);
+}
+
+function ensureTaskContainer(ref: ContainerRef): Promise<ContainerState> {
+  return ensureContainer(ref, getConfig().imageTag);
+}
+
+async function exportTo(ref: ContainerRef, taskName: string, destination: string): Promise<ExportSummary> {
+  await ensureTaskContainer(ref);
+  const summary = await exportWorkspace(ref, destination, exportFolderName(taskName));
+  rememberExportDir(destination);
+  return summary;
+}
+
 export function exportTask(id: string, destination: string): Promise<ExportSummary> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
     const ref = refOf(task);
-    const state = await inspectContainer(ref);
-    if (!state.exists && !(await volumeExists(ref.volumeName))) {
+    if (!(await hasWorkspace(ref))) {
       throw new Error(
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
-    await ensureContainer(ref, getConfig().imageTag);
-    const summary = await exportWorkspace(ref, destination, exportFolderName(task.name));
-    rememberExportDir(destination);
-    return summary;
+    return exportTo(ref, task.name, destination);
   });
 }
 
@@ -257,16 +261,13 @@ export function deleteTask(
     let exported: ExportSummary | null = null;
 
     if (request.exportFirst) {
-      const state = await inspectContainer(ref);
-      if (state.exists || (await volumeExists(ref.volumeName))) {
+      if (await hasWorkspace(ref)) {
         if (destination === null || destination === '') {
           throw new Error(
             '取り出し先が選ばれなかったので何も消していません / no export folder was chosen, so nothing was deleted',
           );
         }
-        await ensureContainer(ref, getConfig().imageTag);
-        exported = await exportWorkspace(ref, destination, exportFolderName(task.name));
-        rememberExportDir(destination);
+        exported = await exportTo(ref, task.name, destination);
         if (exported.skipped.length > 0) {
           throw new Error(
             `${exported.skipped.length} 件を取り出せなかったので削除を中止しました。取り出せた分は ${exported.path} にあります / ` +
@@ -291,9 +292,8 @@ export function deleteTask(
 
 export function importIntoTask(id: string, paths: readonly string[]): Promise<ImportSummary> {
   return withTaskLock(id, async () => {
-    const task = getTask(id);
-    const ref = refOf(task);
-    await ensureContainer(ref, getConfig().imageTag);
+    const ref = refOf(getTask(id));
+    await ensureTaskContainer(ref);
     return importIntoWorkspace(ref, paths);
   });
 }
@@ -319,7 +319,6 @@ export function openTaskTerminal(request: OpenTerminalRequest): Promise<OpenTerm
   });
 }
 
-/** Re-provisions every running task that passes the filter; returns one line per task, failures included. */
 export async function provisionRunningTasks(filter: (task: Task) => boolean = () => true): Promise<readonly string[]> {
   const lines: string[] = [];
   /* oxlint-disable no-await-in-loop -- provisioning shares the host's Docker connection; keep it sequential */
@@ -343,7 +342,6 @@ export async function provisionRunningTasks(filter: (task: Task) => boolean = ()
   return lines;
 }
 
-/** Detaches a deleted profile from its tasks and rewrites the running ones, so its key does not linger in their settings. */
 export async function forgetProfile(profileId: string): Promise<readonly string[]> {
   const affected = new Set<string>();
   for (const task of listTasks()) {

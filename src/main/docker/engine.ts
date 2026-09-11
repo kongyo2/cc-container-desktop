@@ -65,6 +65,13 @@ export async function inspectImage(tag: string): Promise<ImageStatus> {
   }
 }
 
+export async function requireImageBuilt(tag: string): Promise<void> {
+  if ((await inspectImage(tag)).exists) return;
+  throw new Error(
+    `${tag} がまだビルドされていません。「イメージ」でビルドしてください / ${tag} has not been built yet — build it on the Image page`,
+  );
+}
+
 export function isNotFound(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const status = (error as { statusCode?: unknown }).statusCode;

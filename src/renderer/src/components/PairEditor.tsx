@@ -33,19 +33,21 @@ function TextAreaField({
   );
 }
 
+interface TextAreaEditorProps<TValue, TParsed> {
+  label: string;
+  hint?: string;
+  placeholder?: string;
+  value: TValue;
+  onChange: (parsed: TParsed) => void;
+}
+
 export function PairEditor({
   label,
   hint,
   placeholder,
   value,
   onChange,
-}: {
-  label: string;
-  hint?: string;
-  placeholder?: string;
-  value: Readonly<Record<string, string>>;
-  onChange: (pairs: Record<string, string>) => void;
-}): JSX.Element {
+}: TextAreaEditorProps<Readonly<Record<string, string>>, Record<string, string>>): JSX.Element {
   const [problems, setProblems] = useState<readonly string[]>([]);
 
   return (
@@ -75,13 +77,7 @@ export function ArgEditor({
   placeholder,
   value,
   onChange,
-}: {
-  label: string;
-  hint?: string;
-  placeholder?: string;
-  value: readonly string[];
-  onChange: (args: string[]) => void;
-}): JSX.Element {
+}: TextAreaEditorProps<readonly string[], string[]>): JSX.Element {
   return (
     <TextAreaField
       label={label}

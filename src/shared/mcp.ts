@@ -1,4 +1,5 @@
 import type { McpServerConfig } from './types.ts';
+import { isHttpUrl, parseUrl } from './url.ts';
 
 const RESERVED_MCP_NAMES = new Set([
   'workspace',
@@ -20,13 +21,9 @@ export function validateMcpServer(server: McpServerConfig): string | null {
     return null;
   }
   if (server.url.trim() === '') return `${server.name}: URL が空です / url is empty`;
-  let parsed: URL;
-  try {
-    parsed = new URL(server.url.trim());
-  } catch {
-    return `${server.name}: URL の形式が不正です / url is not a valid URL`;
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+  const parsed = parseUrl(server.url.trim());
+  if (parsed === null) return `${server.name}: URL の形式が不正です / url is not a valid URL`;
+  if (!isHttpUrl(parsed)) {
     return `${server.name}: URL は http:// か https:// にしてください / url must be http or https`;
   }
   return null;

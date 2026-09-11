@@ -26,8 +26,6 @@ export function NewTaskPanel(): JSX.Element {
   const taskCount = snapshot?.tasks.length ?? 0;
   const [name, setName] = useState(() => suggestName(taskCount, language));
   const [note, setNote] = useState('');
-  // undefined until the user picks something, so the default profile applies
-  // even when the panel mounted before the first snapshot arrived.
   const [profileChoice, setProfileChoice] = useState<string | null | undefined>(undefined);
   const [kind, setKind] = useState<WorkspaceSource['kind']>('empty');
   const [url, setUrl] = useState('');
@@ -40,8 +38,6 @@ export function NewTaskPanel(): JSX.Element {
 
   const source: WorkspaceSource =
     kind === 'git' ? { kind: 'git', url: url.trim(), ref: ref.trim() } : { kind: 'empty' };
-  // Problems with what was typed show under the form; Docker and image problems
-  // already have their own notice at the top, so they only disable the button.
   const formProblem =
     taskNameProblem(name, language) ?? (kind === 'git' ? (cloneUrlProblem(url) ?? cloneRefProblem(ref)) : null);
   const blocked = formProblem !== null || !docker.available || !image.exists;

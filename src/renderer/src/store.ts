@@ -49,12 +49,16 @@ export interface UiState {
   run: <T>(label: string, call: () => Promise<Result<T>>) => Promise<T | null>;
 }
 
+export function tabsOfTask(tabs: readonly TerminalTab[], taskId: string | null): TerminalTab[] {
+  return tabs.filter((tab) => tab.taskId === taskId);
+}
+
 function nextActive(
   tabs: readonly TerminalTab[],
   active: Record<string, string>,
   taskId: string,
 ): Record<string, string> {
-  const remaining = tabs.filter((tab) => tab.taskId === taskId);
+  const remaining = tabsOfTask(tabs, taskId);
   const current = active[taskId];
   if (current !== undefined && remaining.some((tab) => tab.key === current)) return active;
   const next = { ...active };
@@ -64,7 +68,6 @@ function nextActive(
   return next;
 }
 
-/** Keeps the selection on a task that still exists, falling back to the first one. */
 function reconcileSelection(snapshot: Snapshot, selectedTaskId: string | null): string | null {
   if (selectedTaskId !== null && snapshot.tasks.some((view) => view.task.id === selectedTaskId)) return selectedTaskId;
   return snapshot.tasks[0]?.task.id ?? null;

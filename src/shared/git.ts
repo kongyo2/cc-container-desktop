@@ -1,40 +1,31 @@
+import { isHttpUrl, parseUrl } from './url.ts';
+
 const REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/+@-]*$/u;
 
 const MAX_REF_LENGTH = 200;
 
-/** Public https clone URLs only: anything that would need a credential or a shell escape is refused. */
 export function cloneUrlProblem(input: string): string | null {
   const url = input.trim();
   if (url === '') return 'Git の URL が空です / the git URL is empty';
   if (url.startsWith('-')) return 'URL が - で始まっています / a URL starting with "-" would be read as an option';
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return `${url}: URL の形式が不正です / not a valid URL`;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  const parsed = parseUrl(url);
+  if (parsed === null) return `${url}: URL の形式が不正です / not a valid URL`;
+  if (!isHttpUrl(parsed)) {
     return `${url}: https:// の公開リポジトリだけ clone できます / only public http(s) repositories can be cloned`;
   }
   if (parsed.username !== '' || parsed.password !== '') {
     return `${parsed.host}: URL に認証情報は入れられません / credentials in the URL are not allowed`;
   }
   if (parsed.hostname === '') return `${url}: ホスト名がありません / the URL has no host`;
-  // A query or fragment is where a token would hide; a public clone URL needs neither.
   if (parsed.search !== '' || parsed.hash !== '') {
     return `${parsed.host}: URL に ? や # 以降は付けられません / a clone URL cannot carry a query or fragment`;
   }
   return null;
 }
 
-/** The URL with everything but scheme, host and path removed, for logs. */
 export function displayCloneUrl(input: string): string {
-  try {
-    const parsed = new URL(input.trim());
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return '(invalid URL)';
-  }
+  const parsed = parseUrl(input.trim());
+  return parsed === null ? '(invalid URL)' : `${parsed.origin}${parsed.pathname}`;
 }
 
 export function cloneRefProblem(input: string): string | null {
@@ -47,14 +38,15 @@ export function cloneRefProblem(input: string): string | null {
   return null;
 }
 
+export function assertCloneTarget(url: string, ref: string): void {
+  const problem = cloneUrlProblem(url) ?? cloneRefProblem(ref);
+  if (problem !== null) throw new Error(problem);
+}
+
 export function repoNameFromUrl(input: string): string {
-  let path = '';
-  try {
-    path = new URL(input.trim()).pathname;
-  } catch {
-    return 'repo';
-  }
-  const last = path.replace(/\/+$/u, '').split('/').pop() ?? '';
+  const parsed = parseUrl(input.trim());
+  if (parsed === null) return 'repo';
+  const last = parsed.pathname.replace(/\/+$/u, '').split('/').pop() ?? '';
   const name = last.replace(/\.git$/iu, '').replaceAll(/[^A-Za-z0-9._-]/gu, '-');
   return name === '' || name === '.' || name === '..' ? 'repo' : name;
 }

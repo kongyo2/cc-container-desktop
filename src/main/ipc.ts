@@ -25,6 +25,7 @@ import type {
   Task,
   TaskPatch,
 } from '../shared/types.ts';
+import { isHttpUrl, parseUrl } from '../shared/url.ts';
 import { parseConfigPatch } from './config/schema.ts';
 import {
   appDataDir,
@@ -156,13 +157,9 @@ export function registerIpc(version: string): void {
     patchConfig({ language: language === 'en' ? 'en' : 'ja' }),
   );
   handleVoid<[string]>(CHANNELS.openExternal, async (url) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new Error(`開けない URL です / not a URL: ${url}`);
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    const parsed = parseUrl(url);
+    if (parsed === null) throw new Error(`開けない URL です / not a URL: ${url}`);
+    if (!isHttpUrl(parsed)) {
       throw new Error(`http か https のリンクだけ開けます / only http and https links can be opened: ${url}`);
     }
     await shell.openExternal(parsed.toString());

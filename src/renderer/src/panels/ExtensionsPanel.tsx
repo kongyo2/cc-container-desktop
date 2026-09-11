@@ -21,6 +21,10 @@ import { selectedTaskView, useApp } from '../store.ts';
 
 const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 
+function withoutId<T extends { readonly id: string }>(entries: readonly T[], id: string): T[] {
+  return entries.filter((entry) => entry.id !== id);
+}
+
 function EntryHead({
   title,
   enabled,
@@ -109,8 +113,6 @@ export function ExtensionsPanel(): JSX.Element {
   const dirty = draft !== null && draft.base === savedKey;
   const extensions = dirty && draft !== null ? draft.value : saved;
 
-  // Statuses are remembered with the task they came from, so a stale reading
-  // never shows against another task's servers.
   const [statusRead, setStatusRead] = useState<{ taskId: string; statuses: readonly McpServerStatus[] } | null>(null);
   const statuses = statusRead !== null && statusRead.taskId === statusTaskId ? statusRead.statuses : [];
 
@@ -210,9 +212,7 @@ export function ExtensionsPanel(): JSX.Element {
                 title={server.name || t('commonUnset')}
                 enabled={server.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() =>
-                  update({ mcpServers: extensions.mcpServers.filter((candidate) => candidate.id !== server.id) })
-                }
+                onDelete={() => update({ mcpServers: withoutId(extensions.mcpServers, server.id) })}
               >
                 <span className="tag">{server.transport}</span>
                 {problem === null ? null : <span className="tag err">!</span>}
@@ -316,11 +316,7 @@ export function ExtensionsPanel(): JSX.Element {
                 title={market.name || t('commonUnset')}
                 enabled={market.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() =>
-                  update({
-                    marketplaces: extensions.marketplaces.filter((candidate) => candidate.id !== market.id),
-                  })
-                }
+                onDelete={() => update({ marketplaces: withoutId(extensions.marketplaces, market.id) })}
               >
                 <span className="tag">{market.sourceKind}</span>
               </EntryHead>
@@ -382,7 +378,7 @@ export function ExtensionsPanel(): JSX.Element {
                 }
                 enabled={plugin.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ plugins: extensions.plugins.filter((c) => c.id !== plugin.id) })}
+                onDelete={() => update({ plugins: withoutId(extensions.plugins, plugin.id) })}
               />
               <div className="grid2">
                 <TextField
@@ -422,7 +418,7 @@ export function ExtensionsPanel(): JSX.Element {
                 title={skill.source.trim() === '' ? t('commonUnset') : skill.source.trim()}
                 enabled={skill.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ skillInstalls: extensions.skillInstalls.filter((c) => c.id !== skill.id) })}
+                onDelete={() => update({ skillInstalls: withoutId(extensions.skillInstalls, skill.id) })}
               >
                 {skill.skills
                   .filter((name) => name.trim() !== '')
