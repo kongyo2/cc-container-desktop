@@ -97,12 +97,8 @@ async function applyProvision(task: Task): Promise<string> {
   return outcome.summary;
 }
 
-/** Runs the setup script when this container has not had it yet; a failure is reported, not thrown. */
 async function applySetup(task: Task): Promise<string | null> {
   try {
-    // A container created with other variables (or before environments
-    // existed) must not run the current environment's script and then claim
-    // it is set up; "Recreate" is the way to apply the environment there.
     if (environmentStaleFor(task, await inspectContainer(refOf(task)))) {
       logWarn(
         'setup',
@@ -135,7 +131,6 @@ function checkedProfileId(profileId: string | null | undefined): string | null {
   return profileId;
 }
 
-/** Only an environment that exists and is not archived can be picked for a task. */
 function checkedEnvironmentId(environmentId: string | null | undefined): string | null {
   if (environmentId === null || environmentId === undefined || environmentId === '') return null;
   const environment = environmentFor(environmentId);
@@ -163,9 +158,6 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
   checkedProfileId(input.profileId);
   checkedEnvironmentId(input.environmentId);
   await requireImage();
-  // Checked again after the only await: the profile and environment handlers
-  // take no task lock, so either could have been removed meanwhile. From here
-  // to addTask() nothing yields.
   const profileId = checkedProfileId(input.profileId);
   const environmentId = checkedEnvironmentId(input.environmentId);
 
@@ -203,7 +195,6 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
       if (source.kind === 'git') {
         await withRunningContainer(ref, () => cloneIntoWorkspace(ref, source.url, source.ref));
       }
-      // The setup script sees the cloned repository, like a session's setup on the web.
       const setupWarning = await applySetup(task);
       if (setupWarning !== null) warnings.push(setupWarning);
       logInfo('app', `タスクの準備ができました / task ready: ${name}`);
@@ -236,8 +227,6 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
     }
     if (patch.note !== undefined) next.note = patch.note.trim();
     if (patch.profileId !== undefined) next.profileId = checkedProfileId(patch.profileId);
-    // Switching the environment only changes what the *next* container is
-    // created with; the running one is flagged as stale until it is recreated.
     if (patch.environmentId !== undefined && patch.environmentId !== current.environmentId) {
       next.environmentId = checkedEnvironmentId(patch.environmentId);
     }
@@ -422,7 +411,6 @@ export async function forgetProfile(profileId: string): Promise<readonly string[
   return provisionRunningTasks((task) => affected.has(task.id));
 }
 
-/** Removes an environment nobody uses; a task still pointing at it keeps it alive. */
 export function deleteEnvironment(environmentId: string): AppConfig {
   const environment = environmentFor(environmentId);
   if (environment === null) throw new Error(`環境が見つかりません / no such environment: ${environmentId}`);

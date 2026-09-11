@@ -8,11 +8,6 @@ function ensureDir(dir: string): string {
   return dir;
 }
 
-/**
- * The build context of the base image. It ships with the app: outside the
- * asar when packaged (electron-builder's extraResources), the repository's
- * docker/ folder in development.
- */
 export function bundledDockerDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'docker') : join(app.getAppPath(), 'docker');
 }

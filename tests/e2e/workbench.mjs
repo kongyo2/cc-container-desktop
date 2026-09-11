@@ -1,8 +1,3 @@
-// The end-to-end path a user takes, against a live endpoint:
-// build the image, set up a profile, create a task, watch Claude Code answer
-// inside it, keep the tmux session across a closed tab, move files in and out,
-// and delete the task. Needs Docker and CC_E2E_API_KEY.
-
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

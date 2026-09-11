@@ -11,8 +11,6 @@ files:
   - package.json
   - '!**/*.map'
 
-# The Dockerfile must stay outside the asar: it is the build context the app
-# hands to the Docker Engine API, and asar paths are not real files.
 extraResources:
   - from: docker
     to: docker
@@ -45,6 +43,4 @@ linux:
     - AppImage
   category: Development
   icon: build/icon.png
-  # Without this the window manager cannot tie a running window to the .desktop
-  # entry, so the app shows a generic icon in the dock.
   syncDesktopName: true

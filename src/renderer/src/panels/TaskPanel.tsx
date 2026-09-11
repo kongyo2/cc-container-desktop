@@ -82,8 +82,6 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
   const profiles = snapshot?.config.profiles ?? [];
   const environments = snapshot === null ? [] : activeEnvironments(snapshot.config);
   const environment = snapshot === null ? null : environmentById(snapshot.config, task.environmentId);
-  // The current environment stays selectable even when it is archived or gone,
-  // so the select never silently shows a different one than the task has.
   const environmentPlaceholder =
     environment === null
       ? task.environmentId === null

@@ -19,11 +19,6 @@ export interface EnvironmentDialogProps {
   readonly onClose: () => void;
 }
 
-/**
- * The "環境を編集" sheet: name, variables in .env form, a setup script, and
- * archive / cancel / save along the bottom. Saving goes through the main
- * process, which validates and normalizes the draft.
- */
 export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogProps): JSX.Element {
   const t = useT();
   const language = useLanguage();

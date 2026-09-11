@@ -11,7 +11,6 @@ if (executablePath === '' || !existsSync(executablePath)) {
   process.exit(2);
 }
 
-// A scratch userData so the smoke test never reads or writes the real config.
 const userData = mkdtempSync(join(tmpdir(), 'cc-packaged-'));
 const app = await electron.launch({
   executablePath,
@@ -41,8 +40,6 @@ try {
   check('task list starts empty', snapshot.ok && snapshot.value.tasks.length === 0);
   check('docker reachable from the packaged app', snapshot.ok && snapshot.value.docker.available === true);
 
-  // The Dockerfile must be a real file outside the asar, or the Engine API
-  // cannot read it as a build context.
   const dockerfile = await app.evaluate(() => {
     const fs = process.getBuiltinModule('node:fs');
     const path = process.getBuiltinModule('node:path');

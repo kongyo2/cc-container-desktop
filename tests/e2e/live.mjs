@@ -1,7 +1,3 @@
-// The interactive path against a live endpoint: Claude Code's TUI inside a task,
-// a conversation that survives a closed tab, and MCP + skills reaching the
-// model. Needs Docker, a built image and CC_E2E_API_KEY.
-
 import {
   call,
   check,

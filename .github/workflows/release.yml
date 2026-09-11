@@ -1,7 +1,5 @@
 name: Release
 
-# Manual only. Pick a version, get a Windows installer attached to a GitHub
-# Release. Nothing here fires on a push.
 on:
   workflow_dispatch:
     inputs:
@@ -61,10 +59,6 @@ jobs:
           else
             VERSION="$(node -p "require('./package.json').version")"
           fi
-          # Fail before building rather than shipping an artifact named after a
-          # typo. Matched with bash's own =~ rather than grep: grep anchors per
-          # line, so a multi-line input whose first line is valid would pass the
-          # guard and then carry the rest into $GITHUB_OUTPUT.
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$VERSION' is not a semver version"
             exit 1
@@ -77,8 +71,6 @@ jobs:
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing $VERSION"
 
-      # Only the artifact is stamped; the commit is left alone so a release can
-      # be cut from any ref without a version bump landing on the branch.
       - name: Stamp the version
         shell: bash
         run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
@@ -87,8 +79,6 @@ jobs:
         run: npm run build
 
       - name: Package
-        # `--publish never`: this workflow owns publishing, so a partial upload
-        # by electron-builder cannot leave a half-made release behind.
         run: npx electron-builder --win --x64 --publish never
 
       - name: Create the release
@@ -139,7 +129,6 @@ jobs:
 
       - run: npm ci
 
-      # The bare version, not the tag: `npm version` wants semver without the `v`.
       - name: Stamp the version
         run: npm version "${{ needs.windows.outputs.version }}" --no-git-tag-version --allow-same-version
 

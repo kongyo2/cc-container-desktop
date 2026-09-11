@@ -12,18 +12,12 @@ import { writeFileText } from '../docker/files.ts';
 import { logInfo, logWarn, redactSecrets } from '../logger.ts';
 import { taskEnvironment } from '../tasks/environment.ts';
 
-/** Generous, because a setup script may compile or `apt-get install` things. */
 const SETUP_TIMEOUT_SECONDS = 1800;
 
 const ANSI = new RegExp(`${String.fromCodePoint(27)}\\[[0-?]*[ -/]*[@-~]`, 'gu');
 
 const SENSITIVE_NAME = /key|token|secret|password|passwd|credential/iu;
 
-/**
- * The values of the environment's own credential-looking variables, so a
- * script that echoes them (or runs under `set -x`) does not put them in the
- * log. Tiny values are left alone: masking "1" would garble every line.
- */
 function sensitiveValues(entries: readonly string[]): readonly string[] {
   return entries
     .map((entry) => {
@@ -39,9 +33,7 @@ function maskValues(text: string, values: readonly string[]): string {
 }
 
 export interface SetupOutcome {
-  /** False when the container had already run its setup script (the marker exists). */
   readonly ran: boolean;
-  /** The script's exit code when it ran, null when there was nothing to run. */
   readonly exitCode: number | null;
 }
 
@@ -62,14 +54,6 @@ async function markSetupDone(task: Task): Promise<void> {
   await execChecked(refOf(task), ['touch', CONTAINER_SETUP_MARKER], { workdir: '/', asRoot: true });
 }
 
-/**
- * Runs the environment's setup script once per container: after the
- * workspace is in place (clone included) and before Claude Code is opened.
- * A container that already carries the done-marker is left alone, so a
- * plain stop/start does not rerun it while a recreate does. The marker is
- * only written on success, so a failed script gets another chance on the
- * next start.
- */
 export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
   if (await setupDone(task)) return { ran: false, exitCode: null };
 
