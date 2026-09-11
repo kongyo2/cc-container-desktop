@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Ruby variant: a pinned Ruby built from source into /opt/ruby, plus Bundler.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 cc_apt_install \

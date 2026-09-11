@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Checks src/shared/imageCatalog.json with the app's own validation and,
-// with --online, confirms every pinned digest resolves anonymously on Docker
-// Hub with the recorded size. Run with:
-//
-//   node --experimental-strip-types scripts/verify-image-catalog.mjs [--file <path>] [--online] [--require-published]
 /* oxlint-disable no-await-in-loop -- one upstream request at a time keeps the rate polite */
 import { catalogProblems, parseCatalog } from '../src/main/images/catalog.ts';
 import { normalizeRepository } from '../src/shared/images.ts';

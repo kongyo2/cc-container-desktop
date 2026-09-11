@@ -8,19 +8,17 @@ export const IMAGE_PLATFORMS = ['linux/amd64', 'linux/arm64'] as const;
 
 export type ImagePlatform = (typeof IMAGE_PLATFORMS)[number];
 
-export const RUNTIME_CONTRACT = 1;
-
-export type RuntimeContract = typeof RUNTIME_CONTRACT;
-
 export const DIGEST_PATTERN: RegExp = /^sha256:[0-9a-f]{64}$/u;
 
 export const RELEASE_PATTERN: RegExp = /^\d{4}\.(?:0[1-9]|1[0-2])\.\d{1,3}$/u;
 
 export const REGISTERED_IMAGE_ID_PATTERN: RegExp = /^img_[0-9a-f]{24}$/u;
 
-export const IMAGE_INFO_PROJECT = 'cc-container-desktop';
+export const TAG_PATTERN: RegExp = /^[\w][\w.-]{0,127}$/u;
 
-export const IMAGE_PROJECT_LABEL_VALUE = 'cc-workbench';
+const PATH_COMPONENT_PATTERN = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/u;
+
+const HOST_PATTERN = /^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$/u;
 
 export type LocalizedText = Readonly<Record<Language, string>>;
 
@@ -50,7 +48,6 @@ export interface ImageCatalogEntry {
   readonly tag: string;
   readonly indexDigest: string | null;
   readonly platforms: readonly CatalogPlatform[];
-  readonly runtimeContract: RuntimeContract;
   readonly sourceRevision: string | null;
   readonly publishedAt: string | null;
   readonly tools: readonly CatalogTool[];
@@ -63,39 +60,23 @@ export interface ImageCatalog {
   readonly entries: readonly ImageCatalogEntry[];
 }
 
-export interface VerificationRecord {
-  readonly engineId: string;
-  readonly localImageId: string;
-  readonly localSizeBytes: number;
-  readonly verifiedAt: string;
-  readonly checksPassed: number;
-}
-
-export type DigestKind = 'manifest' | 'index';
-
 export interface RegisteredImage {
   readonly id: string;
-  readonly catalogEntryId: string;
-  readonly variant: ImageVariant;
-  readonly release: string;
+  readonly catalogEntryId: string | null;
+  readonly variant: ImageVariant | null;
+  readonly release: string | null;
   readonly title: LocalizedText;
   readonly repository: string;
-  readonly tag: string;
-  readonly indexDigest: string | null;
-  readonly pinnedDigest: string;
-  readonly digestKind: DigestKind;
+  readonly tag: string | null;
+  readonly pinnedDigest: string | null;
   readonly platform: ImagePlatform;
-  readonly runtimeContract: RuntimeContract;
-  readonly sourceRevision: string | null;
   readonly tools: readonly CatalogTool[];
   readonly registeredAt: string;
-  readonly lastVerified: VerificationRecord;
 }
 
 export type ImageAvailability =
   | { readonly kind: 'ready'; readonly localImageId: string; readonly localSizeBytes: number }
   | { readonly kind: 'missing' }
-  | { readonly kind: 'unverified'; readonly localImageId: string }
   | { readonly kind: 'unavailable'; readonly message: string }
   | { readonly kind: 'incompatible'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string };
@@ -108,20 +89,12 @@ export interface RegisteredImageView {
   readonly inCatalog: boolean;
 }
 
-export type ImageOperationKind = 'download' | 'repair';
+export type ImageOperationKind = 'download' | 'custom' | 'repair';
 
 export type ImageOperationPhase =
-  | 'queued'
-  | 'checking'
-  | 'pulling'
-  | 'verifying'
-  | 'registering'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-  | 'interrupted';
+  'queued' | 'checking' | 'pulling' | 'registering' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
-export const TERMINAL_PHASES: readonly ImageOperationPhase[] = ['succeeded', 'failed', 'cancelled', 'interrupted'];
+const TERMINAL_PHASES: readonly ImageOperationPhase[] = ['succeeded', 'failed', 'cancelled', 'interrupted'];
 
 export function isTerminalPhase(phase: ImageOperationPhase): boolean {
   return TERMINAL_PHASES.includes(phase);
@@ -134,11 +107,9 @@ export interface AppError {
 }
 
 export interface ImageOperationTarget {
-  readonly variant: ImageVariant;
-  readonly release: string;
   readonly title: LocalizedText;
   readonly repository: string;
-  readonly tag: string;
+  readonly tag: string | null;
   readonly pinnedDigest: string | null;
   readonly platform: ImagePlatform | null;
 }
@@ -182,15 +153,11 @@ export function officialTag(variant: ImageVariant, release: string): string {
   return `${variant}-${release}`;
 }
 
-export function isImageVariant(value: unknown): value is ImageVariant {
-  return typeof value === 'string' && (IMAGE_VARIANTS as readonly string[]).includes(value);
-}
-
-export function isImagePlatform(value: unknown): value is ImagePlatform {
-  return typeof value === 'string' && (IMAGE_PLATFORMS as readonly string[]).includes(value);
-}
-
 const DOCKER_HUB_HOSTS: readonly string[] = ['docker.io', 'index.docker.io', 'registry-1.docker.io'];
+
+function looksLikeHost(component: string): boolean {
+  return component.includes('.') || component.includes(':') || component === 'localhost';
+}
 
 export function normalizeRepository(input: string): string {
   let text = input.trim().toLowerCase();
@@ -204,8 +171,7 @@ export function normalizeRepository(input: string): string {
 
   const segments = text.split('/');
   const head = segments[0] ?? '';
-  const looksLikeHost = head.includes('.') || head.includes(':') || head === 'localhost';
-  if (!looksLikeHost) {
+  if (!looksLikeHost(head)) {
     const path = segments.length === 1 ? `library/${head}` : segments.join('/');
     return `docker.io/${path}`;
   }
@@ -235,13 +201,68 @@ export function digestReference(repository: string, digest: string): string {
   return `${repositoryDisplay(repository)}@${digest}`;
 }
 
-export function tagReference(repository: string, tag: string): string {
+function tagReference(repository: string, tag: string): string {
   return `${repositoryDisplay(repository)}:${tag}`;
 }
 
-export function pullCommand(repository: string, digest: string | null, tag: string, platform: ImagePlatform): string {
-  const reference = digest === null ? tagReference(repository, tag) : digestReference(repository, digest);
-  return `docker pull --platform ${platform} ${reference}`;
+export function imageReference(repository: string, digest: string | null, tag: string | null): string {
+  return digest === null ? tagReference(repository, tag ?? 'latest') : digestReference(repository, digest);
+}
+
+export function pullCommand(
+  repository: string,
+  digest: string | null,
+  tag: string | null,
+  platform: ImagePlatform,
+): string {
+  return `docker pull --platform ${platform} ${imageReference(repository, digest, tag)}`;
+}
+
+export interface ImageReference {
+  readonly repository: string;
+  readonly tag: string | null;
+  readonly digest: string | null;
+}
+
+export function parseImageReference(input: string): ImageReference | null {
+  const text = input.trim();
+  if (text === '' || /\s/u.test(text)) return null;
+
+  let rest = text;
+  let digest: string | null = null;
+  const at = rest.lastIndexOf('@');
+  if (at !== -1) {
+    digest = rest.slice(at + 1).toLowerCase();
+    rest = rest.slice(0, at);
+    if (!DIGEST_PATTERN.test(digest)) return null;
+  }
+
+  let tag: string | null = null;
+  const lastSlash = rest.lastIndexOf('/');
+  const lastColon = rest.lastIndexOf(':');
+  if (lastColon > lastSlash) {
+    tag = rest.slice(lastColon + 1);
+    rest = rest.slice(0, lastColon);
+    if (!TAG_PATTERN.test(tag)) return null;
+  }
+
+  const name = rest.toLowerCase();
+  if (name === '' || name.length > 255) return null;
+  const [head, ...path] = name.split('/');
+  if (head === undefined) return null;
+  const hostFirst = looksLikeHost(head);
+  if (hostFirst ? !HOST_PATTERN.test(head) : !PATH_COMPONENT_PATTERN.test(head)) return null;
+  if (hostFirst && path.length === 0) return null;
+  if (!path.every((component) => PATH_COMPONENT_PATTERN.test(component))) return null;
+
+  return { repository: normalizeRepository(name), tag: tag ?? (digest === null ? 'latest' : null), digest };
+}
+
+export function imageReferenceProblem(input: string, language: Language): string | null {
+  if (parseImageReference(input) !== null) return null;
+  return language === 'ja'
+    ? 'docker pull に渡せる形で指定してください (例: ghcr.io/owner/image:tag、owner/image@sha256:…)'
+    : 'Enter it the way docker pull takes it (e.g. ghcr.io/owner/image:tag or owner/image@sha256:…)';
 }
 
 const ARCHITECTURES: Readonly<Record<string, ImagePlatform>> = {
@@ -263,23 +284,22 @@ export function catalogPlatform(entry: ImageCatalogEntry, platform: ImagePlatfor
   return entry.platforms.find((candidate) => candidate.platform === platform) ?? null;
 }
 
+export function registrationIdentity(digest: string | null, tag: string | null): string {
+  return digest === null ? `tag:${tag ?? 'latest'}` : digest;
+}
+
 export function imageTargetKey(
   repository: string,
   digest: string | null,
-  tag: string,
+  tag: string | null,
   platform: ImagePlatform,
 ): string {
-  const pinned = digest === null ? `tag:${tag}` : digest;
-  return `${normalizeRepository(repository)}|${pinned}|${platform}`;
+  return `${normalizeRepository(repository)}|${registrationIdentity(digest, tag)}|${platform}`;
 }
 
 export function entryById(catalog: ImageCatalog, id: string | null): ImageCatalogEntry | null {
   if (id === null) return null;
   return catalog.entries.find((entry) => entry.id === id) ?? null;
-}
-
-export function recommendedEntry(catalog: ImageCatalog): ImageCatalogEntry | null {
-  return catalog.entries.find((entry) => entry.recommended) ?? catalog.entries[0] ?? null;
 }
 
 export function highlightTools(tools: readonly CatalogTool[]): readonly CatalogTool[] {
@@ -291,10 +311,10 @@ export function toolLabel(tool: CatalogTool): string {
 }
 
 export function imageDisplayName(
-  image: { readonly title: LocalizedText; readonly release: string },
+  image: { readonly title: LocalizedText; readonly release: string | null },
   language: Language,
 ): string {
-  return `${image.title[language]} / ${image.release}`;
+  return image.release === null ? image.title[language] : `${image.title[language]} / ${image.release}`;
 }
 
 export function operationProgress(operation: ImageOperation): number | null {
@@ -307,12 +327,6 @@ export function operationProgress(operation: ImageOperation): number | null {
   return null;
 }
 
-export function availabilityReady(
-  availability: ImageAvailability | null,
-): availability is { readonly kind: 'ready'; readonly localImageId: string; readonly localSizeBytes: number } {
-  return availability !== null && availability.kind === 'ready';
-}
-
 export function registeredImageById(
   images: readonly RegisteredImageView[],
   id: string | null,
@@ -321,17 +335,11 @@ export function registeredImageById(
   return images.find((view) => view.image.id === id) ?? null;
 }
 
-export function availableRegisteredImages(images: readonly RegisteredImageView[]): readonly RegisteredImageView[] {
+function availableRegisteredImages(images: readonly RegisteredImageView[]): readonly RegisteredImageView[] {
   return images.filter((view) => view.availability.kind === 'ready');
 }
 
 export function preferredRegisteredImage(images: readonly RegisteredImageView[]): RegisteredImageView | null {
   const ready = availableRegisteredImages(images);
   return ready.find((view) => view.image.variant === 'web') ?? ready[0] ?? images[0] ?? null;
-}
-
-export function formatDigestShort(digest: string | null): string {
-  if (digest === null) return '—';
-  const hex = digest.startsWith('sha256:') ? digest.slice(7) : digest;
-  return `sha256:${hex.slice(0, 12)}`;
 }

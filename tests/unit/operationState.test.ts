@@ -21,9 +21,7 @@ function operation(now = '2026-09-11T10:00:00.000Z'): ImageOperation {
     catalogEntryId: 'web@2026.09.1',
     registeredImageId: null,
     target: {
-      variant: 'web',
-      release: '2026.09.1',
-      title: { ja: 'Web', en: 'Web' },
+      title: { ja: 'Web / 2026.09.1', en: 'Web / 2026.09.1' },
       repository: 'docker.io/kongyo2/cc-workbench',
       tag: 'web-2026.09.1',
       pinnedDigest: DIGEST,
@@ -33,24 +31,19 @@ function operation(now = '2026-09-11T10:00:00.000Z'): ImageOperation {
   });
 }
 
-function registered(verifiedAt: string): RegisteredImage {
+function registered(registeredAt: string): RegisteredImage {
   return {
-    id: registeredImageIdFor('docker.io/kongyo2/cc-workbench', DIGEST, 'linux/amd64'),
+    id: registeredImageIdFor('docker.io/kongyo2/cc-workbench', DIGEST, 'web-2026.09.1', 'linux/amd64'),
     catalogEntryId: 'web@2026.09.1',
     variant: 'web',
     release: '2026.09.1',
-    title: { ja: 'Web', en: 'Web' },
+    title: { ja: 'Web / 2026.09.1', en: 'Web / 2026.09.1' },
     repository: 'docker.io/kongyo2/cc-workbench',
     tag: 'web-2026.09.1',
-    indexDigest: null,
     pinnedDigest: DIGEST,
-    digestKind: 'manifest',
     platform: 'linux/amd64',
-    runtimeContract: 1,
-    sourceRevision: null,
     tools: [],
-    registeredAt: verifiedAt,
-    lastVerified: { engineId: 'e', localImageId: 'sha256:l', localSizeBytes: 1, verifiedAt, checksPassed: 1 },
+    registeredAt,
   };
 }
 
@@ -97,6 +90,46 @@ test('after a restart an operation whose registration committed is succeeded, ev
 
   const alreadyDone = finishOperation(running, 'failed', { code: 'X', message: 'x', retryable: false });
   assert.equal(recoverOperation(alreadyDone, []).phase, 'failed');
+});
+
+test('a tag-only custom registration that committed before the restart is recognised', () => {
+  const started = createOperation({
+    id: 'op_2',
+    kind: 'custom',
+    targetKey: 'custom:docker.io/library/my-image|tag:dev',
+    catalogEntryId: null,
+    registeredImageId: null,
+    target: {
+      title: { ja: 'my-image:dev', en: 'my-image:dev' },
+      repository: 'docker.io/library/my-image',
+      tag: 'dev',
+      pinnedDigest: null,
+      platform: 'linux/amd64',
+    },
+    now: '2026-09-11T10:00:00.000Z',
+  });
+  const running = patchOperation(started, { phase: 'registering' }, '2026-09-11T10:00:01.000Z');
+  const image: RegisteredImage = {
+    id: registeredImageIdFor('docker.io/library/my-image', null, 'dev', 'linux/amd64'),
+    catalogEntryId: null,
+    variant: null,
+    release: null,
+    title: { ja: 'my-image:dev', en: 'my-image:dev' },
+    repository: 'docker.io/library/my-image',
+    tag: 'dev',
+    pinnedDigest: null,
+    platform: 'linux/amd64',
+    tools: [],
+    registeredAt: '2026-09-11T10:00:02.000Z',
+  };
+  const recovered = recoverOperation(running, [image]);
+  assert.equal(recovered.phase, 'succeeded');
+  assert.equal(recovered.registeredImageId, image.id);
+  assert.equal(recoverOperation(running, [{ ...image, tag: 'other' }]).phase, 'interrupted');
+  assert.equal(
+    recoverOperation(running, [{ ...image, registeredAt: '2026-09-11T09:00:00.000Z' }]).phase,
+    'interrupted',
+  );
 });
 
 test('history keeps every active operation and only the newest finished ones', () => {

@@ -71,7 +71,9 @@ test('digests must be sha256 with 64 hex digits', () => {
 
 test('a size without a digest, a duplicated platform and two recommendations are rejected', () => {
   const withSize = clone();
-  (entries(withSize)[0]!['platforms'] as Record<string, unknown>[])[0]!['compressedLayerBytes'] = 5;
+  const unpublished = (entries(withSize)[0]!['platforms'] as Record<string, unknown>[])[0]!;
+  unpublished['manifestDigest'] = null;
+  unpublished['compressedLayerBytes'] = 5;
   assert.ok(catalogProblems(withSize).some((problem) => problem.includes('size without a digest')));
 
   const duplicated = clone();

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { environmentEnvEntries, normalizeScriptText } from '../../shared/environments.ts';
+import { imageDisplayName } from '../../shared/images.ts';
 import type { ImageAvailability, ImagePlatform } from '../../shared/images.ts';
 import type { Environment, Task } from '../../shared/types.ts';
 import { environmentFor } from '../config/store.ts';
@@ -20,7 +21,7 @@ export function taskEnvironment(task: Task): Environment | null {
   return environmentFor(task.environmentId);
 }
 
-export function requireTaskEnvironment(task: Task): Environment {
+function requireTaskEnvironment(task: Task): Environment {
   const environment = taskEnvironment(task);
   if (environment === null) {
     throw new AppFailure(
@@ -41,14 +42,12 @@ export interface ResolvedTaskRuntime {
   readonly spec: ContainerSpec;
 }
 
-export function describeUnavailable(availability: ImageAvailability): string {
+function describeUnavailable(availability: ImageAvailability): string {
   switch (availability.kind) {
     case 'ready':
       return '';
     case 'missing':
       return 'イメージがローカルにありません。「イメージ」で再ダウンロードしてください / the image is not present locally; re-download it on the Images page';
-    case 'unverified':
-      return 'イメージがこの Docker でまだ確認されていません。「イメージ」で「確認して利用可能にする」を実行してください / the image has not been verified on this Docker yet; run "Verify" on the Images page';
     case 'unavailable':
       return `Docker に接続できません / Docker is unreachable: ${availability.message}`;
     case 'incompatible':
@@ -82,18 +81,12 @@ async function resolveImage(
   if (availability.kind !== 'ready') {
     throw new AppFailure(
       'IMAGE_UNAVAILABLE',
-      `環境 "${environment.name}" のイメージ ${image.title.ja} / ${image.release}: ${describeUnavailable(availability)}`,
+      `環境 "${environment.name}" のイメージ ${imageDisplayName(image, 'ja')}: ${describeUnavailable(availability)}`,
     );
   }
   return { localImageId: availability.localImageId, platform: image.platform, engineId: docker.engineId ?? '' };
 }
 
-/**
- * Fixes everything a container creation needs, once, at the start of an
- * operation: task → environment → registered image → the image verified on
- * the connected daemon. With `allowLastApplied`, a task whose desired image
- * is unusable may fall back to the image it last ran on (used for exports).
- */
 export async function resolveTaskRuntime(
   task: Task,
   options: { readonly allowLastApplied?: boolean } = {},
@@ -129,7 +122,6 @@ export async function resolveTaskRuntime(
       localImageId: resolved.localImageId,
       registeredImageId,
       pinnedDigest: image.pinnedDigest,
-      runtimeContract: image.runtimeContract,
       env: environmentEnvEntries(environment),
       environmentId: environment.id,
       environmentRevision: revision,

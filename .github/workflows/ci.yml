@@ -36,6 +36,9 @@ jobs:
       - name: Oxlint
         run: npm run lint:strict
 
+      - name: Knip
+        run: npm run knip
+
       - name: Typecheck
         run: npm run typecheck:ci
 
@@ -52,7 +55,7 @@ jobs:
         run: npm run build
 
   images:
-    name: Image contract and download flow
+    name: Image download flow
     needs: check
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -75,14 +78,6 @@ jobs:
           RELEASE=2026.09.1 REVISION="$GITHUB_SHA" BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             docker buildx bake -f docker/docker-bake.hcl small \
             --set 'base.tags=cc-workbench-ci:base-2026.09.1' --set 'web.tags=cc-workbench-ci:web-2026.09.1'
-
-      - name: Runtime contract
-        run: |
-          for variant in base web; do
-            docker run --rm -i --init --network none \
-              -e CC_EXPECT_VARIANT="$variant" -e CC_EXPECT_RELEASE=2026.09.1 \
-              "cc-workbench-ci:$variant-2026.09.1" bash -s < docker/scripts/verify-runtime.sh
-          done
 
       - name: Install Electron's runtime libraries
         run: |

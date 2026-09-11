@@ -6,11 +6,12 @@ import {
   IMAGE_VARIANTS,
   REGISTERED_IMAGE_ID_PATTERN,
   RELEASE_PATTERN,
-  RUNTIME_CONTRACT,
+  TAG_PATTERN,
 } from '../../shared/images.ts';
 import type { ImageOperation, RegisteredImage } from '../../shared/images.ts';
 import type {
   ImageCancelRequest,
+  ImageCustomRequest,
   ImageDownloadRequest,
   ImageRepairRequest,
   ImageUnregisterRequest,
@@ -27,31 +28,18 @@ const toolSchema = z.strictObject({
   highlight: z.boolean(),
 });
 
-const verificationSchema = z.strictObject({
-  engineId: z.string().min(1),
-  localImageId: z.string().min(1),
-  localSizeBytes: z.number().int().nonnegative(),
-  verifiedAt: z.string().datetime({ offset: true }),
-  checksPassed: z.number().int().nonnegative(),
-});
-
-const registeredImageSchema = z.strictObject({
+const registeredImageSchema = z.object({
   id: z.string().regex(REGISTERED_IMAGE_ID_PATTERN),
-  catalogEntryId: z.string().min(1),
-  variant: z.enum(IMAGE_VARIANTS),
-  release: z.string().regex(RELEASE_PATTERN),
+  catalogEntryId: z.string().min(1).nullable(),
+  variant: z.enum(IMAGE_VARIANTS).nullable(),
+  release: z.string().regex(RELEASE_PATTERN).nullable(),
   title: localizedSchema,
   repository: z.string().min(1),
-  tag: z.string().min(1),
-  indexDigest: z.string().regex(DIGEST_PATTERN).nullable(),
-  pinnedDigest: z.string().regex(DIGEST_PATTERN),
-  digestKind: z.enum(['manifest', 'index']),
+  tag: z.string().regex(TAG_PATTERN).nullable(),
+  pinnedDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   platform: z.enum(IMAGE_PLATFORMS),
-  runtimeContract: z.literal(RUNTIME_CONTRACT),
-  sourceRevision: z.string().nullable(),
   tools: z.array(toolSchema),
   registeredAt: z.string().datetime({ offset: true }),
-  lastVerified: verificationSchema,
 });
 
 const imagesFileSchema = z.strictObject({
@@ -71,18 +59,19 @@ export function parseImagesFile(raw: unknown): ParseOutcome<readonly RegisteredI
   for (const image of parsed.data.images) {
     if (seen.has(image.id)) return { ok: false, problem: `duplicate registration id ${image.id}` };
     seen.add(image.id);
+    if (image.pinnedDigest === null && image.tag === null) {
+      return { ok: false, problem: `registration ${image.id} has neither a digest nor a tag` };
+    }
   }
-  return { ok: true, value: parsed.data.images.map((image) => ({ ...image, runtimeContract: RUNTIME_CONTRACT })) };
+  return { ok: true, value: parsed.data.images };
 }
 
 const appErrorSchema = z.strictObject({ code: z.string().min(1), message: z.string(), retryable: z.boolean() });
 
 const targetSchema = z.strictObject({
-  variant: z.enum(IMAGE_VARIANTS),
-  release: z.string().min(1),
   title: localizedSchema,
   repository: z.string().min(1),
-  tag: z.string().min(1),
+  tag: z.string().min(1).nullable(),
   pinnedDigest: z.string().regex(DIGEST_PATTERN).nullable(),
   platform: z.enum(IMAGE_PLATFORMS).nullable(),
 });
@@ -97,23 +86,13 @@ const layerSchema = z.strictObject({
 
 const operationSchema = z.strictObject({
   id: z.string().min(1),
-  kind: z.enum(['download', 'repair']),
+  kind: z.enum(['download', 'custom', 'repair']),
   sequence: z.number().int().nonnegative(),
   targetKey: z.string().min(1),
   catalogEntryId: z.string().min(1).nullable(),
   registeredImageId: z.string().min(1).nullable(),
   target: targetSchema,
-  phase: z.enum([
-    'queued',
-    'checking',
-    'pulling',
-    'verifying',
-    'registering',
-    'succeeded',
-    'failed',
-    'cancelled',
-    'interrupted',
-  ]),
+  phase: z.enum(['queued', 'checking', 'pulling', 'registering', 'succeeded', 'failed', 'cancelled', 'interrupted']),
   step: z.string(),
   cancelRequested: z.boolean(),
   startedAt: z.string().datetime({ offset: true }),
@@ -130,13 +109,18 @@ const operationSchema = z.strictObject({
 
 const operationsFileSchema = z.strictObject({
   schemaVersion: z.literal(1),
-  operations: z.array(operationSchema),
+  operations: z.array(z.unknown()),
 });
 
 export function parseOperationsFile(raw: unknown): ParseOutcome<readonly ImageOperation[]> {
   const parsed = operationsFileSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
-  return { ok: true, value: parsed.data.operations };
+  const operations: ImageOperation[] = [];
+  for (const entry of parsed.data.operations) {
+    const operation = operationSchema.safeParse(entry);
+    if (operation.success) operations.push(operation.data);
+  }
+  return { ok: true, value: operations };
 }
 
 function invalid(label: string, error: z.ZodError): AppFailure {
@@ -144,6 +128,7 @@ function invalid(label: string, error: z.ZodError): AppFailure {
 }
 
 const downloadRequestSchema = z.strictObject({ catalogEntryId: z.string().min(1) });
+const customRequestSchema = z.strictObject({ reference: z.string().min(1), name: z.string() });
 const repairRequestSchema = z.strictObject({ imageId: z.string().regex(REGISTERED_IMAGE_ID_PATTERN) });
 const cancelRequestSchema = z.strictObject({ operationId: z.string().min(1) });
 const unregisterRequestSchema = z.strictObject({ imageId: z.string().regex(REGISTERED_IMAGE_ID_PATTERN) });
@@ -151,6 +136,12 @@ const unregisterRequestSchema = z.strictObject({ imageId: z.string().regex(REGIS
 export function parseDownloadRequest(raw: unknown): ImageDownloadRequest {
   const parsed = downloadRequestSchema.safeParse(raw);
   if (!parsed.success) throw invalid('image:downloadStart', parsed.error);
+  return parsed.data;
+}
+
+export function parseCustomRequest(raw: unknown): ImageCustomRequest {
+  const parsed = customRequestSchema.safeParse(raw);
+  if (!parsed.success) throw invalid('image:customStart', parsed.error);
   return parsed.data;
 }
 

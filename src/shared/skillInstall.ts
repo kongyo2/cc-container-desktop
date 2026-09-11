@@ -1,10 +1,10 @@
 import type { SkillInstallConfig } from './types.ts';
 
-export const SKILL_CLI = 'skills@latest';
+const SKILL_CLI = 'skills@latest';
 
-export const SKILL_AGENT = 'claude-code';
+const SKILL_AGENT = 'claude-code';
 
-export function skillNames(entry: SkillInstallConfig): readonly string[] {
+function skillNames(entry: SkillInstallConfig): readonly string[] {
   return entry.skills.map((name) => name.trim()).filter((name) => name !== '');
 }
 

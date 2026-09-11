@@ -19,7 +19,7 @@ export function setLogTarget(window: BrowserWindow | null): void {
   }
 }
 
-export function log(stream: LogLine['stream'], level: LogLine['level'], text: string): void {
+function log(stream: LogLine['stream'], level: LogLine['level'], text: string): void {
   const line: LogLine = { stream, level, text, at: Date.now() };
   backlog.push(line);
   if (backlog.length > BACKLOG_LIMIT) backlog.shift();

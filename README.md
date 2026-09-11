@@ -7,7 +7,7 @@ Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron
 ## 使い方
 
 1. Docker Desktop を起動します (Linux コンテナモード)。
-2. 「イメージ」で用途に合うパターンを選び、**ダウンロードして登録** を押します。取得 → 検証 → 登録が進み、カードが「登録済み」になります。初回は Web をおすすめします。
+2. 「イメージ」で用途に合うパターンを選び、**ダウンロードして登録** を押します。取得 → 登録が進み、カードが「登録済み」になります。初回は Web をおすすめします。他の人が公開したイメージや自分でビルドしたイメージは、同じ画面の「カスタムイメージ」から登録します。
 3. 登録済みのカードの **このイメージで環境を作る** (または「環境」の「環境を作成」) で環境を作ります。環境は名前、イメージ、`.env` 形式の環境変数、コンテナを作った直後に 1 回走る Bash のセットアップスクリプトを持ちます。
 4. 「プロファイル」でエンドポイントと API キーを設定します (イメージの取得には不要です)。
 5. 左上の「+」でタスクを作ります。環境を 1 つ選び、空のワークスペースで始めるか、公開 Git リポジトリを clone します。
@@ -16,7 +16,7 @@ Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron
 
 ## イメージ
 
-すべてのイメージは同じ土台 (Ubuntu 24.04、Node.js 24、Claude Code、Git、GitHub CLI、tmux、ripgrep、fd、jq、yq、gcc/make) と同じ実行契約を共有するので、アプリの機能はどれを選んでも同じように動きます。用途に合わせて 8 パターンから選びます。
+すべてのイメージは同じ土台 (Ubuntu 24.04、Node.js 24、Claude Code、Git、GitHub CLI、tmux、ripgrep、fd、jq、yq、gcc/make) を共有するので、アプリの機能はどれを選んでも同じように動きます。用途に合わせて 8 パターンから選びます。
 
 | パターン   | 用途                                          | 土台に加えて入っているもの                                                                                              |
 | ---------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -32,8 +32,9 @@ Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron
 ★ アプリが最初におすすめするパターンです。
 
 - 配布先は Docker Hub のリポジトリ `kongyo2/cc-workbench`、対応プラットフォームは `linux/amd64` と `linux/arm64` です。正式タグは `<パターン>-<配布版>` (例 `web-2026.09.1`) で、一度公開したタグは書き換えません。修正は新しい配布版として出します。
-- アプリはタグではなく、同梱カタログ (`src/shared/imageCatalog.json`) に記録されたプラットフォームごとの manifest digest で取得します。登録台帳にもその digest を保存するので、あとからタグが動いても取得内容は変わりません。カタログにまだ digest がない配布版はタグで取得し、実際に届いた digest を登録時に固定します。
-- 取得したイメージは登録前に検証します。OS / CPU、ラベル、`claude` ユーザー (1000:1000)、`/home/claude/workspace`、Node.js と Claude Code、tmux などの共通実行契約を、ネットワークなしの一時コンテナで確認し、失敗したら登録しません。
+- アプリはタグではなく、同梱カタログ (`src/shared/imageCatalog.json`) に記録されたプラットフォームごとの manifest digest で取得します。登録台帳にもその digest を保存するので、あとからタグが動いても取得内容は変わりません。カタログにまだ digest がない配布版はタグで取得し、実際に届いた digest を登録時に固定します (レジストリから届いたものではなく、そのタグでローカルにあるだけのイメージなら digest はないので、タグを追いかけます)。
+- 取得したイメージは内容を検査せず、そのまま登録します。「カスタムイメージ」には `docker pull` に渡せる参照 (`ghcr.io/owner/image:tag`、`owner/image@sha256:…`、ローカルでビルドした `my-image:dev` など) をそのまま入力でき、取得も `docker pull` と同じ動きです。`@sha256:` で指定したイメージはその digest に固定し、タグで指定したイメージはタグを追いかけます (pull し直したりビルドし直したりしてタグの中身が変わると、そのタスクに「イメージの変更を適用できます」が出るので「作り直す」で反映)。
+- タスクとして動かせるイメージの条件は、`claude` ユーザー (uid/gid 1000) と `/home/claude/workspace` があり、`node`・`claude`・`tmux`・`bash`・`git` が PATH 上にあることです。`docker/` のイメージをベースにするか、同じ配置で作ってください。
 - Docker が止まっていてもカタログと登録済み一覧は閲覧できます。Windows コンテナモードや未対応の CPU では取得を始めず、理由を表示します。
 - 「登録解除」はアプリの台帳から外す操作です。Docker 内のイメージ本体は削除しません。環境やタスクが参照している登録は解除できません。
 - 新しい Claude Code やツールの版は、新しい配布版のイメージとして配ります。カタログの更新はアプリの更新と一緒に届きます。既存のタスクは勝手には変わりません。
@@ -64,14 +65,14 @@ Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron
 
 ## Docker Hub の制限で取得できないとき
 
-Docker Hub の匿名取得には回数制限があります。制限中は、ターミナルで `docker login` したうえで、カードの「詳細」にある pull コマンド (digest 指定) を実行し、完了後にアプリの同じボタンを押すと、ローカルのイメージを検証して登録します。アプリが資格情報を読み出すことはありません。
+Docker Hub の匿名取得には回数制限があります。制限中は、ターミナルで `docker login` したうえで、カードの「詳細」にある pull コマンド (digest 指定) を実行し、完了後にアプリの同じボタンを押すと、ローカルにあるイメージをそのまま登録します。アプリが資格情報を読み出すことはありません。
 
 ## 開発
 
 ```
 npm ci
 npm run dev              # 開発モード
-npm run check            # format / lint / typecheck / unit test / catalog / build
+npm run check            # format / lint / knip / typecheck / unit test / catalog / build
 npm test                 # 純粋関数・状態遷移・stream 解析・台帳の単体テスト (Docker 不要)
 npm run e2e:images       # Docker が必要 (API キー不要)。ローカルレジストリに base を公開し、取得→登録→環境→タスクを通します
 npm run e2e:deep         # Docker が必要 (API キー不要)
@@ -82,7 +83,7 @@ npm run e2e              # Docker と CC_E2E_API_KEY が必要
 
 - `docker/Dockerfile` は共通の土台 (`core`) と 8 つの最終ターゲットを持ちます。各ステージは自分が実行するスクリプトだけをコピーするので、1 つのバリアントのインストーラーを直しても `core` はビルドキャッシュから再利用されます。バージョンは `docker/image-versions.lock.json` に固定し、`npm run lock:update` で最新版とチェックサムに更新します (Dockerfile の土台イメージ参照も同時に書き換えます。ビルドとは分けています)。
 - ローカルでのビルド: `npm run images:build -- base` (すべては `npm run images:build`)。TLS を検査するプロキシの下では BuildKit secret `build-ca-bundle` に CA バンドルを渡します。
-- 各イメージには `/opt/cc/image-info.json` (パターン、配布版、実行契約、ソース revision、実測したツールの版) と `/opt/cc/apt-packages.txt` が入ります。`docker/scripts/verify-runtime.sh` が実行契約の基準で、CI とアプリの登録検証が同じスクリプトを使います。
-- 公開は GitHub Actions の `publish-images` (workflow_dispatch) で行います。パターン × プラットフォームをネイティブランナーでビルドして digest で push し、パターンごとに候補タグへまとめ、Docker Hub から取り直して契約検査を通したものだけを正式タグへ昇格します。匿名 pull を確認したあと、実 digest とサイズを入れた `imageCatalog.json` を生成して PR を開きます。必要なシークレットは `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`、公開先は `DOCKERHUB_REPOSITORY` (既定 `docker.io/kongyo2/cc-workbench`) で、リポジトリ変数とリポジトリシークレットのどちらに置いても読みます (シークレットだとログ上で `***` になるので変数を推奨)。値は `docker.io/namespace/name` の形 (小文字・ホストあり・タグなし) で、そうでなければ最初のジョブが実行を止めます。
+- 各イメージには `/opt/cc/image-info.json` (パターン、配布版、ソース revision、実測したツールの版) と `/opt/cc/apt-packages.txt` が入ります。カタログに載るツールの版はここから読みます。
+- 公開は GitHub Actions の `publish-images` (workflow_dispatch) で行います。パターン × プラットフォームをネイティブランナーでビルドして digest で push し、パターンごとに候補タグへまとめ、Docker Hub から取り直して image-info を読み、正式タグへ昇格します。匿名 pull を確認したあと、実 digest とサイズを入れた `imageCatalog.json` を生成して PR を開きます。必要なシークレットは `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`、公開先は `DOCKERHUB_REPOSITORY` (既定 `docker.io/kongyo2/cc-workbench`) で、リポジトリ変数とリポジトリシークレットのどちらに置いても読みます (シークレットだとログ上で `***` になるので変数を推奨)。値は `docker.io/namespace/name` の形 (小文字・ホストあり・タグなし) で、そうでなければ最初のジョブが実行を止めます。
 - `npm run catalog:verify` はカタログの形式を、`npm run catalog:verify:online` は各 digest が Docker Hub から匿名で取得できることを確認します。アプリのリリースワークフローは後者をゲートにします。
 - 開発ビルドだけ、環境変数 `CC_IMAGE_CATALOG_FILE` で別のカタログ (例: ローカルレジストリ) を使えます。パッケージ版では無視されます。

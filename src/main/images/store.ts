@@ -40,7 +40,6 @@ export function operationsStoreProblem(): string | null {
   return operationsFile.problem;
 }
 
-/** The point of no return for a registration: the ledger on disk is the truth. */
 export function commitRegistration(image: RegisteredImage): RegisteredImage {
   let next: readonly RegisteredImage[];
   try {
@@ -66,7 +65,7 @@ export function commitRegistration(image: RegisteredImage): RegisteredImage {
   }
   logInfo(
     'image',
-    `登録しました / registered ${image.variant}@${image.release} as ${image.id} (${image.pinnedDigest})`,
+    `登録しました / registered ${image.title.en} as ${image.id} (${image.pinnedDigest ?? `tag ${image.tag ?? 'latest'}`})`,
   );
   return image;
 }

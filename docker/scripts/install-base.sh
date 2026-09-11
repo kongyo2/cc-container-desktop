@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# The shared foundation every variant is built on: OS tools, the claude user,
-# Node.js, Claude Code, GitHub CLI and the paths the app relies on.
 set -euo pipefail
 
 apt-get update
@@ -11,20 +9,16 @@ apt-get install -y --no-install-recommends \
   build-essential pkg-config python3
 rm -rf /var/lib/apt/lists/*
 
-# Optional extra CA for builds behind a TLS-inspecting proxy (see lib.sh),
-# passed as the BuildKit secret "build-ca-bundle".
 if [ -s /run/secrets/build-ca-bundle ]; then
   install -m 0644 /run/secrets/build-ca-bundle /opt/cc-build/extra-ca.crt
   install -m 0644 /run/secrets/build-ca-bundle /usr/local/share/ca-certificates/cc-build-extra-ca.crt
   update-ca-certificates >/dev/null
 fi
 
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
-# GitHub CLI from GitHub's apt repository.
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL --retry 5 --retry-all-errors "$(cc_lock '.apt.repositories.githubCli')/githubcli-archive-keyring.gpg" \
   -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
@@ -33,7 +27,6 @@ echo "deb [arch=$(cc_arch) signed-by=/etc/apt/keyrings/githubcli-archive-keyring
   > /etc/apt/sources.list.d/github-cli.list
 cc_apt_install gh
 
-# Node.js, pinned by version and archive checksum, outside the home volume.
 node_url="$(cc_lock_platform_field '.node.archives' 'url')"
 node_sha="$(cc_lock_platform_field '.node.archives' 'sha256')"
 cc_fetch_verified "$node_url" "$node_sha" /tmp/node.tar.xz
@@ -47,8 +40,6 @@ export PATH="/opt/node/bin:${PATH}"
 export NPM_CONFIG_PREFIX=/usr/local
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
-# Claude Code, pinned. npm checks the registry's integrity for the launcher
-# and for the platform package it pulls in.
 claude_version="$(cc_lock '.claudeCode.version')"
 npm install -g --no-fund --no-audit "$(cc_lock '.claudeCode.package')@${claude_version}"
 npm cache clean --force
@@ -59,14 +50,12 @@ case "$claude_reported" in
   *) echo "claude --version reported '${claude_reported}', expected ${claude_version}" >&2; exit 1 ;;
 esac
 
-# yq, pinned binary.
 yq_url="$(cc_lock_platform_field '.yq.binaries' 'url')"
 yq_sha="$(cc_lock_platform_field '.yq.binaries' 'sha256')"
 cc_fetch_verified "$yq_url" "$yq_sha" /usr/local/bin/yq
 chmod 0755 /usr/local/bin/yq
 yq --version
 
-# The claude user (1000:1000), replacing Ubuntu's stock user of the same uid.
 touch /var/mail/ubuntu
 userdel -r ubuntu 2>/dev/null || true
 groupadd -g 1000 claude
@@ -77,13 +66,10 @@ git config --system init.defaultBranch main
 git config --system --add safe.directory '*'
 git lfs install --system --skip-repo
 
-# Paths the app depends on. /opt/cc is where the app drops its launch files.
 mkdir -p /opt/cc && chmod 0755 /opt/cc
 mkdir -p /home/claude/workspace /home/claude/.local/bin
 chown -R 1000:1000 /home/claude
 
-# Login shells (bash -l) see the same tools as the app's exec sessions, so
-# the Dockerfile's ENV PATH is mirrored here.
 cc_profile_append cc-container-desktop.sh \
   '# cc-container-desktop: paths of the tools this image ships' \
   'export PATH="/home/claude/.local/bin:/usr/local/bin:/opt/node/bin:${PATH}"' \

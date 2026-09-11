@@ -48,6 +48,7 @@ export const CHANNELS = {
   dockerProbe: 'docker:probe',
 
   imageDownloadStart: 'image:downloadStart',
+  imageCustomStart: 'image:customStart',
   imageRepairStart: 'image:repairStart',
   imageCancel: 'image:cancel',
   imageUnregister: 'image:unregister',
@@ -93,6 +94,11 @@ export interface ImageDownloadRequest {
   readonly catalogEntryId: string;
 }
 
+export interface ImageCustomRequest {
+  readonly reference: string;
+  readonly name: string;
+}
+
 export interface ImageRepairRequest {
   readonly imageId: string;
 }
@@ -127,6 +133,7 @@ export interface Api {
   dockerProbe(): Promise<Result<Snapshot>>;
 
   imageDownloadStart(request: ImageDownloadRequest): Promise<Result<ImageOperation>>;
+  imageCustomStart(request: ImageCustomRequest): Promise<Result<ImageOperation>>;
   imageRepairStart(request: ImageRepairRequest): Promise<Result<ImageOperation>>;
   imageCancel(request: ImageCancelRequest): Promise<Result<ImageOperation>>;
   imageUnregister(request: ImageUnregisterRequest): Promise<Result<Snapshot>>;

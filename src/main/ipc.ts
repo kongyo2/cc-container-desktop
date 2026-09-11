@@ -43,6 +43,7 @@ import { AppFailure, toAppError } from './errors.ts';
 import { listOperations } from './images/operations.ts';
 import {
   parseCancelRequest,
+  parseCustomRequest,
   parseDownloadRequest,
   parseRepairRequest,
   parseUnregisterRequest,
@@ -51,6 +52,7 @@ import {
   activeCatalog,
   cancelImageOperation,
   imageViews,
+  startCustomRegistration,
   startDownload,
   startRepair,
   unregisterImage,
@@ -130,7 +132,7 @@ function storeProblems(catalogProblem: string | null): readonly string[] {
   ].filter((problem): problem is string => problem !== null);
 }
 
-export async function snapshot(): Promise<Snapshot> {
+async function snapshot(): Promise<Snapshot> {
   const config = getConfig();
   const docker = await probeDocker();
   const { catalog, problem } = activeCatalog();
@@ -272,6 +274,11 @@ export function registerIpc(version: string): void {
 
   handle<[unknown], ImageOperation>(CHANNELS.imageDownloadStart, (request) => {
     const operation = startDownload(parseDownloadRequest(request).catalogEntryId);
+    notifyStateChanged();
+    return operation;
+  });
+  handle<[unknown], ImageOperation>(CHANNELS.imageCustomStart, (request) => {
+    const operation = startCustomRegistration(parseCustomRequest(request));
     notifyStateChanged();
     return operation;
   });

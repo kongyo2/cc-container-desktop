@@ -5,8 +5,6 @@ import type { ImagePlatform } from '../../shared/images.ts';
 import type { DockerStatus } from '../../shared/types.ts';
 import { AppFailure, classifyDockerError, describeError, isNotFound } from '../errors.ts';
 
-export { isNotFound } from '../errors.ts';
-
 let client: Docker | null = null;
 
 export function docker(): Docker {
@@ -45,7 +43,7 @@ export interface DaemonInfo {
   readonly serverVersion: string | null;
 }
 
-export async function daemonInfo(): Promise<DaemonInfo> {
+async function daemonInfo(): Promise<DaemonInfo> {
   let raw: InfoResponse;
   try {
     raw = (await docker().info()) as InfoResponse;
@@ -171,7 +169,6 @@ function toImageInspect(raw: ImageInspectResponse): ImageInspect {
   };
 }
 
-/** Inspects an image by reference or ID. Returns null when it does not exist locally; other failures throw classified. */
 export async function inspectImage(reference: string): Promise<ImageInspect | null> {
   try {
     return toImageInspect((await docker().getImage(reference).inspect()) as ImageInspectResponse);

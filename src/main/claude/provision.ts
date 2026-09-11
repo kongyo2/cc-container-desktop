@@ -21,7 +21,7 @@ const TMUX_USER_CONF = `${CONTAINER_HOME}/.tmux.local.conf`;
 const ONBOARD_SCRIPT = `${CONTAINER_SCRIPT_DIR}/onboard.cjs`;
 const LAUNCH_SCRIPT = `${CONTAINER_SCRIPT_DIR}/launch.sh`;
 
-export function buildEnvBlock(profile: Profile, secret: string): Record<string, string> {
+function buildEnvBlock(profile: Profile, secret: string): Record<string, string> {
   const env: Record<string, string> = {};
 
   if (profile.baseUrl !== '') env['ANTHROPIC_BASE_URL'] = profile.baseUrl;

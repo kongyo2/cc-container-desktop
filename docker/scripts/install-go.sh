@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Go variant: a pinned Go toolchain. GOPATH stays in the home volume.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 go_url="$(cc_lock_platform_field '.go.archives' 'url')"

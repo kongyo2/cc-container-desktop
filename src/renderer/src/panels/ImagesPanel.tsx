@@ -1,53 +1,31 @@
-import { Info, Layers, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Info, Layers, RefreshCw, Trash2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 
 import { suggestEnvironmentName } from '../../../shared/environments.ts';
 import { newId } from '../../../shared/id.ts';
-import { entryById, imageDisplayName, isTerminalPhase, repositoryDisplay } from '../../../shared/images.ts';
+import {
+  entryById,
+  imageDisplayName,
+  imageReference,
+  imageReferenceProblem,
+  isTerminalPhase,
+  repositoryDisplay,
+} from '../../../shared/images.ts';
 import type { ImageCatalogEntry, ImageOperation, RegisteredImageView } from '../../../shared/images.ts';
 import type { EnvironmentDraft } from '../../../shared/types.ts';
 import { EnvironmentDialog } from '../components/EnvironmentDialog.tsx';
 import { ImageCard } from '../components/ImageCard.tsx';
 import { ImageDetailsDialog } from '../components/ImageDetailsDialog.tsx';
 import { ImageOperationProgress } from '../components/ImageOperationProgress.tsx';
-import { ConfirmBanner, Pill, Section, formatBytes, formatTime } from '../components/ui.tsx';
+import { ConfirmBanner, Pill, Section, TextField, formatBytes, formatTime } from '../components/ui.tsx';
 import { availabilityKey, availabilityTone, operationForTarget } from '../images.ts';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp, useOperationList } from '../store.ts';
 
 interface DetailsState {
-  readonly entry: ImageCatalogEntry;
+  readonly entry: ImageCatalogEntry | null;
   readonly registered: RegisteredImageView | null;
-}
-
-function entryForView(
-  view: RegisteredImageView,
-  catalog: { readonly entries: readonly ImageCatalogEntry[] },
-): ImageCatalogEntry {
-  const fromCatalog = entryById(
-    { schemaVersion: 1, generatedAt: '', repository: '', entries: catalog.entries },
-    view.image.catalogEntryId,
-  );
-  if (fromCatalog !== null) return fromCatalog;
-  return {
-    id: view.image.catalogEntryId,
-    variant: view.image.variant,
-    release: view.image.release,
-    title: view.image.title,
-    summary: view.image.title,
-    description: view.image.title,
-    recommended: false,
-    inherits: null,
-    repository: view.image.repository,
-    tag: view.image.tag,
-    indexDigest: view.image.indexDigest,
-    platforms: [{ platform: view.image.platform, manifestDigest: view.image.pinnedDigest, compressedLayerBytes: null }],
-    runtimeContract: 1,
-    sourceRevision: view.image.sourceRevision,
-    publishedAt: null,
-    tools: view.image.tools,
-  };
 }
 
 export function ImagesPanel(): JSX.Element {
@@ -65,16 +43,20 @@ export function ImagesPanel(): JSX.Element {
   const [details, setDetails] = useState<DetailsState | null>(null);
   const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft | null>(null);
   const [confirmUnregister, setConfirmUnregister] = useState<string | null>(null);
+  const [customReference, setCustomReference] = useState('');
+  const [customName, setCustomName] = useState('');
 
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
   const { catalog, docker, images, config } = snapshot;
   const working = busy !== null;
   const linuxMode = docker.os === null || docker.os.toLowerCase() === 'linux';
+  const canFetch = docker.available && linuxMode && docker.platform !== null;
   const active = operations.filter((operation) => !isTerminalPhase(operation.phase));
   const recent = operations.filter((operation) => isTerminalPhase(operation.phase)).slice(0, 6);
   const published = catalog.entries.some((entry) =>
     entry.platforms.some((platform) => platform.manifestDigest !== null),
   );
+  const customProblem = customReference.trim() === '' ? null : imageReferenceProblem(customReference, language);
 
   const registeredForEntry = (entry: ImageCatalogEntry): RegisteredImageView | null =>
     images.find(
@@ -84,19 +66,31 @@ export function ImagesPanel(): JSX.Element {
     images.find((view) => view.image.catalogEntryId === entry.id) ??
     null;
 
+  const started = async (operation: ImageOperation | null): Promise<void> => {
+    if (operation !== null) applyOperation(operation);
+    await refresh();
+  };
+
   const download = (entry: ImageCatalogEntry): void => {
     void (async () => {
-      const operation = await request(() => window.cc.imageDownloadStart({ catalogEntryId: entry.id }));
-      if (operation !== null) applyOperation(operation);
-      await refresh();
+      await started(await request(() => window.cc.imageDownloadStart({ catalogEntryId: entry.id })));
+    })();
+  };
+
+  const registerCustom = (reference: string, name: string): void => {
+    void (async () => {
+      const operation = await request(() => window.cc.imageCustomStart({ reference, name }));
+      if (operation !== null) {
+        setCustomReference('');
+        setCustomName('');
+      }
+      await started(operation);
     })();
   };
 
   const repair = (view: RegisteredImageView): void => {
     void (async () => {
-      const operation = await request(() => window.cc.imageRepairStart({ imageId: view.image.id }));
-      if (operation !== null) applyOperation(operation);
-      await refresh();
+      await started(await request(() => window.cc.imageRepairStart({ imageId: view.image.id })));
     })();
   };
 
@@ -110,10 +104,13 @@ export function ImagesPanel(): JSX.Element {
   const retry = (operation: ImageOperation): void => {
     if (operation.kind === 'repair' && operation.registeredImageId !== null) {
       const view = images.find((candidate) => candidate.image.id === operation.registeredImageId);
-      if (view !== undefined) {
-        repair(view);
-        return;
-      }
+      if (view !== undefined) repair(view);
+      return;
+    }
+    if (operation.kind === 'custom') {
+      const { repository, pinnedDigest, tag, title } = operation.target;
+      registerCustom(imageReference(repository, pinnedDigest, tag), title[language]);
+      return;
     }
     if (operation.catalogEntryId !== null) {
       const entry = entryById(catalog, operation.catalogEntryId);
@@ -208,6 +205,39 @@ export function ImagesPanel(): JSX.Element {
         </div>
       </Section>
 
+      <Section title={t('imagesCustomTitle')}>
+        <p className="hint">{t('imagesCustomHint')}</p>
+        <div className="grid2">
+          <TextField
+            label={t('imagesCustomReference')}
+            value={customReference}
+            onChange={setCustomReference}
+            hint={t('imagesCustomReferenceHint')}
+            placeholder="ghcr.io/owner/image:tag"
+          />
+          <TextField
+            label={t('imagesCustomName')}
+            value={customName}
+            onChange={setCustomName}
+            hint={t('imagesCustomNameHint')}
+            mono={false}
+          />
+        </div>
+        {customProblem === null ? null : <p className="hint warn">{customProblem}</p>}
+        <div className="row">
+          <button
+            className="btn primary sm"
+            type="button"
+            disabled={working || !canFetch || customReference.trim() === '' || customProblem !== null}
+            title={canFetch ? '' : dockerState.text}
+            onClick={() => registerCustom(customReference, customName)}
+            data-testid="custom-image-register"
+          >
+            <Download size={13} /> {t('imagesCustomRegister')}
+          </button>
+        </div>
+      </Section>
+
       <Section title={t('imagesOperationsTitle')}>
         {active.length === 0 && recent.length === 0 ? <p className="empty">{t('imagesOperationsEmpty')}</p> : null}
         {active.map((operation) => (
@@ -222,12 +252,8 @@ export function ImagesPanel(): JSX.Element {
         {images.length === 0 ? <p className="empty">{t('imagesRegisteredEmpty')}</p> : null}
         <div className="env-list" data-testid="registered-images">
           {images.map((view) => {
-            const entry = entryForView(view, catalog);
             const ready = view.availability.kind === 'ready';
-            const repairable =
-              view.availability.kind === 'missing' ||
-              view.availability.kind === 'unverified' ||
-              view.availability.kind === 'error';
+            const repairable = view.availability.kind === 'missing' || view.availability.kind === 'error';
             const running = operationForTarget(
               operations,
               (operation) => operation.registeredImageId === view.image.id && !isTerminalPhase(operation.phase),
@@ -242,7 +268,7 @@ export function ImagesPanel(): JSX.Element {
                 <div className="env-row-body">
                   <div className="env-row-name">
                     <span>{imageDisplayName(view.image, language)}</span>
-                    <span className="tag">{view.image.variant}</span>
+                    <span className="tag">{view.image.variant ?? t('imageCustom')}</span>
                     <span className="tag">{view.image.platform}</span>
                     <Pill tone={availabilityTone(view.availability)}>{t(availabilityKey(view.availability))}</Pill>
                     {view.inCatalog ? null : (
@@ -250,6 +276,9 @@ export function ImagesPanel(): JSX.Element {
                         {t('imageNotInCatalog')}
                       </span>
                     )}
+                  </div>
+                  <div className="env-row-meta" title={view.image.pinnedDigest ?? ''}>
+                    {imageReference(view.image.repository, view.image.pinnedDigest, view.image.tag)}
                   </div>
                   <div className="env-row-meta">
                     {[
@@ -265,7 +294,6 @@ export function ImagesPanel(): JSX.Element {
                         `${view.appliedTaskIds.length} task${view.appliedTaskIds.length === 1 ? '' : 's'}`,
                       ),
                       `${t('imageRegisteredAt')} ${formatTime(view.image.registeredAt)}`,
-                      `${t('imageVerifiedAt')} ${formatTime(view.image.lastVerified.verifiedAt)}`,
                     ].join(' · ')}
                   </div>
                   {view.availability.kind === 'incompatible' ||
@@ -296,15 +324,19 @@ export function ImagesPanel(): JSX.Element {
                       onClick={() => repair(view)}
                       data-testid="registered-image-repair"
                     >
-                      {view.availability.kind === 'missing' ? <RefreshCw size={13} /> : <ShieldCheck size={13} />}{' '}
-                      {view.availability.kind === 'missing' ? t('imageRedownload') : t('imageVerify')}
+                      <RefreshCw size={13} /> {t('imageRedownload')}
                     </button>
                   ) : null}
                   {running !== null ? <span className="tag warn">{t('commonRunning')}</span> : null}
                   <button
                     className="btn ghost sm"
                     type="button"
-                    onClick={() => setDetails({ entry, registered: view })}
+                    onClick={() =>
+                      setDetails({
+                        entry: entryById(catalog, view.image.catalogEntryId),
+                        registered: view,
+                      })
+                    }
                   >
                     <Info size={13} /> {t('imageDetails')}
                   </button>

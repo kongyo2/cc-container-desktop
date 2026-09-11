@@ -1,7 +1,7 @@
 import { envNameProblems, parseEnvText } from './env.ts';
 import type { AppConfig, Environment, Language } from './types.ts';
 
-export const MAX_ENVIRONMENT_NAME = 64;
+const MAX_ENVIRONMENT_NAME = 64;
 
 export const ENV_TEXT_PLACEHOLDER = `NODE_ENV=production
 GIT_AUTHOR_NAME=Your Name
@@ -30,7 +30,7 @@ export function environmentNameProblem(name: string, language: Language): string
   return null;
 }
 
-export const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG'];
+const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG'];
 
 export function environmentEnvProblems(envText: string): readonly string[] {
   const parsed = parseEnvText(envText);

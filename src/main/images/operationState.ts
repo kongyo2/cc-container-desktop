@@ -79,27 +79,21 @@ export function finishOperation(
   return patchOperation(operation, { phase, error, step: '' }, now);
 }
 
-/**
- * After a restart no operation is still running. One whose registration
- * committed (a registration for the same target, verified no earlier than the
- * operation started) is restored as succeeded; everything else is interrupted
- * and can be retried from the local state.
- */
 export function recoverOperation(
   operation: ImageOperation,
   images: readonly RegisteredImage[],
   now?: string,
 ): ImageOperation {
   if (isTerminalPhase(operation.phase)) return operation;
+  const { target } = operation;
   const committed = images.find(
     (image) =>
       (operation.registeredImageId !== null && image.id === operation.registeredImageId) ||
-      (operation.target.pinnedDigest !== null &&
-        image.pinnedDigest === operation.target.pinnedDigest &&
-        image.platform === operation.target.platform &&
-        image.lastVerified.verifiedAt >= operation.startedAt),
+      (image.platform === target.platform &&
+        image.repository === target.repository &&
+        (target.pinnedDigest === null ? image.tag === target.tag : image.pinnedDigest === target.pinnedDigest)),
   );
-  if (committed !== undefined && committed.lastVerified.verifiedAt >= operation.startedAt) {
+  if (committed !== undefined && committed.registeredAt >= operation.startedAt) {
     return patchOperation(
       { ...operation, registeredImageId: committed.id },
       { phase: 'succeeded', error: null, step: '' },
@@ -122,7 +116,7 @@ export function recoverOperation(
   );
 }
 
-export const HISTORY_LIMIT = 20;
+const HISTORY_LIMIT = 20;
 
 export function pruneHistory(
   operations: readonly ImageOperation[],

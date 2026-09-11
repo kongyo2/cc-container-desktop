@@ -2,9 +2,9 @@ import { RotateCcw, X } from 'lucide-react';
 import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
-import { isTerminalPhase, operationProgress } from '../../../shared/images.ts';
+import { imageReference, isTerminalPhase, operationProgress } from '../../../shared/images.ts';
 import type { ImageOperation } from '../../../shared/images.ts';
-import { formatDuration, phaseKey, phaseTone, stepKey } from '../images.ts';
+import { formatDuration, kindKey, phaseKey, phaseTone, stepKey } from '../images.ts';
 import { useLanguage, useT } from '../i18n.ts';
 import { Pill, formatBytes } from './ui.tsx';
 
@@ -38,14 +38,13 @@ export function ImageOperationProgress({
   const finished = operation.finishedAt === null ? now : new Date(operation.finishedAt).getTime();
   const elapsed = Number.isNaN(started) ? 0 : Math.max(0, finished - started);
   const step = stepKey(operation);
-  const title = `${operation.target.title[language]} / ${operation.target.release}`;
-  const kind = operation.kind === 'download' ? t('opKindDownload') : t('opKindRepair');
+  const { target } = operation;
 
   return (
     <div className={`op-card phase-${operation.phase}`} data-testid="image-operation" data-operation-id={operation.id}>
       <div className="op-head">
-        <span className="op-title">{title}</span>
-        <span className="tag">{kind}</span>
+        <span className="op-title">{target.title[language]}</span>
+        <span className="tag">{t(kindKey(operation.kind))}</span>
         <Pill tone={phaseTone(operation.phase)}>{t(phaseKey(operation.phase))}</Pill>
         {operation.cancelRequested && active ? <span className="tag warn">{t('opPhaseCancelled')}…</span> : null}
         <span className="spacer" />
@@ -81,6 +80,7 @@ export function ImageOperationProgress({
       ) : null}
 
       <div className="op-meta-row">
+        <span className="op-meta">{imageReference(target.repository, target.pinnedDigest, target.tag)}</span>
         {operation.phase === 'pulling' || operation.totalLayers > 0 ? (
           <span>
             {t('opReceived')} {formatBytes(operation.downloadedBytes)}
@@ -91,7 +91,7 @@ export function ImageOperationProgress({
           </span>
         ) : null}
         {step === null ? null : <span>{t(step)}</span>}
-        {operation.target.platform === null ? null : <span className="op-meta">{operation.target.platform}</span>}
+        {target.platform === null ? null : <span className="op-meta">{target.platform}</span>}
       </div>
 
       {!compact && operation.phase === 'pulling' && operation.layers.length > 0 ? (

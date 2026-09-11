@@ -1,10 +1,3 @@
-// A local registry with two releases of the base image, and a catalog file
-// that points the app at it (CC_IMAGE_CATALOG_FILE, honoured in development
-// builds only). Everything the suites need to exercise "download and
-// register" without touching Docker Hub.
-//
-//   CC_E2E_BASE_IMAGE   an already-built base image to reuse instead of building one
-//   CC_E2E_REGISTRY_PORT  host port of the registry (default 5055)
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -14,12 +7,12 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-export const REGISTRY_CONTAINER = 'cc-e2e-registry';
-export const REGISTRY_PORT = Number.parseInt(process.env['CC_E2E_REGISTRY_PORT'] ?? '5055', 10);
-export const REGISTRY_HOST = `127.0.0.1:${REGISTRY_PORT}`;
-export const REGISTRY_REPOSITORY = `${REGISTRY_HOST}/cc-e2e/cc-workbench`;
-export const RELEASE_ONE = '2026.09.1';
-export const RELEASE_TWO = '2026.09.2';
+const REGISTRY_CONTAINER = 'cc-e2e-registry';
+const REGISTRY_PORT = Number.parseInt(process.env['CC_E2E_REGISTRY_PORT'] ?? '5055', 10);
+const REGISTRY_HOST = `127.0.0.1:${REGISTRY_PORT}`;
+const REGISTRY_REPOSITORY = `${REGISTRY_HOST}/cc-e2e/cc-workbench`;
+const RELEASE_ONE = '2026.09.1';
+const RELEASE_TWO = '2026.09.2';
 
 function docker(args, options = {}) {
   return execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options }).trim();
@@ -111,7 +104,6 @@ const MANIFEST_ACCEPT = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
-/** The platform manifest digest a tag resolves to, read from the registry itself (an index is unwrapped). */
 function platformDigestOf(tag, platform) {
   const [name, reference] = tag.slice(REGISTRY_HOST.length + 1).split(':');
   const body = execFileSync(
@@ -133,7 +125,6 @@ function pushAndForget(tag, platform) {
   docker(['push', tag]);
   const digest = platformDigestOf(tag, platform);
   if (!/^sha256:[0-9a-f]{64}$/u.test(digest)) throw new Error(`unexpected digest for ${tag}: ${digest}`);
-  // Drop the registry-side references so the app really has to pull them.
   docker(['image', 'rm', tag]);
   spawnSync('docker', ['image', 'rm', `${REGISTRY_REPOSITORY}@${digest}`], { stdio: 'ignore' });
   return digest;
@@ -147,8 +138,8 @@ function catalogEntry(release, digest, platform, recommended) {
     title: { ja: 'Base (e2e)', en: 'Base (e2e)' },
     summary: { ja: 'E2E 用の Base イメージ', en: 'Base image for the e2e suite' },
     description: {
-      ja: 'ローカルレジストリから取得する検証用イメージ',
-      en: 'A verification image served from a local registry',
+      ja: 'ローカルレジストリから取得するテスト用イメージ',
+      en: 'A test image served from a local registry',
     },
     recommended,
     inherits: null,
@@ -156,7 +147,6 @@ function catalogEntry(release, digest, platform, recommended) {
     tag: `base-${release}`,
     indexDigest: null,
     platforms: [{ platform, manifestDigest: digest, compressedLayerBytes: null }],
-    runtimeContract: 1,
     sourceRevision: null,
     publishedAt: '2026-09-11T00:00:00.000Z',
     tools: [
@@ -168,7 +158,6 @@ function catalogEntry(release, digest, platform, recommended) {
 
 let cached = null;
 
-/** Builds (or reuses), pushes and forgets the two releases, then writes the catalog. Idempotent per process. */
 export function ensureTestImages() {
   if (cached !== null) return cached;
   const platform = daemonPlatform();
@@ -206,18 +195,28 @@ export function ensureTestImages() {
     repository: REGISTRY_REPOSITORY,
     releaseOne: { id: `base@${RELEASE_ONE}`, digest: digestOne, localTag: localOne },
     releaseTwo: { id: `base@${RELEASE_TWO}`, digest: digestTwo, localTag: localTwo },
-    /**
-     * Deletes the pulled image from the daemon (as `docker image prune -a`
-     * would) so the registration reads as "missing". No container may still
-     * use it: Docker refuses to delete an image behind a container, so the
-     * suite removes its tasks first.
-     */
     forgetPulled(digest) {
       const reference = `${REGISTRY_REPOSITORY}@${digest}`;
       const id = spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', reference], { encoding: 'utf8' });
       if (id.status !== 0 || id.stdout.trim() === '') return;
       docker(['image', 'rm', '-f', id.stdout.trim()]);
       if (dockerOk(['image', 'inspect', reference])) throw new Error(`${reference} is still present after removal`);
+    },
+    buildLocal(tag, fromDigest, marker) {
+      const dockerfile = [
+        `FROM ${REGISTRY_REPOSITORY}@${fromDigest}`,
+        'USER root',
+        `RUN echo "${marker}" > /opt/cc/e2e-custom`,
+        'USER claude',
+        'WORKDIR /home/claude/workspace',
+        'CMD ["sleep", "infinity"]',
+        '',
+      ].join('\n');
+      execFileSync('docker', ['build', '-t', tag, '-'], { input: dockerfile, stdio: ['pipe', 'ignore', 'inherit'] });
+      return docker(['image', 'inspect', '--format', '{{.Id}}', tag]);
+    },
+    removeLocal(tag) {
+      spawnSync('docker', ['image', 'rm', '-f', tag], { stdio: 'ignore' });
     },
   };
   return cached;

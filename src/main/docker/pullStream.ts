@@ -48,11 +48,6 @@ export function parsePullLine(line: string): PullEvent | null {
   };
 }
 
-/**
- * Splits the pull response into JSON events. Handles messages that straddle
- * network chunks, several messages per chunk, UTF-8 sequences cut in half
- * and lines that are not JSON (skipped and counted).
- */
 export class PullStreamParser {
   private readonly decoder = new StringDecoder('utf8');
   private pending = '';
@@ -122,7 +117,6 @@ export function createPullAggregate(): PullAggregate {
 
 const DONE_STATUSES: readonly string[] = ['Pull complete', 'Already exists'];
 
-/** Whole-image messages carry the reference (a tag or digest) as their id, never a layer. */
 function isImageLevel(status: string): boolean {
   return status.startsWith('Pulling from ') || status.startsWith('Digest:') || status.startsWith('Status:');
 }
@@ -164,11 +158,6 @@ export function applyPullEvent(aggregate: PullAggregate, event: PullEvent): void
   aggregate.layers.set(event.id, layer);
 }
 
-/**
- * Once the daemon has reported a clean end, everything it listed is in place:
- * blobs that only ever reached "Download complete" (the image config under the
- * containerd store, for one) count as done and their bytes as received.
- */
 export function completePullAggregate(aggregate: PullAggregate): void {
   for (const layer of aggregate.layers.values()) {
     layer.done = true;

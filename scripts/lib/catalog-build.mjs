@@ -1,5 +1,3 @@
-// Shared helpers for the catalog scripts. Run with `node --experimental-strip-types`
-// so the app's own validation (src/main/images/catalog.ts) can be imported.
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +36,7 @@ export function parseArgs(argv) {
   return { options, positional };
 }
 
-export function lockValue(lock, path) {
+function lockValue(lock, path) {
   let current = lock;
   for (const segment of path.split('.')) {
     if (current === null || typeof current !== 'object' || !(segment in current)) return null;
@@ -47,7 +45,7 @@ export function lockValue(lock, path) {
   return typeof current === 'string' ? current : null;
 }
 
-export function variantChain(variants, id) {
+function variantChain(variants, id) {
   const chain = [];
   let cursor = variants.find((variant) => variant.id === id) ?? null;
   const seen = new Set();

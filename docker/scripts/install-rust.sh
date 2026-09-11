@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Rust variant: a pinned toolchain through a pinned rustup-init. The toolchain
-# lives under /opt; cargo install output goes to ~/.cargo/bin in the home volume.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 cc_apt_install libssl-dev pkg-config

@@ -1,6 +1,3 @@
-// Download → verify → register → environment → task, against a local registry.
-// Needs Docker and no API key. Builds the base image once (or reuses
-// CC_E2E_BASE_IMAGE) and keeps a registry container running between runs.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -36,17 +33,7 @@ function dockerImageIdOf(containerName) {
   return execFileSync('docker', ['inspect', '--format', '{{.Image}}', containerName], { encoding: 'utf8' }).trim();
 }
 
-function listVerifyContainers() {
-  return execFileSync(
-    'docker',
-    ['ps', '-a', '--filter', 'label=com.cc-container-desktop.role=verify', '--format', '{{.Names}}'],
-    {
-      encoding: 'utf8',
-    },
-  )
-    .split('\n')
-    .filter(Boolean);
-}
+const CUSTOM_TAG = 'cc-workbench-e2e:custom';
 
 let session = await launchIsolated();
 let { page, fixture } = session;
@@ -113,6 +100,14 @@ try {
   check('cancelling an unknown operation is OPERATION_NOT_FOUND', errorCode(cancelGhost) === 'OPERATION_NOT_FOUND');
   const repairGhost = await call(page, 'imageRepairStart', [{ imageId: 'img_000000000000000000000000' }]);
   check('repairing an unregistered image is IMAGE_NOT_REGISTERED', errorCode(repairGhost) === 'IMAGE_NOT_REGISTERED');
+  const customNoRef = await call(page, 'imageCustomStart', [{ name: 'x' }]);
+  check('a custom registration without a reference is refused', errorCode(customNoRef) === 'INVALID_INPUT');
+  const customBadRef = await call(page, 'imageCustomStart', [{ reference: 'Not A Reference', name: '' }]);
+  check(
+    'a custom registration with a reference docker pull would refuse is INVALID_INPUT',
+    errorCode(customBadRef) === 'INVALID_INPUT',
+    errorCode(customBadRef),
+  );
   const envNoImage = await call(page, 'environmentUpsert', [
     { id: 'e', name: 'x', imageId: '', envText: '', setupScript: '' },
   ]);
@@ -167,18 +162,13 @@ try {
   const phases = [...new Set(events.filter((event) => event.id === first.id).map((event) => event.phase))];
   check(
     'progress events arrived in phase order',
-    ['checking', 'pulling', 'verifying', 'registering', 'succeeded'].every((phase) => phases.includes(phase)),
+    ['checking', 'pulling', 'registering', 'succeeded'].every((phase) => phases.includes(phase)),
     phases.join(' → '),
   );
   const sequences = events.filter((event) => event.id === first.id).map((event) => event.sequence);
   check(
     'sequences never go backwards',
     sequences.every((value, index) => index === 0 || value >= sequences[index - 1]),
-  );
-  check(
-    'no verification container is left behind',
-    listVerifyContainers().length === 0,
-    listVerifyContainers().join(','),
   );
 
   snapshot = await ok(page, 'snapshot');
@@ -190,22 +180,13 @@ try {
     JSON.stringify(registeredOne?.availability),
   );
   check(
-    'the registration pins the manifest digest',
-    registeredOne?.image.pinnedDigest === fixture.releaseOne.digest && registeredOne?.image.digestKind === 'manifest',
-  );
-  check(
-    'the registration carries the engine id it was verified on',
-    registeredOne?.image.lastVerified.engineId === snapshot.docker.engineId,
-  );
-  check(
-    'the runtime contract passed a meaningful number of checks',
-    (registeredOne?.image.lastVerified.checksPassed ?? 0) >= 25,
-    String(registeredOne?.image.lastVerified.checksPassed),
-  );
-  check(
-    'tool versions were measured from the image',
-    registeredOne?.image.tools.find((tool) => tool.id === 'node')?.version.startsWith('24.') === true,
-    JSON.stringify(registeredOne?.image.tools),
+    'the registration pins the manifest digest and describes the catalog entry',
+    registeredOne?.image.pinnedDigest === fixture.releaseOne.digest &&
+      registeredOne?.image.variant === 'base' &&
+      registeredOne?.image.release === '2026.09.1' &&
+      registeredOne?.image.title.en === 'Base (e2e)' &&
+      registeredOne?.image.platform === fixture.platform,
+    JSON.stringify(registeredOne?.image),
   );
   const ledger = JSON.parse(readFileSync(join(userData, 'state-v1', 'images.json'), 'utf8'));
   check('the ledger on disk holds exactly one registration', ledger.schemaVersion === 1 && ledger.images.length === 1);
@@ -229,7 +210,7 @@ try {
   check('cancel is accepted on a queued operation', cancelled.cancelRequested === true);
   const againDone = await waitForOperation(page, again.id);
   check(
-    're-downloading registered content succeeds by local verification',
+    're-downloading registered content succeeds without a pull',
     againDone.phase === 'succeeded' && againDone.pulled === false,
     `${againDone.phase} pulled=${againDone.pulled}`,
   );
@@ -299,8 +280,7 @@ try {
     'the container is labelled with instance, image and digest',
     labels['com.cc-container-desktop.instance'] === snapshot.config.dataInstanceId &&
       labels['com.cc-container-desktop.image'] === done.registeredImageId &&
-      labels['com.cc-container-desktop.image-digest'] === fixture.releaseOne.digest &&
-      labels['com.cc-container-desktop.runtime-contract'] === '1',
+      labels['com.cc-container-desktop.image-digest'] === fixture.releaseOne.digest,
     JSON.stringify(labels),
   );
   const info = JSON.parse(await readContainerFile(page, task.id, '/opt/cc/image-info.json'));
@@ -408,7 +388,6 @@ try {
     join(userData, 'tasks.json'),
     JSON.stringify({ version: 1, tasks: [{ id: 'legacy1', name: 'legacy' }] }),
   );
-  // The session's close() deletes the tasks it created; this one must outlive the restart.
   session.forgetTask(task.id);
   await session.close({ keepUserData: true });
   session = await launchIsolated({ userData });
@@ -502,7 +481,110 @@ try {
   await ok(page, 'taskDelete', [afterRepair.task.id, { exportFirst: false }]);
   session.forgetTask(afterRepair.task.id);
 
-  console.log('\n[I] a broken ledger blocks registration instead of being overwritten');
+  console.log('\n[I] a custom image: registered as it is, by digest or by a tag that is only local');
+  const byDigest = await ok(page, 'imageCustomStart', [
+    { reference: `${fixture.repository}@${fixture.releaseTwo.digest}`, name: '' },
+  ]);
+  const byDigestDone = await waitForOperation(page, byDigest.id);
+  check(
+    'a digest reference of catalog content registers without a pull',
+    byDigestDone.phase === 'succeeded' && byDigestDone.kind === 'custom' && byDigestDone.pulled === false,
+    `${byDigestDone.phase} ${byDigestDone.error?.message ?? ''}`,
+  );
+  snapshot = await ok(page, 'snapshot');
+  check(
+    'it is the same registration, still described by its catalog entry',
+    byDigestDone.registeredImageId === two.image.id &&
+      snapshot.images.length === 1 &&
+      snapshot.images[0]?.image.catalogEntryId === fixture.releaseTwo.id,
+    JSON.stringify(snapshot.images.map((candidate) => [candidate.image.id, candidate.image.catalogEntryId])),
+  );
+
+  const firstBuild = fixture.buildLocal(CUSTOM_TAG, fixture.releaseTwo.digest, 'custom one');
+  await goView(page, 'images');
+  await page.fill('input[placeholder="ghcr.io/owner/image:tag"]', CUSTOM_TAG);
+  await page.waitForTimeout(200);
+  const customButton = await page.evaluate(
+    () => document.querySelector('[data-testid="custom-image-register"]')?.hasAttribute('disabled') === false,
+  );
+  check('a valid reference enables the custom register button', customButton);
+  await shoot(page, 'images-06-custom');
+  const custom = await ok(page, 'imageCustomStart', [{ reference: CUSTOM_TAG, name: 'Custom' }]);
+  const customDone = await waitForOperation(page, custom.id);
+  check(
+    'a local-only tag registers without a pull',
+    customDone.phase === 'succeeded' && customDone.kind === 'custom' && customDone.pulled === false,
+    `${customDone.phase} pulled=${customDone.pulled} ${customDone.error?.message ?? ''}`,
+  );
+  snapshot = await ok(page, 'snapshot');
+  const customView = snapshot.images.find((candidate) => candidate.image.id === customDone.registeredImageId) ?? null;
+  check(
+    'the registration follows the tag: no digest, no catalog entry, the given name',
+    customView?.image.catalogEntryId === null &&
+      customView?.image.variant === null &&
+      customView?.image.release === null &&
+      customView?.image.pinnedDigest === null &&
+      customView?.image.tag === 'custom' &&
+      customView?.image.repository === 'docker.io/library/cc-workbench-e2e' &&
+      customView?.image.title.en === 'Custom',
+    JSON.stringify(customView?.image),
+  );
+  check(
+    'and is ready on this daemon, pointing at the build',
+    customView?.availability.kind === 'ready' && customView?.availability.localImageId === firstBuild,
+    JSON.stringify(customView?.availability),
+  );
+  const customRow = await page.evaluate(
+    (id) => document.querySelector(`[data-image-id="${id}"] .env-row-name`)?.textContent ?? '',
+    customView?.image.id,
+  );
+  check('the registered list shows it under its name', customRow.includes('Custom'), customRow);
+
+  const customEnvironmentId = 'e2e-custom-env';
+  await ok(page, 'environmentUpsert', [
+    { id: customEnvironmentId, name: 'Custom env', imageId: customView.image.id, envText: '', setupScript: '' },
+  ]);
+  const onCustom = await session.createTask({ name: `${TASK_PREFIX}custom`, environmentId: customEnvironmentId });
+  check(
+    'a task starts on the custom image',
+    taskById(await ok(page, 'snapshot'), onCustom.task.id)?.container.running === true,
+  );
+  check(
+    'and really runs the local build',
+    (await sh(page, onCustom.task.id, 'cat /opt/cc/e2e-custom')).stdout.trim() === 'custom one',
+  );
+  const customLabels = dockerLabelsOf(onCustom.task.containerName);
+  check(
+    'a container from an unpinned image carries no digest label',
+    customLabels['com.cc-container-desktop.image'] === customView.image.id &&
+      !('com.cc-container-desktop.image-digest' in customLabels),
+    JSON.stringify(customLabels),
+  );
+
+  const secondBuild = fixture.buildLocal(CUSTOM_TAG, fixture.releaseTwo.digest, 'custom two');
+  check('the rebuilt tag is a different image', secondBuild !== firstBuild);
+  snapshot = await ok(page, 'snapshot');
+  view = taskById(snapshot, onCustom.task.id);
+  check(
+    'rebuilding the tag flags the task and keeps the registration ready',
+    view?.imageStale === true && view?.desiredAvailability?.kind === 'ready',
+    JSON.stringify({ stale: view?.imageStale, availability: view?.desiredAvailability }),
+  );
+  await ok(page, 'taskRecreate', [onCustom.task.id]);
+  check(
+    'recreate moves the task onto the rebuilt image',
+    (await sh(page, onCustom.task.id, 'cat /opt/cc/e2e-custom')).stdout.trim() === 'custom two' &&
+      dockerImageIdOf(onCustom.task.containerName) === secondBuild,
+  );
+  await ok(page, 'taskDelete', [onCustom.task.id, { exportFirst: false }]);
+  session.forgetTask(onCustom.task.id);
+  await ok(page, 'environmentArchive', [customEnvironmentId, true]);
+  await ok(page, 'environmentDelete', [customEnvironmentId]);
+  await ok(page, 'imageUnregister', [{ imageId: customView.image.id }]);
+  fixture.removeLocal(CUSTOM_TAG);
+  check('the custom registration is gone', (await ok(page, 'snapshot')).images.length === 1);
+
+  console.log('\n[J] a broken ledger blocks registration instead of being overwritten');
   await ok(page, 'environmentArchive', [environmentId, true]);
   await ok(page, 'environmentDelete', [environmentId]);
   await ok(page, 'imageUnregister', [{ imageId: two.image.id }]);

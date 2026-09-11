@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# JVM variant: OpenJDK 21 and Maven from apt, Gradle pinned by checksum.
 set -euo pipefail
-# shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
 
 cc_apt_install openjdk-21-jdk-headless maven
@@ -19,8 +17,6 @@ rm -f /tmp/gradle.zip
 ln -sfn "/opt/gradle/gradle-${gradle_version}/bin/gradle" /usr/local/bin/gradle
 test -x "/opt/gradle/gradle-${gradle_version}/bin/gradle"
 
-# /opt/java is a stable, architecture-independent JAVA_HOME the Dockerfile's
-# ENV can point at; login shells get the same value from profile.d.
 ln -sfn "$java_home" /opt/java
 cc_profile_append cc-jvm.sh \
   '# cc-container-desktop: jvm toolchain' \
