@@ -83,9 +83,7 @@ export interface ExecRequest {
 }
 
 export interface BuildRequest {
-  /** Rebuild every layer, pulling the base image again. */
   readonly noCache: boolean;
-  /** Reinstall Claude Code (and the other global npm tools) without redoing the layers above. */
   readonly refreshClaudeCode: boolean;
 }
 

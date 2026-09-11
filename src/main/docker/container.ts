@@ -25,10 +25,8 @@ export interface ContainerRef {
   readonly volumeName: string;
 }
 
-/** Everything a task's container is created with, beyond its name and volume. */
 export interface ContainerSpec {
   readonly imageTag: string;
-  /** `KEY=VALUE` entries from the task's environment, applied after the base ones. */
   readonly env: readonly string[];
   readonly environmentId: string;
   readonly environmentRevision: string;
@@ -205,8 +203,6 @@ async function createContainer(ref: ContainerRef, spec: ContainerSpec): Promise<
     WorkingDir: CONTAINER_WORKSPACE,
     Tty: false,
     OpenStdin: false,
-    // The environment's variables come last so they win over the base ones;
-    // every `docker exec` into the container inherits them.
     Env: [...BASE_ENV, ...spec.env],
     Labels: containerLabels(ref, spec),
     Cmd: ['sleep', 'infinity'],

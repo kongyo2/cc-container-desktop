@@ -6,7 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to the same branch makes the running check obsolete.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -15,7 +14,6 @@ permissions:
   contents: read
 
 env:
-  # The Chromium in node_modules/electron is the only browser these tests use.
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
 jobs:
@@ -38,8 +36,6 @@ jobs:
       - name: Oxlint
         run: npm run lint:strict
 
-      # Cache-free, and with skipLibCheck off in the separate sweep, so a
-      # dependency bump that breaks our types cannot slip through.
       - name: Typecheck
         run: npm run typecheck:ci
 
@@ -63,7 +59,6 @@ jobs:
 
       - run: npm ci
 
-      # Electron needs a real GTK stack even to open an offscreen window.
       - name: Install Electron's runtime libraries
         run: |
           sudo apt-get update
@@ -92,8 +87,6 @@ jobs:
 
       - run: npm ci
 
-      # The target platform builds its own bundle: a path or line-ending problem
-      # that only shows up on Windows fails here rather than in a release.
       - name: Build
         run: npm run build
 
@@ -102,12 +95,9 @@ jobs:
 
   e2e:
     name: End-to-end against a live endpoint
-    # Needs a real credential, so it never runs on a fork PR. Trigger it by hand
-    # from the Actions tab once OPENROUTER_API_KEY is set in repository secrets.
     if: github.event_name == 'workflow_dispatch'
     needs: check
     runs-on: ubuntu-latest
-    # The base image carries every toolchain; building it alone takes ~20 min.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
@@ -135,8 +125,6 @@ jobs:
         if: steps.creds.outputs.present == 'true'
         run: npm run build
 
-      # Built here, with the same classic builder the app uses, so the suites
-      # start from a ready image and the app's own (cached) build is quick.
       - name: Build the container image
         if: steps.creds.outputs.present == 'true'
         env:

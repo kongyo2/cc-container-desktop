@@ -39,8 +39,6 @@ export function NewTaskPanel(): JSX.Element {
   const working = busy !== null;
   const profileId = profileChoice === undefined ? config.defaultProfileId : profileChoice;
 
-  // Only an environment that still exists and is not archived can be picked;
-  // the default one is preselected, the first active one otherwise.
   const environments = activeEnvironments(config);
   const wanted = environmentChoice ?? config.defaultEnvironmentId;
   const environmentId =

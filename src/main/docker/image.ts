@@ -30,11 +30,6 @@ function buildContext(): { readonly context: string; readonly src: readonly stri
   return { context, src: readdirSync(context) };
 }
 
-/**
- * Builds the base image from the Dockerfile that ships with the app. The
- * Engine API's classic builder is used, so the Dockerfile stays free of
- * BuildKit-only syntax.
- */
 export async function buildImage(tag: string, request: BuildRequest): Promise<void> {
   const { context, src } = buildContext();
   const mode = request.noCache ? ' (--no-cache)' : request.refreshClaudeCode ? ' (refresh Claude Code)' : '';

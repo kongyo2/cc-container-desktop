@@ -951,8 +951,6 @@ code.command {
   white-space: nowrap;
 }
 
-/* --- Environments page ---------------------------------------------------- */
-
 .tools-table {
   width: 100%;
   border-collapse: collapse;
@@ -1037,10 +1035,6 @@ code.command {
 .env-row .banner {
   margin-bottom: 0;
 }
-
-/* --- Environment dialog ---------------------------------------------------
-   Mirrors the reference "環境を編集" sheet: a dark card, plain inputs, and
-   archive / cancel / save along the bottom. Deliberately its own palette. */
 
 .modal-backdrop {
   position: fixed;

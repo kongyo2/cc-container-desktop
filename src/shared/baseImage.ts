@@ -5,10 +5,6 @@ export interface BaseImageTool {
   readonly included: Readonly<Record<Language, string>>;
 }
 
-/**
- * What the fixed base image carries. Mirrors docker/Dockerfile; keep the two
- * in step when a runtime is added or dropped.
- */
 export const BASE_IMAGE_TOOLS: readonly BaseImageTool[] = [
   {
     category: { ja: 'Python', en: 'Python' },

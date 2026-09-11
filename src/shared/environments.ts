@@ -3,7 +3,6 @@ import type { AppConfig, Environment, Language } from './types.ts';
 
 export const MAX_ENVIRONMENT_NAME = 64;
 
-/** The example the environment dialog shows in an empty variables box. */
 export const ENV_TEXT_PLACEHOLDER = `NODE_ENV=production
 GIT_AUTHOR_NAME=Your Name
 
@@ -11,11 +10,9 @@ GIT_AUTHOR_NAME=Your Name
 CONFIG="key1=val1
 key2=val2"`;
 
-/** The example the environment dialog shows in an empty setup-script box. */
 export const SETUP_SCRIPT_PLACEHOLDER = `#!/bin/bash
 npm install`;
 
-/** Where ".env format" links to from the dialog. */
 export const ENV_FORMAT_URL = 'https://github.com/motdotla/dotenv#what-rules-does-the-parsing-engine-follow';
 
 export function normalizeEnvironmentName(name: string): string {
@@ -33,14 +30,8 @@ export function environmentNameProblem(name: string, language: Language): string
   return null;
 }
 
-/**
- * Names the app itself sets on every process it starts inside a container
- * (terminals, the setup script). A value for one of these would be silently
- * overridden, so the dialog refuses them instead.
- */
 export const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG'];
 
-/** Everything wrong with the variables box, in the order it should be shown. */
 export function environmentEnvProblems(envText: string): readonly string[] {
   const parsed = parseEnvText(envText);
   const reserved = Object.keys(parsed.env)
@@ -56,7 +47,6 @@ export function normalizeScriptText(text: string): string {
   return text.replaceAll('\r\n', '\n');
 }
 
-/** The variables as `KEY=VALUE` strings, sorted so equal sets compare equal. */
 export function environmentEnvEntries(environment: Environment | null): readonly string[] {
   if (environment === null) return [];
   return Object.entries(parseEnvText(environment.envText).env)

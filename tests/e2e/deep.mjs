@@ -1,7 +1,3 @@
-// The regression suite: every guard, merge rule and lifecycle edge that does not
-// need a model. Needs Docker; no API key. Everything runs in a scratch userData
-// with e2e- prefixed tasks, and every container and volume it makes is removed.
-
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -554,8 +550,6 @@ try {
   await page.waitForTimeout(600);
   const REPEATS = 20000;
   await ok(page, 'termWrite', [wide.id, `printf 'あ%.0s' $(seq 1 ${REPEATS}); printf '\\nDONE-CJK\\n'\n`]);
-  // The typed line is echoed back first and already contains the marker, so
-  // wait for its second appearance: the one printf writes after the run.
   const termText = await waitFor(
     page,
     () => page.evaluate(() => window.__ccTermText ?? ''),
@@ -689,8 +683,6 @@ try {
   console.log('\n[J] an image rebuild is detected per task');
 
   const realTag = boot.config.imageTag;
-  // The Dockerfile is fixed now, so the "new image" is derived from the real
-  // one with the docker CLI; the app's own build path is exercised right after.
   execFileSync('docker', ['build', '-q', '-t', SCRATCH_TAG, '-'], {
     input: `FROM ${realTag}\nRUN echo E2E-LAYER > /tmp/e2e-layer\n`,
     stdio: ['pipe', 'ignore', 'ignore'],
@@ -738,10 +730,6 @@ try {
     taskById(await ok(page, 'snapshot'), alpha.id)?.imageStale === false,
   );
 
-  // With every layer cached this only proves the bundled context reaches the
-  // Engine and its progress reaches the log pane. Skipped where the image was
-  // built by another builder (no shared cache), the same switch the workbench
-  // suite honours.
   if (process.env['CC_E2E_SKIP_BUILD'] !== '1') {
     const appBuild = await call(page, 'imageBuild', [{ noCache: false, refreshClaudeCode: false }]);
     check('the app can (re)build the fixed base image', appBuild.ok === true, appBuild.error ?? '');

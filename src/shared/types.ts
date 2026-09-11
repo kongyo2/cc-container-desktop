@@ -20,11 +20,6 @@ export interface Profile {
   readonly note: string;
 }
 
-/**
- * What a task's container is created with, on top of the fixed base image:
- * environment variables (kept as the .env text the user typed) and a bash
- * script that runs once, when the container is created, before Claude Code.
- */
 export interface Environment {
   readonly id: string;
   readonly name: string;
@@ -125,7 +120,6 @@ export interface ContainerState {
   readonly imageId: string | null;
   readonly startedAt: string | null;
   readonly homeVolume: string | null;
-  /** The environment the container was created with, read back from its labels. */
   readonly environmentId: string | null;
   readonly environmentRevision: string | null;
 }
@@ -133,9 +127,7 @@ export interface ContainerState {
 export interface TaskView {
   readonly task: Task;
   readonly container: ContainerState;
-  /** The container was created from an image that is no longer the current one. */
   readonly imageStale: boolean;
-  /** The task's environment changed (or was switched) after the container was created. */
   readonly environmentStale: boolean;
 }
 

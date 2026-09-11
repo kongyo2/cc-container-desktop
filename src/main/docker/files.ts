@@ -105,7 +105,6 @@ function representableOnWindows(name: string): boolean {
   return name !== '';
 }
 
-/** Drops the first path component: "workspace/a/b" → "a/b", "workspace/" → "". */
 function stripRoot(path: string): string {
   return path.split('/').slice(1).join('/');
 }
@@ -142,10 +141,6 @@ export async function exportWorkspace(
       archive,
       tarFs.extract(scratchDir, {
         strict: false,
-        // The archive is rooted at "workspace/"; that component is dropped here
-        // rather than with tar-fs's `strip`, which would also rewrite an
-        // absolute symlink target such as /etc/hostname into the relative
-        // etc/hostname and so hide an escaping link from the check below.
         map: (header) => {
           header.name = stripRoot(header.name);
           const linked = header as { linkname?: string | null };

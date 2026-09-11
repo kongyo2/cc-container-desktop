@@ -1,10 +1,3 @@
-// Shared plumbing for the end-to-end suites.
-//
-// Every suite runs the app against a throwaway userData folder and names the
-// tasks it creates so they can be told apart from real ones. Cleanup goes
-// through the app first and falls back to the docker CLI when the app is gone,
-// so a crashed run never leaves containers or volumes behind.
-
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,7 +36,6 @@ export function finish() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-/** Calls a bridge method and returns the raw Result, so a failure can be asserted on. */
 export async function call(page, method, args = []) {
   const result = await page.evaluate(([name, callArgs]) => window.cc[name](...callArgs), [method, args]);
   if (result === null || typeof result !== 'object' || !('ok' in result)) {
@@ -52,7 +44,6 @@ export async function call(page, method, args = []) {
   return result;
 }
 
-/** Calls a bridge method and unwraps the value, throwing on failure. */
 export async function ok(page, method, args = []) {
   const result = await call(page, method, args);
   if (!result.ok) throw new Error(`${method}: ${result.error}`);
@@ -85,7 +76,6 @@ export async function selectTask(page, taskId) {
   await page.waitForTimeout(300);
 }
 
-/** Polls until the predicate holds or the timeout passes; returns the last value either way. */
 export async function waitFor(page, probe, predicate, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let value = await probe();
@@ -98,7 +88,6 @@ export async function waitFor(page, probe, predicate, timeoutMs) {
   return value;
 }
 
-/** Runs a shell line inside a task's container as the claude user. */
 export async function sh(page, taskId, line, { asRoot = false } = {}) {
   return ok(page, 'taskExec', [taskId, { command: ['bash', '-lc', line], asRoot }]);
 }
@@ -113,7 +102,6 @@ export async function readContainerJson(page, taskId, path) {
   return JSON.parse(await readContainerFile(page, taskId, path));
 }
 
-/** The bridge has no stdin, so file content travels base64-encoded inside the command line. */
 export async function writeContainerFile(page, taskId, path, content) {
   const encoded = Buffer.from(content, 'utf8').toString('base64');
   const written = await sh(
@@ -128,10 +116,6 @@ export function taskById(snapshot, taskId) {
   return snapshot.tasks.find((view) => view.task.id === taskId) ?? null;
 }
 
-/**
- * Launches the app against a fresh userData folder. The returned session tracks
- * every task the suite creates and removes them all on `close()`.
- */
 export async function launchIsolated({ extraEnv = {} } = {}) {
   const userData = mkdtempSync(join(tmpdir(), 'cc-e2e-'));
   const app = await electron.launch({
@@ -151,7 +135,6 @@ export async function launchIsolated({ extraEnv = {} } = {}) {
     userData,
     created,
 
-    /** Creates a task on the default environment unless `environmentId` is given. */
     async createTask(input) {
       const environmentId =
         input.environmentId === undefined

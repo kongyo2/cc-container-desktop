@@ -131,7 +131,6 @@ const environmentDraftSchema = z.strictObject({
   setupScript: z.string(),
 });
 
-/** Checks what the renderer sent for an environment and normalizes it. */
 export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
   const parsed = environmentDraftSchema.safeParse(raw);
   if (!parsed.success) {
@@ -166,7 +165,6 @@ export function starterProfile(): Profile {
   };
 }
 
-/** The environment every fresh install starts with: the base image as it is. */
 export function starterEnvironment(): Environment {
   const now = new Date().toISOString();
   return {
@@ -233,8 +231,6 @@ function salvage(raw: unknown): { source: unknown; dropped: number } {
     source['defaultProfileId'] = source['activeProfileId'];
   }
 
-  // A config written before environments existed gets the starter one a fresh
-  // install has, so the next task can be created without a detour.
   if (source['environments'] === undefined) {
     const starter = starterEnvironment();
     source['environments'] = [starter];

@@ -153,7 +153,6 @@ function requireEnvironment(config: AppConfig, id: string): { index: number; env
   return { index, environment };
 }
 
-/** Creates or edits an environment; timestamps are set here, never trusted from the caller. */
 export function upsertEnvironment(draft: EnvironmentDraft): AppConfig {
   const config = getConfig();
   const now = new Date().toISOString();
