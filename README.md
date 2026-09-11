@@ -80,7 +80,7 @@ npm run e2e              # Docker と CC_E2E_API_KEY が必要
 
 ### イメージのビルドと公開
 
-- `docker/Dockerfile` は共通の土台 (`core`) と 8 つの最終ターゲットを持ちます。各ステージは自分が実行するスクリプトだけをコピーするので、1 つのバリアントのインストーラーを直しても `core` はビルドキャッシュから再利用されます。バージョンは `docker/image-versions.lock.json` に固定し、`npm run lock:update` で最新版とチェックサムに更新します (ビルドと分けています)。
+- `docker/Dockerfile` は共通の土台 (`core`) と 8 つの最終ターゲットを持ちます。各ステージは自分が実行するスクリプトだけをコピーするので、1 つのバリアントのインストーラーを直しても `core` はビルドキャッシュから再利用されます。バージョンは `docker/image-versions.lock.json` に固定し、`npm run lock:update` で最新版とチェックサムに更新します (Dockerfile の土台イメージ参照も同時に書き換えます。ビルドとは分けています)。
 - ローカルでのビルド: `npm run images:build -- base` (すべては `npm run images:build`)。TLS を検査するプロキシの下では BuildKit secret `build-ca-bundle` に CA バンドルを渡します。
 - 各イメージには `/opt/cc/image-info.json` (パターン、配布版、実行契約、ソース revision、実測したツールの版) と `/opt/cc/apt-packages.txt` が入ります。`docker/scripts/verify-runtime.sh` が実行契約の基準で、CI とアプリの登録検証が同じスクリプトを使います。
 - 公開は GitHub Actions の `publish-images` (workflow_dispatch) で行います。パターン × プラットフォームをネイティブランナーでビルドして digest で push し、パターンごとに候補タグへまとめ、Docker Hub から取り直して契約検査を通したものだけを正式タグへ昇格します。匿名 pull を確認したあと、実 digest とサイズを入れた `imageCatalog.json` を生成して PR を開きます。必要なシークレットは `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`、リポジトリは変数 `DOCKERHUB_REPOSITORY` (既定 `docker.io/kongyo2/cc-workbench`) です。

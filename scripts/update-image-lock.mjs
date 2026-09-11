@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 // Resolves the current upstream versions and checksums of everything the
-// images pin, and rewrites docker/image-versions.lock.json. Resolving versions
-// is deliberately separate from building: the publish workflow only ever reads
-// the committed lock. Run with:
+// images pin, and rewrites docker/image-versions.lock.json. The Dockerfile's
+// base image reference (ARG UBUNTU_REF) is rewritten from the same lock so the
+// two never drift apart. Resolving versions is deliberately separate from
+// building: the publish workflow only ever reads the committed files. Run with:
 //
-//   node scripts/update-image-lock.mjs            # rewrite the lock
+//   node scripts/update-image-lock.mjs            # rewrite the lock and the base reference
 //   node scripts/update-image-lock.mjs --check    # report what would change, exit 1 if anything
 //
 // Lines to change (Node LTS line, Ruby line, ...) are the constants below.
 /* oxlint-disable no-await-in-loop -- one upstream request at a time keeps the rate polite */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { LOCK_FILE, parseArgs } from './lib/catalog-build.mjs';
+import { LOCK_FILE, ROOT, parseArgs } from './lib/catalog-build.mjs';
+
+const DOCKERFILE = join(ROOT, 'docker', 'Dockerfile');
+const BASE_REF_LINE = /^ARG UBUNTU_REF=(\S+)$/mu;
 
 const NODE_LINE = 24;
 const RUBY_LINE = '4.0';
@@ -224,6 +229,14 @@ const changes = Object.keys(after)
   .filter((key) => key !== 'updatedAt' && before[key] !== after[key])
   .map((key) => `${key}: ${before[key] ?? '(none)'} → ${after[key]}`);
 
+// The Dockerfile pins the same base by digest; it follows the lock.
+const dockerfile = readFileSync(DOCKERFILE, 'utf8');
+const baseRefMatch = BASE_REF_LINE.exec(dockerfile);
+if (baseRefMatch === null) throw new Error(`${DOCKERFILE} has no "ARG UBUNTU_REF=" line`);
+const currentBaseRef = baseRefMatch[1];
+const wantedBaseRef = `${next.base.image}@${next.base.indexDigest}`;
+if (currentBaseRef !== wantedBaseRef) changes.push(`Dockerfile UBUNTU_REF: ${currentBaseRef} → ${wantedBaseRef}`);
+
 if (options.check === true) {
   if (changes.length === 0) {
     console.log('lock is current');
@@ -235,5 +248,8 @@ if (options.check === true) {
 }
 
 writeFileSync(LOCK_FILE, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+if (currentBaseRef !== wantedBaseRef) {
+  writeFileSync(DOCKERFILE, dockerfile.replace(BASE_REF_LINE, `ARG UBUNTU_REF=${wantedBaseRef}`), 'utf8');
+}
 console.log(`wrote ${LOCK_FILE} (${changes.length} change(s))`);
 for (const change of changes) console.log(`  ${change}`);

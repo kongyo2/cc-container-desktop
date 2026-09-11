@@ -6,6 +6,8 @@ name: Publish images
 # verified indexes to the official <variant>-<release> tags, checks anonymous
 # pulls, and finally generates src/shared/imageCatalog.json with the real
 # digests, sizes and tool versions (as an artifact and, optionally, a PR).
+# Building a subset of variants is allowed; the catalog then carries the
+# variants that were not built over from the committed catalog.
 #
 # Required repository secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN.
 # Optional repository variable: DOCKERHUB_REPOSITORY (default docker.io/kongyo2/cc-workbench).
@@ -332,12 +334,32 @@ jobs:
 
       - uses: actions/checkout@v5
 
+      # The description action addresses Docker Hub by namespace/name, without
+      # the registry host the rest of this workflow needs in the reference.
+      - name: Docker Hub repository name
+        id: hub
+        run: |
+          set -euo pipefail
+          name="${REPOSITORY#docker.io/}"
+          name="${name#index.docker.io/}"
+          if [ "$name" = "$REPOSITORY" ]; then
+            echo "hub=false" >> "$GITHUB_OUTPUT"
+            echo "$REPOSITORY is not on Docker Hub; the description is left alone"
+          else
+            echo "hub=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "repository=$name" >> "$GITHUB_OUTPUT"
+
+      # The tags above are already promoted; a README hiccup must not hide that
+      # from the catalog job, so this step is not allowed to fail the run.
       - name: Update the Docker Hub description
+        if: steps.hub.outputs.hub == 'true'
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.REPOSITORY }}
+          repository: ${{ steps.hub.outputs.repository }}
           short-description: 'Claude Code runtime images for CC Container Desktop'
           readme-filepath: docker/README.dockerhub.md
 
@@ -368,10 +390,14 @@ jobs:
           path: image-info
           merge-multiple: true
 
+      # A partial build (the variants input) regenerates only what was built
+      # and carries the other variants over from the committed catalog; the
+      # generator refuses when a carried-over entry was never published.
       - name: Generate
         env:
           RELEASE: ${{ inputs.release }}
           REVISION: ${{ needs.prepare.outputs.revision }}
+          VARIANTS: ${{ needs.prepare.outputs.variants }}
           PROMOTED: ${{ needs.promote.result == 'success' }}
         run: |
           set -euo pipefail
@@ -382,6 +408,7 @@ jobs:
             --repository "$REPOSITORY" --release "$RELEASE" --revision "$REVISION" \
             --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --digests digests.json --image-info-dir image-info \
+            --variants "$(jq -r 'join(",")' <<< "$VARIANTS")" --merge src/shared/imageCatalog.json \
             --out catalog-out/imageCatalog.json
           if [ "$PROMOTED" = "true" ]; then
             node --experimental-strip-types scripts/verify-image-catalog.mjs --file catalog-out/imageCatalog.json --online --require-published
