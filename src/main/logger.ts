@@ -46,6 +46,15 @@ export function notifyStateChanged(): void {
   sendToWindow(target, EVENTS.stateChanged);
 }
 
+const USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/\s@]+@/gu;
+
+const TOKEN_PARAM = /([?&](?:token|access_token|api_key|apikey|key|password)=)[^&\s]+/giu;
+
+/** Blanks credentials embedded in URLs before a line reaches the log. */
+export function redactSecrets(text: string): string {
+  return text.replaceAll(USERINFO, '$1***@').replaceAll(TOKEN_PARAM, '$1***');
+}
+
 export function describeError(error: unknown): string {
   if (error instanceof Error) {
     const cause = error.cause;

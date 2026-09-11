@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path';
 import { isHttpUrl, parseUrl } from '../shared/url.ts';
 import { getConfig } from './config/store.ts';
 import { closeAllTerminals, setTerminalTarget } from './docker/terminal.ts';
-import { ensureImageSources } from './docker/image.ts';
 import { registerIpc } from './ipc.ts';
 import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
 import { listTasks } from './tasks/store.ts';
@@ -117,19 +116,12 @@ if (!app.requestSingleInstanceLock()) {
     await app.whenReady();
     buildMenu();
     registerIpc(app.getVersion());
-
-    try {
-      ensureImageSources();
-    } catch (error) {
-      logError('app', `イメージソースを展開できませんでした / could not seed image sources: ${describeError(error)}`);
-    }
-
     createWindow();
 
     const config = getConfig();
     logInfo(
       'app',
-      `起動しました / started — image=${config.imageTag} tasks=${listTasks().length} data=${app.getPath('userData')}`,
+      `起動しました / started — image=${config.imageTag} environments=${config.environments.length} tasks=${listTasks().length} data=${app.getPath('userData')}`,
     );
 
     app.on('activate', () => {

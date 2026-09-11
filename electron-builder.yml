@@ -11,8 +11,8 @@ files:
   - package.json
   - '!**/*.map'
 
-# The Dockerfile and post-create script must stay outside the asar: the app
-# copies them into userData on first run, and asar paths are not real files.
+# The Dockerfile must stay outside the asar: it is the build context the app
+# hands to the Docker Engine API, and asar paths are not real files.
 extraResources:
   - from: docker
     to: docker

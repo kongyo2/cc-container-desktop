@@ -3,7 +3,7 @@ import { create } from 'zustand';
 
 import type { LogLine, Result, Snapshot, TaskView, TerminalKind } from '../../shared/types.ts';
 
-export type View = 'tasks' | 'newTask' | 'profiles' | 'extensions' | 'image' | 'log' | 'settings';
+export type View = 'tasks' | 'newTask' | 'profiles' | 'extensions' | 'environments' | 'log' | 'settings';
 
 export interface TerminalTab {
   readonly key: string;

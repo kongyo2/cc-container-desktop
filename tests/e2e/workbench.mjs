@@ -56,10 +56,15 @@ try {
 
   console.log('\n[2] image');
   if (!SKIP_BUILD) {
-    await ok(page, 'imageBuild', [{ noCache: false }]);
+    await ok(page, 'imageBuild', [{ noCache: false, refreshClaudeCode: false }]);
   }
   snapshot = await ok(page, 'snapshot');
   check('image exists', snapshot.image.exists === true, snapshot.image.tag);
+  check(
+    'a default environment is ready for the first task',
+    typeof snapshot.config.defaultEnvironmentId === 'string' &&
+      snapshot.config.environments.some((environment) => environment.id === snapshot.config.defaultEnvironmentId),
+  );
 
   console.log('\n[3] profile + credential');
   const profile = {
@@ -93,6 +98,10 @@ try {
   const view = taskById(snapshot, task.id);
   check('task container running', view?.container.running === true, view?.container.status ?? 'no view');
   check('task uses the profile it was created with', view?.task.profileId === profile.id);
+  check(
+    'task was created on the default environment and is current',
+    view?.task.environmentId === snapshot.config.defaultEnvironmentId && view?.environmentStale === false,
+  );
 
   const claudeJson = await readContainerJson(page, task.id, '/home/claude/.claude.json');
   check('hasCompletedOnboarding is true', claudeJson.hasCompletedOnboarding === true);
@@ -221,7 +230,7 @@ try {
   await selectTask(page, task.id);
   await shoot(page, '02-task');
   /* oxlint-disable no-await-in-loop */
-  for (const screen of ['profiles', 'extensions', 'image', 'log', 'settings']) {
+  for (const screen of ['profiles', 'extensions', 'environments', 'log', 'settings']) {
     await goView(page, screen);
     const crashed = await page.evaluate(() => document.body.innerText.trim().length === 0);
     check(`${screen} view rendered`, !crashed);

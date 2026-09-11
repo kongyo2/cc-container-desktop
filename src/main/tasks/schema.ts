@@ -21,6 +21,7 @@ const taskSchema = z.object({
   name: z.string().min(1),
   note: z.string().default(''),
   profileId: z.string().nullable().default(null),
+  environmentId: z.string().nullable().default(null),
   source: sourceSchema.default({ kind: 'empty' }),
   containerName: z.string().min(1),
   volumeName: z.string().min(1),

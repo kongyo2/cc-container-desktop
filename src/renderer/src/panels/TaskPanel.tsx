@@ -15,6 +15,7 @@ import {
 import type { DragEvent, JSX } from 'react';
 import { useState } from 'react';
 
+import { activeEnvironments, environmentById } from '../../../shared/environments.ts';
 import { describeSource } from '../../../shared/tasks.ts';
 import type { ImportPick, ImportSummary, TaskView } from '../../../shared/types.ts';
 import { TerminalView } from '../components/TerminalView.tsx';
@@ -75,11 +76,24 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exportFirst, setExportFirst] = useState(true);
 
-  const { task, container, imageStale } = view;
+  const { task, container, imageStale, environmentStale } = view;
   const working = busy !== null;
   const status = statusOf(view);
   const profiles = snapshot?.config.profiles ?? [];
+  const environments = snapshot === null ? [] : activeEnvironments(snapshot.config);
+  const environment = snapshot === null ? null : environmentById(snapshot.config, task.environmentId);
+  // The current environment stays selectable even when it is archived or gone,
+  // so the select never silently shows a different one than the task has.
+  const environmentPlaceholder =
+    environment === null
+      ? task.environmentId === null
+        ? t('taskEnvironmentNone')
+        : t('taskEnvironmentMissing')
+      : environment.archived
+        ? `${environment.name} (${t('taskEnvironmentArchived')})`
+        : null;
   const dockerUp = snapshot?.docker.available === true;
+  const stale = imageStale || environmentStale;
 
   const reportImport = (summary: ImportSummary | null): void => {
     if (summary === null) return;
@@ -98,6 +112,11 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         <NameEditor id={task.id} name={task.name} />
         <Pill tone={status.tone}>{t(status.label)}</Pill>
         {imageStale ? <span className="tag warn">{t('taskImageStale')}</span> : null}
+        {environmentStale ? (
+          <span className="tag warn" data-testid="environment-stale">
+            {t('taskEnvironmentStale')}
+          </span>
+        ) : null}
       </div>
       <div className="task-meta">
         <span title={t('taskSource')}>{describeSource(task.source, language)}</span>
@@ -123,6 +142,30 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
             <option key={profile.id} value={profile.id}>
               {profile.name}
               {profile.model === '' ? '' : ` — ${profile.model}`}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={task.environmentId ?? ''}
+          disabled={working}
+          title={t('taskEnvironment')}
+          aria-label={t('taskEnvironment')}
+          data-testid="task-environment"
+          onChange={(event) => {
+            const environmentId = event.target.value;
+            if (environmentId === '' || environmentId === task.environmentId) return;
+            void run('task', () => window.cc.taskUpdate(task.id, { environmentId }));
+          }}
+        >
+          {environmentPlaceholder === null ? null : (
+            <option value={task.environmentId ?? ''} disabled>
+              {environmentPlaceholder}
+            </option>
+          )}
+          {environments.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {candidate.name}
             </option>
           ))}
         </select>
@@ -193,7 +236,7 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         >
           <Download size={13} /> {t('taskExport')}
         </button>
-        {imageStale ? (
+        {stale ? (
           <button
             className="btn sm"
             disabled={working}
@@ -230,6 +273,7 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
       </div>
 
       {imageStale ? <p className="hint warn">{t('taskImageStaleHint')}</p> : null}
+      {environmentStale ? <p className="hint warn">{t('taskEnvironmentStaleHint')}</p> : null}
 
       {confirmDelete ? (
         <div className="banner error" data-testid="delete-confirm">

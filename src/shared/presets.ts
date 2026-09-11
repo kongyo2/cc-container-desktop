@@ -111,6 +111,16 @@ export const CONTAINER_WORKSPACE = '/home/claude/workspace';
 
 export const CONTAINER_SCRIPT_DIR = '/opt/cc';
 
+/** The environment's setup script, pushed in when a container is created. */
+export const CONTAINER_SETUP_SCRIPT: string = `${CONTAINER_SCRIPT_DIR}/setup.sh`;
+
+/**
+ * Written after the setup script succeeded. It lives in the container layer,
+ * not the home volume, so it survives stop/start and vanishes on recreate —
+ * exactly the lifetime of "once per container".
+ */
+export const CONTAINER_SETUP_MARKER: string = `${CONTAINER_SCRIPT_DIR}/.setup-done`;
+
 export const CONTAINER_TERMINAL_RUNTIME = '/tmp/cc-terminals';
 
 export const CONTAINER_USER = 'claude';
@@ -124,6 +134,9 @@ export const CLAUDE_TMUX_SESSION = 'cc';
 
 export const MANAGED_LABEL = 'com.cc-container-desktop.managed';
 export const TASK_LABEL = 'com.cc-container-desktop.task';
+/** Which environment a container was created with, and a digest of its contents at the time. */
+export const ENVIRONMENT_LABEL = 'com.cc-container-desktop.environment';
+export const ENVIRONMENT_REVISION_LABEL = 'com.cc-container-desktop.environment-revision';
 
 const TASK_RESOURCE_PREFIX = 'cc-task-';
 

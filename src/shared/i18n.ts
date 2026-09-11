@@ -15,7 +15,7 @@ const ja = {
   navTasks: 'タスク',
   navProfiles: 'プロファイル',
   navExtensions: '拡張',
-  navImage: 'イメージ',
+  navEnvironments: '環境',
   navLog: 'ログ',
   navSettings: '設定',
 
@@ -27,6 +27,12 @@ const ja = {
   taskNote: 'メモ',
   taskProfile: 'プロファイル',
   taskProfileNone: 'プロファイルなし (API キーを書き込みません)',
+  taskEnvironment: '環境',
+  taskEnvironmentNone: '環境なし',
+  taskEnvironmentMissing: '環境が見つかりません',
+  taskEnvironmentArchived: 'アーカイブ済み',
+  taskEnvironmentHint:
+    '環境変数とセットアップスクリプトの組です。コンテナを作るときに適用され、あとから環境を変えたときは「作り直す」で反映します。',
   taskSource: 'ワークスペースの中身',
   taskSourceEmpty: '空のワークスペース',
   taskSourceEmptyHint: '何も入れずに始めます。あとからファイルやフォルダを取り込めます。',
@@ -37,8 +43,8 @@ const ja = {
   taskGitRef: 'ブランチ / タグ',
   taskGitRefHint: '空なら既定ブランチ',
   taskCreateHint:
-    'タスクごとにコンテナとホームボリューム (/home/claude) を 1 つずつ作ります。Claude Code の設定・履歴・ワークスペースはタスクごとに独立します。',
-  taskImageMissing: 'イメージがまだビルドされていません。先に「イメージ」でビルドしてください。',
+    'タスクごとにコンテナとホームボリューム (/home/claude) を 1 つずつ作ります。コンテナはベースイメージから作られ、選んだ環境の環境変数が設定され、clone のあとにセットアップスクリプトが 1 回実行されます。',
+  taskImageMissing: 'ベースイメージがまだビルドされていません。先に「環境」でビルドしてください。',
   taskDockerDown: 'Docker に接続できません。Docker Desktop を起動してください。',
   taskWelcome: 'タスクを作って始めましょう',
   taskWelcomeHint:
@@ -52,6 +58,9 @@ const ja = {
   taskImageStale: 'イメージ更新あり',
   taskImageStaleHint:
     'このタスクのコンテナは古いイメージから作られています。「作り直す」でホームボリュームを保ったまま新しいイメージに載せ替えます。コンテナ層に直接入れたもの (apt など) は消えます。',
+  taskEnvironmentStale: '環境更新あり',
+  taskEnvironmentStaleHint:
+    'このタスクのコンテナは、今の環境の内容 (環境変数・セットアップスクリプト) とは違う設定で作られています。「作り直す」でホームボリュームを保ったまま作り直し、環境変数を設定し直してセットアップスクリプトをもう一度実行します。',
   taskRecreate: '作り直す',
   taskStart: '起動',
   taskStop: '停止',
@@ -82,7 +91,6 @@ const ja = {
   terminalEmpty: '「Claude Code」または「新しいシェル」でこのタスクのコンテナに入ります。',
 
   sectionDocker: 'Docker エンジン',
-  sectionImage: 'コンテナイメージ',
   sectionLog: 'ログ',
 
   dockerHint: 'Docker Desktop が起動しているか確認してください。',
@@ -92,26 +100,66 @@ const ja = {
 
   imageBuild: 'ビルド',
   imageRebuild: 'キャッシュなしで再ビルド',
+  imageRefreshClaude: 'Claude Code を更新',
+  imageRefreshClaudeHint:
+    'Claude Code とグローバルの npm ツールだけ入れ直します。それより上の層はキャッシュから使うので短時間で終わります。',
   imageNotBuilt: 'まだビルドされていません。最初に「ビルド」を実行してください。',
   imageCreated: '作成日時',
   imageSize: 'サイズ',
   imageTag: 'タグ',
-  imageSectionSources: 'イメージのソース',
-  imageDockerfile: 'Dockerfile',
-  imagePostCreate: '起動後スクリプト (post-create) — 起動のたびに実行',
-  imageSetup: 'セットアップスクリプト (setup) — ビルド時に1回だけ',
-  imageSetupHint:
-    'イメージに焼き込まれるので、すべてのタスクで共通です。重いツールチェーンはこちらへ。編集したら「ビルド」が必要です。',
-  imageSetupMissing:
-    '注意: Dockerfile が setup.sh を参照していません。「初期状態に戻す」で復元するか、COPY setup.sh /opt/cc/setup.sh と RUN bash /opt/cc/setup.sh を追加してください。',
-  imageSourcesHint:
-    'ここを編集して「ビルド」すると中身を丸ごと差し替えられます。post-create はコンテナ起動のたびに実行されます。',
-  imageSave: '保存',
-  imageReset: '初期状態に戻す',
-  imageResetConfirm: '編集内容を破棄して初期状態に戻しますか？',
-  imageOpenFolder: 'フォルダを開く',
+  imageStatus: '状態',
+  imageBuilt: 'ビルド済み',
   imageAfterBuildHint:
     'ビルド後、既存タスクには「イメージ更新あり」と表示されます。「作り直す」で新しいイメージに載せ替えます。',
+
+  envBaseImageTitle: 'ベースイメージ',
+  envBaseImageHint:
+    'すべてのタスクはこの固定イメージから作られます。中身はアプリに同梱の Dockerfile で決まり、ここでは編集しません。プロジェクトごとに必要なものは環境 (環境変数とセットアップスクリプト) で足します。',
+  envBaseImageBuildHint:
+    '初回のビルドはすべてのツールチェーンを入れるので時間がかかります (数十分)。進み具合は「ログ」に流れます。',
+  envToolsTitle: '入っているもの',
+  envToolsCategory: 'カテゴリ',
+  envToolsIncluded: '内容',
+  envToolsNodeNote:
+    'Node.js は /opt/node20、/opt/node21、/opt/node22 にあり、既定で 22 が PATH に入っています。別のバージョンを使うときは、その bin ディレクトリ (例: /opt/node20/bin) を PATH の先頭に足すよう Claude に頼んでください。',
+  envToolsServicesNote:
+    'PostgreSQL と Redis は入っていますが起動はしていません。使うときは sudo service postgresql start / sudo service redis-server start を実行します。Docker デーモンはコンテナ内では起動できません (CLI は DOCKER_HOST 経由で使えます)。',
+
+  envListTitle: '環境',
+  envListHint:
+    '環境は、タスクのコンテナを作るときに適用される環境変数とセットアップスクリプトの組です。タスクを作るときに 1 つ選びます。環境への変更は新しいコンテナに適用され、すでにあるタスクには「環境更新あり」が出ます (「作り直す」で反映)。',
+  envNew: '環境を作成',
+  envEdit: '編集',
+  envDefault: '既定',
+  envMakeDefault: '新しいタスクの既定にする',
+  envArchivedTitle: 'アーカイブ済み',
+  envShowArchived: 'アーカイブ済みを表示',
+  envHideArchived: 'アーカイブ済みを隠す',
+  envRestore: '復元',
+  envDelete: '削除',
+  envDeleteConfirm: 'この環境を削除しますか？ タスクが使っている環境は削除できません。',
+  envEmpty: '環境がありません。「環境を作成」から作ってください。',
+  envNoneActive: '使える環境がありません。「環境」で作成するか、アーカイブから復元してください。',
+  envSetupYes: 'セットアップスクリプトあり',
+  envSetupNo: 'セットアップスクリプトなし',
+  envUpdatedAt: '更新',
+  envArchivedDone: 'アーカイブしました',
+  envRestoredDone: '復元しました',
+  envDeletedDone: '削除しました',
+
+  envDialogEditTitle: '環境を編集',
+  envDialogCreateTitle: '環境を作成',
+  envDialogLead: '機能への変更は新しいセッションに適用されます。',
+  envDialogName: '名前',
+  envDialogVars: '環境変数',
+  envDialogVarsNoteBefore: '',
+  envDialogVarsNoteLink: '.env形式',
+  envDialogVarsNoteAfter: 'で記述します。',
+  envDialogSetup: 'セットアップスクリプト',
+  envDialogSetupNote: 'Claude Code の起動前に、新しいセッションの開始時に実行される Bash スクリプト。',
+  envDialogArchive: 'アーカイブ',
+  envDialogSave: '変更を保存',
+  envDialogCreate: '作成',
 
   profileNew: '新規プロファイル',
   profileDuplicate: '複製',
@@ -245,7 +293,7 @@ const en: Record<MessageKey, string> = {
   navTasks: 'Tasks',
   navProfiles: 'Profiles',
   navExtensions: 'Extensions',
-  navImage: 'Image',
+  navEnvironments: 'Environments',
   navLog: 'Log',
   navSettings: 'Settings',
 
@@ -257,6 +305,12 @@ const en: Record<MessageKey, string> = {
   taskNote: 'Note',
   taskProfile: 'Profile',
   taskProfileNone: 'No profile (no API key is written)',
+  taskEnvironment: 'Environment',
+  taskEnvironmentNone: 'no environment',
+  taskEnvironmentMissing: 'environment missing',
+  taskEnvironmentArchived: 'archived',
+  taskEnvironmentHint:
+    'A set of variables and a setup script, applied when the container is created. Switching it later takes effect on "Recreate".',
   taskSource: 'Workspace contents',
   taskSourceEmpty: 'Empty workspace',
   taskSourceEmptyHint: 'Start with nothing. Files and folders can be imported later.',
@@ -267,8 +321,8 @@ const en: Record<MessageKey, string> = {
   taskGitRef: 'Branch / tag',
   taskGitRefHint: 'empty for the default branch',
   taskCreateHint:
-    'Every task gets its own container and home volume (/home/claude), so Claude Code settings, history and the workspace never leak between tasks.',
-  taskImageMissing: 'The image has not been built yet. Build it on the Image page first.',
+    "Every task gets its own container and home volume (/home/claude). The container is created from the base image with the chosen environment's variables set, and its setup script runs once after the clone.",
+  taskImageMissing: 'The base image has not been built yet. Build it on the Environments page first.',
   taskDockerDown: 'Docker is unreachable. Start Docker Desktop.',
   taskWelcome: 'Create a task to get started',
   taskWelcomeHint:
@@ -282,6 +336,9 @@ const en: Record<MessageKey, string> = {
   taskImageStale: 'image updated',
   taskImageStaleHint:
     "This task's container was created from an older image. Recreate it to move onto the new image while keeping the home volume; anything installed into the container layer itself (apt etc.) is lost.",
+  taskEnvironmentStale: 'environment updated',
+  taskEnvironmentStaleHint:
+    "This task's container was created with different environment contents (variables, setup script) than the environment has now. Recreate it to apply them: the home volume is kept, the variables are set again and the setup script runs once more.",
   taskRecreate: 'Recreate',
   taskStart: 'Start',
   taskStop: 'Stop',
@@ -313,7 +370,6 @@ const en: Record<MessageKey, string> = {
   terminalEmpty: 'Open "Claude Code" or "New shell" to get into this task\'s container.',
 
   sectionDocker: 'Docker engine',
-  sectionImage: 'Container image',
   sectionLog: 'Log',
 
   dockerHint: 'Make sure Docker Desktop is running.',
@@ -323,26 +379,66 @@ const en: Record<MessageKey, string> = {
 
   imageBuild: 'Build',
   imageRebuild: 'Rebuild without cache',
+  imageRefreshClaude: 'Update Claude Code',
+  imageRefreshClaudeHint:
+    'Reinstalls Claude Code and the global npm tools only; every layer above comes from the cache, so it is quick.',
   imageNotBuilt: 'Not built yet. Run "Build" first.',
   imageCreated: 'Created',
   imageSize: 'Size',
   imageTag: 'Tag',
-  imageSectionSources: 'Image sources',
-  imageDockerfile: 'Dockerfile',
-  imagePostCreate: 'Post-create script — runs on every start',
-  imageSetup: 'Setup script — runs once, at build time',
-  imageSetupHint:
-    'Baked into the image, so every task shares it. Slow toolchains belong here. Editing it needs a rebuild.',
-  imageSetupMissing:
-    'Heads up: your Dockerfile does not reference setup.sh. Restore defaults, or add COPY setup.sh /opt/cc/setup.sh and RUN bash /opt/cc/setup.sh.',
-  imageSourcesHint:
-    'Edit these and hit Build to replace the image wholesale. The post-create script runs on every container start.',
-  imageSave: 'Save',
-  imageReset: 'Restore defaults',
-  imageResetConfirm: 'Discard your edits and restore the defaults?',
-  imageOpenFolder: 'Open folder',
+  imageStatus: 'Status',
+  imageBuilt: 'built',
   imageAfterBuildHint:
     'After a build, existing tasks show "image updated"; use "Recreate" on a task to move it onto the new image.',
+
+  envBaseImageTitle: 'Base image',
+  envBaseImageHint:
+    'Every task is created from this fixed image. Its contents come from the Dockerfile bundled with the app and are not edited here; what a project needs on top goes into an environment (variables and a setup script).',
+  envBaseImageBuildHint:
+    'The first build installs every toolchain and takes a while (tens of minutes); progress streams to the Log page.',
+  envToolsTitle: 'Installed tools',
+  envToolsCategory: 'Category',
+  envToolsIncluded: 'Included',
+  envToolsNodeNote:
+    "Node.js versions are installed at /opt/node20, /opt/node21, and /opt/node22, with 22 on PATH by default. To work with a different version, ask Claude to prepend that version's bin directory, such as /opt/node20/bin, to PATH.",
+  envToolsServicesNote:
+    'PostgreSQL and Redis are installed but not running; start them with sudo service postgresql start / sudo service redis-server start. The Docker daemon cannot run inside the container (the CLI works through DOCKER_HOST).',
+
+  envListTitle: 'Environments',
+  envListHint:
+    'An environment is a set of variables and a setup script applied when a task\'s container is created; every task picks one. Changes apply to new containers, and existing tasks show "environment updated" until they are recreated.',
+  envNew: 'Create environment',
+  envEdit: 'Edit',
+  envDefault: 'default',
+  envMakeDefault: 'Use as the default for new tasks',
+  envArchivedTitle: 'Archived',
+  envShowArchived: 'Show archived',
+  envHideArchived: 'Hide archived',
+  envRestore: 'Restore',
+  envDelete: 'Delete',
+  envDeleteConfirm: 'Delete this environment? An environment a task still uses cannot be deleted.',
+  envEmpty: 'No environments yet. Create one with "Create environment".',
+  envNoneActive: 'No environment is available. Create one on the Environments page or restore an archived one.',
+  envSetupYes: 'setup script',
+  envSetupNo: 'no setup script',
+  envUpdatedAt: 'updated',
+  envArchivedDone: 'Archived',
+  envRestoredDone: 'Restored',
+  envDeletedDone: 'Deleted',
+
+  envDialogEditTitle: 'Edit environment',
+  envDialogCreateTitle: 'Create environment',
+  envDialogLead: 'Changes apply to new sessions.',
+  envDialogName: 'Name',
+  envDialogVars: 'Environment variables',
+  envDialogVarsNoteBefore: 'Written in ',
+  envDialogVarsNoteLink: '.env format',
+  envDialogVarsNoteAfter: '.',
+  envDialogSetup: 'Setup script',
+  envDialogSetupNote: 'A Bash script that runs when a new session starts, before Claude Code launches.',
+  envDialogArchive: 'Archive',
+  envDialogSave: 'Save changes',
+  envDialogCreate: 'Create',
 
   profileNew: 'New profile',
   profileDuplicate: 'Duplicate',

@@ -951,24 +951,294 @@ code.command {
   white-space: nowrap;
 }
 
-.cm-host {
-  height: 100%;
-}
+/* --- Environments page ---------------------------------------------------- */
 
-.cm-host .cm-editor {
-  height: 100%;
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 12.5px;
+  margin: 0 0 12px;
 }
 
-.cm-host .cm-scroller {
+.tools-table th,
+.tools-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--edge);
+  vertical-align: top;
+}
+
+.tools-table th {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+.tools-table td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+  width: 140px;
+}
+
+.tools-table td:last-child {
   font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
-.cm-fixed {
-  height: 320px;
-  border: 1px solid var(--edge-bright);
+.env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.env-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
   border-radius: var(--radius);
+  background: var(--well);
+}
+
+.env-row.archived {
+  opacity: 0.8;
+}
+
+.env-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.env-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.env-row-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--mono);
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.env-row .row {
+  flex-wrap: nowrap;
+}
+
+.env-row .banner {
+  margin-bottom: 0;
+}
+
+/* --- Environment dialog ---------------------------------------------------
+   Mirrors the reference "環境を編集" sheet: a dark card, plain inputs, and
+   archive / cancel / save along the bottom. Deliberately its own palette. */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: #202020;
+  color: #f2f2f2;
+  border: 1px solid #2f2f2f;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  font-family: var(--sans);
+}
+
+.env-modal {
+  min-height: min(760px, calc(100vh - 48px));
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26px 28px 0;
+}
+
+.modal-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.modal-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #cfcfcf;
+  cursor: pointer;
+}
+
+.modal-x:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 28px 8px;
+}
+
+.modal-lead {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: #9d9d9d;
+}
+
+.modal-label {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 650;
+  margin: 0 0 8px;
+}
+
+.modal-input,
+.modal-textarea {
+  display: block;
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #393939;
+  border-radius: 10px;
+  color: #f2f2f2;
+  padding: 12px 14px;
+  font-size: 14px;
+  outline: none;
+}
+
+.modal-input {
+  font-family: var(--sans);
+  margin-bottom: 24px;
+}
+
+.modal-textarea {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 120px;
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+  border-color: #5c5c5c;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06);
+}
+
+.modal-input::placeholder,
+.modal-textarea::placeholder {
+  color: #8c8c8c;
+}
+
+.modal-note {
+  margin: 8px 0 24px;
+  font-size: 13px;
+  color: #ababab;
+}
+
+.modal-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #6fa8ff;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.modal-problem {
+  margin: -16px 0 20px;
+  font-size: 12.5px;
+  color: var(--hold);
+}
+
+.modal-textarea + .modal-note + .modal-problem,
+.modal-problem + .modal-problem {
+  margin-top: -14px;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 28px 26px;
+}
+
+.modal-foot .spacer {
+  flex: 1;
+}
+
+.modal-archive {
+  border: 0;
+  background: transparent;
+  color: #f0706a;
+  font-size: 14px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.modal-archive:hover:not(:disabled) {
+  background: rgba(240, 112, 106, 0.1);
+}
+
+.modal-btn {
+  border: 1px solid #3a3a3a;
+  background: #333;
+  color: #f2f2f2;
+  font-size: 14px;
+  padding: 9px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.modal-btn:hover:not(:disabled) {
+  background: #3d3d3d;
+}
+
+.modal-btn.primary {
+  background: #f5f5f5;
+  border-color: #f5f5f5;
+  color: #111;
+  font-weight: 600;
+}
+
+.modal-btn.primary:hover:not(:disabled) {
+  background: #fff;
+}
+
+.modal-btn:disabled,
+.modal-archive:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1000px) {

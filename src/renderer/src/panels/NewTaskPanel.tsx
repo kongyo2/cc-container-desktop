@@ -2,6 +2,7 @@ import { Hammer, Sparkles } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 
+import { activeEnvironments } from '../../../shared/environments.ts';
 import { cloneRefProblem, cloneUrlProblem } from '../../../shared/git.ts';
 import { taskNameProblem } from '../../../shared/tasks.ts';
 import type { WorkspaceSource } from '../../../shared/types.ts';
@@ -22,11 +23,13 @@ export function NewTaskPanel(): JSX.Element {
   const setError = useApp((state) => state.setError);
   const setToast = useApp((state) => state.setToast);
   const selectTask = useApp((state) => state.selectTask);
+  const setView = useApp((state) => state.setView);
 
   const taskCount = snapshot?.tasks.length ?? 0;
   const [name, setName] = useState(() => suggestName(taskCount, language));
   const [note, setNote] = useState('');
   const [profileChoice, setProfileChoice] = useState<string | null | undefined>(undefined);
+  const [environmentChoice, setEnvironmentChoice] = useState<string | undefined>(undefined);
   const [kind, setKind] = useState<WorkspaceSource['kind']>('empty');
   const [url, setUrl] = useState('');
   const [ref, setRef] = useState('');
@@ -36,15 +39,24 @@ export function NewTaskPanel(): JSX.Element {
   const working = busy !== null;
   const profileId = profileChoice === undefined ? config.defaultProfileId : profileChoice;
 
+  // Only an environment that still exists and is not archived can be picked;
+  // the default one is preselected, the first active one otherwise.
+  const environments = activeEnvironments(config);
+  const wanted = environmentChoice ?? config.defaultEnvironmentId;
+  const environmentId =
+    wanted !== null && environments.some((environment) => environment.id === wanted)
+      ? wanted
+      : (environments[0]?.id ?? null);
+
   const source: WorkspaceSource =
     kind === 'git' ? { kind: 'git', url: url.trim(), ref: ref.trim() } : { kind: 'empty' };
   const formProblem =
     taskNameProblem(name, language) ?? (kind === 'git' ? (cloneUrlProblem(url) ?? cloneRefProblem(ref)) : null);
-  const blocked = formProblem !== null || !docker.available || !image.exists;
+  const blocked = formProblem !== null || !docker.available || !image.exists || environmentId === null;
 
   const create = (): void => {
     void (async () => {
-      const result = await run('task', () => window.cc.taskCreate({ name, note, profileId, source }));
+      const result = await run('task', () => window.cc.taskCreate({ name, note, profileId, environmentId, source }));
       if (result === null) return;
       selectTask(result.task.id);
       if (result.warning === null) setToast(`${t('taskCreate')}: ${result.task.name}`);
@@ -65,7 +77,7 @@ export function NewTaskPanel(): JSX.Element {
           <button
             className="btn sm"
             disabled={working}
-            onClick={() => void run('build', () => window.cc.imageBuild({ noCache: false }))}
+            onClick={() => void run('build', () => window.cc.imageBuild({ noCache: false, refreshClaudeCode: false }))}
             type="button"
           >
             <Hammer size={13} /> {t('imageBuild')}
@@ -75,6 +87,36 @@ export function NewTaskPanel(): JSX.Element {
 
       <div className="grid2">
         <TextField label={t('taskName')} value={name} mono={false} onChange={setName} />
+        <Field label={t('taskEnvironment')} hint={t('taskEnvironmentHint')}>
+          <select
+            value={environmentId ?? ''}
+            disabled={environments.length === 0}
+            onChange={(event) => setEnvironmentChoice(event.target.value)}
+            data-testid="task-environment"
+          >
+            {environments.length === 0 ? <option value="">{t('taskEnvironmentNone')}</option> : null}
+            {environments.map((environment) => (
+              <option key={environment.id} value={environment.id}>
+                {environment.name}
+                {environment.id === config.defaultEnvironmentId ? ` — ${t('envDefault')}` : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      {environments.length === 0 ? (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <span className="hint warn" style={{ margin: 0 }}>
+            {t('envNoneActive')}
+          </span>
+          <button className="btn sm" onClick={() => setView('environments')} type="button">
+            {t('navEnvironments')}
+          </button>
+        </div>
+      ) : null}
+
+      <div className="grid2">
         <Field label={t('taskProfile')}>
           <select
             value={profileId ?? ''}
@@ -89,6 +131,7 @@ export function NewTaskPanel(): JSX.Element {
             ))}
           </select>
         </Field>
+        <TextField label={t('taskNote')} value={note} mono={false} onChange={setNote} />
       </div>
 
       <Field label={t('taskSource')}>
@@ -129,8 +172,6 @@ export function NewTaskPanel(): JSX.Element {
           />
         </div>
       ) : null}
-
-      <TextField label={t('taskNote')} value={note} mono={false} onChange={setNote} />
 
       {formProblem === null || name.trim() === '' ? null : <p className="hint warn">{formProblem}</p>}
 

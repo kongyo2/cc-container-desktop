@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { isPlainObject } from '../../shared/json.ts';
 import { CONTAINER_HOME, CONTAINER_SCRIPT_DIR, CONTAINER_WORKSPACE } from '../../shared/presets.ts';
 import type { AppConfig, ManagedNames, Profile, Task } from '../../shared/types.ts';
@@ -8,10 +6,9 @@ import { execCapture, execChecked, refOf } from '../docker/container.ts';
 import type { ContainerRef } from '../docker/container.ts';
 import { readFileRaw, writeFileText } from '../docker/files.ts';
 import { describeError, logInfo, logWarn } from '../logger.ts';
-import { ensureImageSources } from '../docker/image.ts';
 import { planExtensions } from './extensions.ts';
 import { installSkills } from './skills.ts';
-import { brokenCopyPath, postCreatePath } from '../paths.ts';
+import { brokenCopyPath } from '../paths.ts';
 
 const CLAUDE_JSON = `${CONTAINER_HOME}/.claude.json`;
 const CLAUDE_DIR = `${CONTAINER_HOME}/.claude`;
@@ -23,7 +20,6 @@ const TMUX_USER_CONF = `${CONTAINER_HOME}/.tmux.local.conf`;
 
 const ONBOARD_SCRIPT = `${CONTAINER_SCRIPT_DIR}/onboard.cjs`;
 const LAUNCH_SCRIPT = `${CONTAINER_SCRIPT_DIR}/launch.sh`;
-const POST_CREATE_SCRIPT = `${CONTAINER_SCRIPT_DIR}/post-create.sh`;
 
 export function buildEnvBlock(profile: Profile, secret: string): Record<string, string> {
   const env: Record<string, string> = {};
@@ -285,20 +281,6 @@ export async function provisionTask(task: Task): Promise<ProvisionOutcome> {
   await writeFileText(ref, SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
   await provisionTmux(ref);
-
-  ensureImageSources();
-  const postCreate = readFileSync(postCreatePath(), 'utf8').replaceAll('\r\n', '\n');
-  await writeFileText(ref, POST_CREATE_SCRIPT, postCreate, 0o755);
-  const postResult = await execCapture(ref, ['bash', POST_CREATE_SCRIPT], { workdir: CONTAINER_WORKSPACE });
-  for (const line of `${postResult.stdout}${postResult.stderr}`.split('\n')) {
-    if (line.trim() !== '') logInfo('provision', line.trim());
-  }
-  if (postResult.exitCode !== 0) {
-    logWarn(
-      'provision',
-      `post-create が exit ${postResult.exitCode} で終了しました / post-create exited ${postResult.exitCode}`,
-    );
-  }
 
   const skills = await installSkills(ref, config.extensions.skillInstalls);
   for (const warning of skills.warnings) logWarn('provision', warning);

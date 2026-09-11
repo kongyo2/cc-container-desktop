@@ -151,8 +151,15 @@ export async function launchIsolated({ extraEnv = {} } = {}) {
     userData,
     created,
 
+    /** Creates a task on the default environment unless `environmentId` is given. */
     async createTask(input) {
-      const result = await ok(page, 'taskCreate', [{ note: '', profileId: null, source: { kind: 'empty' }, ...input }]);
+      const environmentId =
+        input.environmentId === undefined
+          ? (await ok(page, 'snapshot')).config.defaultEnvironmentId
+          : input.environmentId;
+      const result = await ok(page, 'taskCreate', [
+        { note: '', profileId: null, source: { kind: 'empty' }, ...input, environmentId },
+      ]);
       created.set(result.task.id, result.task);
       return result;
     },
