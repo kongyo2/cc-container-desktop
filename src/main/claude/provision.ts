@@ -223,10 +223,13 @@ async function isManagedTmuxConf(ref: ContainerRef, path: string): Promise<boole
 }
 
 async function provisionTmux(ref: ContainerRef): Promise<void> {
-  await execChecked(ref, ['mkdir', '-p', TMUX_MANAGED_DIR], { workdir: '/' });
+  const [, exists] = await Promise.all([
+    execChecked(ref, ['mkdir', '-p', TMUX_MANAGED_DIR], { workdir: '/' }),
+    fileExists(ref, TMUX_CONF),
+  ]);
   await writeFileText(ref, TMUX_MANAGED_CONF, TMUX_MANAGED_SOURCE, 0o644);
 
-  const ours = !(await fileExists(ref, TMUX_CONF)) || (await isManagedTmuxConf(ref, TMUX_CONF));
+  const ours = !exists || (await isManagedTmuxConf(ref, TMUX_CONF));
   if (!ours) {
     logWarn(
       'provision',
@@ -253,11 +256,12 @@ export async function provisionTask(task: Task): Promise<ProvisionOutcome> {
   const profile = profileFor(task.profileId);
   const secret = profile === null ? '' : getSecret(profile.id);
 
-  await execChecked(ref, ['mkdir', '-p', CLAUDE_DIR, CONTAINER_WORKSPACE], { workdir: '/' });
-  await execChecked(ref, ['mkdir', '-p', CONTAINER_SCRIPT_DIR], { workdir: '/', asRoot: true });
-
-  const existingClaudeJson = await readJsonFromContainer(ref, CLAUDE_JSON);
-  const existingSettings = await readJsonFromContainer(ref, SETTINGS_JSON);
+  const [, , existingClaudeJson, existingSettings] = await Promise.all([
+    execChecked(ref, ['mkdir', '-p', CLAUDE_DIR, CONTAINER_WORKSPACE], { workdir: '/' }),
+    execChecked(ref, ['mkdir', '-p', CONTAINER_SCRIPT_DIR], { workdir: '/', asRoot: true }),
+    readJsonFromContainer(ref, CLAUDE_JSON),
+    readJsonFromContainer(ref, SETTINGS_JSON),
+  ]);
   const plan = planExtensions(config.extensions, task.managed, existingClaudeJson, existingSettings);
   for (const warning of plan.warnings) logWarn('provision', warning);
 
@@ -265,9 +269,10 @@ export async function provisionTask(task: Task): Promise<ProvisionOutcome> {
     ? { ...onboardingPatch(config, profile, secret), ...plan.claudeJson }
     : { ...plan.claudeJson };
   const replaceKeys = Object.keys(plan.claudeJson);
-  await writeFileText(ref, ONBOARD_SCRIPT, onboardScriptSource(patch, replaceKeys), 0o700);
-  await writeFileText(ref, LAUNCH_SCRIPT, launchScriptSource(config), 0o755);
-  await execChecked(ref, ['node', ONBOARD_SCRIPT], { workdir: CONTAINER_HOME });
+  await Promise.all([
+    writeFileText(ref, ONBOARD_SCRIPT, onboardScriptSource(patch, replaceKeys), 0o700),
+    writeFileText(ref, LAUNCH_SCRIPT, launchScriptSource(config), 0o755),
+  ]);
 
   const settings: Record<string, unknown> = { ...existingSettings, ...plan.settings };
   if (profile === null) {
@@ -278,9 +283,12 @@ export async function provisionTask(task: Task): Promise<ProvisionOutcome> {
   if (config.autoOnboarding) {
     settings['skipDangerousModePermissionPrompt'] = true;
   }
-  await writeFileText(ref, SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600);
 
-  await provisionTmux(ref);
+  await Promise.all([
+    execChecked(ref, ['node', ONBOARD_SCRIPT], { workdir: CONTAINER_HOME }),
+    writeFileText(ref, SETTINGS_JSON, `${JSON.stringify(settings, null, 2)}\n`, 0o600),
+    provisionTmux(ref),
+  ]);
 
   const skills = await installSkills(ref, config.extensions.skillInstalls);
   for (const warning of skills.warnings) logWarn('provision', warning);
