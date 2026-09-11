@@ -3,6 +3,8 @@ import {
   Download,
   FolderInput,
   FileInput,
+  HardDriveDownload,
+  Layers,
   Play,
   Plus,
   RefreshCw,
@@ -16,11 +18,13 @@ import type { DragEvent, JSX } from 'react';
 import { useState } from 'react';
 
 import { activeEnvironments, environmentById } from '../../../shared/environments.ts';
+import { imageDisplayName, registeredImageById } from '../../../shared/images.ts';
 import { describeSource } from '../../../shared/tasks.ts';
 import type { ImportPick, ImportSummary, TaskView } from '../../../shared/types.ts';
 import { TerminalView } from '../components/TerminalView.tsx';
 import { Check, Pill, formatTime } from '../components/ui.tsx';
 import type { Tone } from '../components/ui.tsx';
+import { availabilityKey, availabilityTone } from '../images.ts';
 import { useLanguage, useT } from '../i18n.ts';
 import { selectedTaskView, tabsOfTask, useApp } from '../store.ts';
 
@@ -71,27 +75,30 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
   const busy = useApp((state) => state.busy);
   const run = useApp((state) => state.run);
   const setToast = useApp((state) => state.setToast);
+  const setView = useApp((state) => state.setView);
   const openTab = useApp((state) => state.openTab);
   const dropTaskTabs = useApp((state) => state.dropTaskTabs);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exportFirst, setExportFirst] = useState(true);
 
-  const { task, container, imageStale, environmentStale } = view;
+  const { task, container, imageStale, environmentStale, desiredAvailability, appliedImageId, desiredImageId } = view;
   const working = busy !== null;
   const status = statusOf(view);
   const profiles = snapshot?.config.profiles ?? [];
+  const images = snapshot?.images ?? [];
   const environments = snapshot === null ? [] : activeEnvironments(snapshot.config);
   const environment = snapshot === null ? null : environmentById(snapshot.config, task.environmentId);
   const environmentPlaceholder =
     environment === null
-      ? task.environmentId === null
-        ? t('taskEnvironmentNone')
-        : t('taskEnvironmentMissing')
+      ? t('taskEnvironmentMissing')
       : environment.archived
         ? `${environment.name} (${t('taskEnvironmentArchived')})`
         : null;
   const dockerUp = snapshot?.docker.available === true;
-  const stale = imageStale || environmentStale;
+  const stale = imageStale === true || environmentStale === true;
+  const applied = registeredImageById(images, appliedImageId);
+  const desired = registeredImageById(images, desiredImageId);
+  const desiredReady = desiredAvailability !== null && desiredAvailability.kind === 'ready';
 
   const reportImport = (summary: ImportSummary | null): void => {
     if (summary === null) return;
@@ -109,8 +116,12 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
       <div className="task-title-row">
         <NameEditor id={task.id} name={task.name} />
         <Pill tone={status.tone}>{t(status.label)}</Pill>
-        {imageStale ? <span className="tag warn">{t('taskImageStale')}</span> : null}
-        {environmentStale ? (
+        {imageStale === true ? (
+          <span className="tag warn" data-testid="image-stale">
+            {t('taskImageStale')}
+          </span>
+        ) : null}
+        {environmentStale === true ? (
           <span className="tag warn" data-testid="environment-stale">
             {t('taskEnvironmentStale')}
           </span>
@@ -121,6 +132,22 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         <span title={t('taskContainer')}>{task.containerName}</span>
         <span title={t('taskCreatedAt')}>{formatTime(task.createdAt)}</span>
         {task.note === '' ? null : <span className="task-note">{task.note}</span>}
+      </div>
+      <div className="task-meta task-images" data-testid="task-images">
+        <span title={t('taskCurrentImage')}>
+          <HardDriveDownload size={11} /> {t('taskCurrentImage')}:{' '}
+          {applied === null ? (appliedImageId ?? t('commonNone')) : imageDisplayName(applied.image, language)}
+        </span>
+        {imageStale === true ||
+        (container.exists === false && desiredImageId !== null && desiredImageId !== appliedImageId) ? (
+          <span title={t('taskNextImage')}>
+            <Layers size={11} /> {t('taskNextImage')}:{' '}
+            {desired === null ? (desiredImageId ?? t('commonNone')) : imageDisplayName(desired.image, language)}
+            {desiredAvailability === null ? null : (
+              <Pill tone={availabilityTone(desiredAvailability)}>{t(availabilityKey(desiredAvailability))}</Pill>
+            )}
+          </span>
+        ) : null}
       </div>
 
       <div className="row task-actions">
@@ -145,7 +172,7 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         </select>
 
         <select
-          value={task.environmentId ?? ''}
+          value={task.environmentId}
           disabled={working}
           title={t('taskEnvironment')}
           aria-label={t('taskEnvironment')}
@@ -157,7 +184,7 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
           }}
         >
           {environmentPlaceholder === null ? null : (
-            <option value={task.environmentId ?? ''} disabled>
+            <option value={task.environmentId} disabled>
               {environmentPlaceholder}
             </option>
           )}
@@ -181,7 +208,8 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         ) : (
           <button
             className="btn primary"
-            disabled={working || !dockerUp}
+            disabled={working || !dockerUp || (!container.exists && !desiredReady)}
+            title={!container.exists && !desiredReady ? t('taskImageUnavailable') : ''}
             onClick={() => void run('task', () => window.cc.taskStart(task.id))}
             type="button"
             data-testid="task-start"
@@ -237,7 +265,8 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         {stale ? (
           <button
             className="btn sm"
-            disabled={working}
+            disabled={working || !desiredReady}
+            title={desiredReady ? t('taskRecreateHint') : t('taskImageStaleNeedsDownload')}
             onClick={() => void run('task', () => window.cc.taskRecreate(task.id))}
             type="button"
             data-testid="task-recreate"
@@ -270,8 +299,20 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
         </button>
       </div>
 
-      {imageStale ? <p className="hint warn">{t('taskImageStaleHint')}</p> : null}
-      {environmentStale ? <p className="hint warn">{t('taskEnvironmentStaleHint')}</p> : null}
+      {!dockerUp ? <p className="hint warn">{t('taskStateUnknown')}</p> : null}
+      {imageStale === true ? (
+        <p className="hint warn">
+          {t('taskImageStaleHint')}
+          {desiredReady ? '' : ` ${t('taskImageStaleNeedsDownload')}`}
+          {desiredReady ? null : (
+            <button className="btn ghost sm" type="button" onClick={() => setView('images')} style={{ marginLeft: 8 }}>
+              {t('taskOpenImages')}
+            </button>
+          )}
+        </p>
+      ) : null}
+      {environmentStale === true ? <p className="hint warn">{t('taskEnvironmentStaleHint')}</p> : null}
+      {stale ? <p className="hint">{t('taskRecreateHint')}</p> : null}
 
       {confirmDelete ? (
         <div className="banner error" data-testid="delete-confirm">
@@ -309,15 +350,57 @@ function TaskHeader({ view }: { view: TaskView }): JSX.Element {
   );
 }
 
+interface WelcomeStep {
+  readonly key: 'taskWelcomeStep1' | 'taskWelcomeStep2' | 'taskWelcomeStep3';
+  readonly done: boolean;
+  readonly view: 'images' | 'environments' | 'newTask';
+}
+
+function Welcome(): JSX.Element {
+  const t = useT();
+  const snapshot = useApp((state) => state.snapshot);
+  const busy = useApp((state) => state.busy);
+  const setView = useApp((state) => state.setView);
+  if (snapshot === null) return <p className="empty">{t('commonRunning')}</p>;
+  const hasImage = snapshot.images.some((view) => view.availability.kind === 'ready');
+  const hasEnvironment = activeEnvironments(snapshot.config).length > 0;
+  const last: WelcomeStep = { key: 'taskWelcomeStep3', done: false, view: 'newTask' };
+  const steps: readonly WelcomeStep[] = [
+    { key: 'taskWelcomeStep1', done: hasImage, view: 'images' },
+    { key: 'taskWelcomeStep2', done: hasEnvironment, view: 'environments' },
+    last,
+  ];
+  const next = steps.find((step) => !step.done) ?? last;
+  return (
+    <div className="welcome" data-testid="welcome">
+      <Sparkles size={28} />
+      <h1>{t('taskWelcome')}</h1>
+      <p>{t('taskWelcomeHint')}</p>
+      <ol className="welcome-steps">
+        {steps.map((step, index) => (
+          <li key={step.key} className={step.done ? 'done' : step === next ? 'next' : ''}>
+            <span className="welcome-step-index">{index + 1}</span>
+            <button className="btn ghost sm" type="button" disabled={busy !== null} onClick={() => setView(step.view)}>
+              {t(step.key)}
+            </button>
+          </li>
+        ))}
+      </ol>
+      {snapshot.docker.available ? null : <p className="hint warn">{t('taskDockerDown')}</p>}
+      <button className="btn primary" disabled={busy !== null} onClick={() => setView(next.view)} type="button">
+        <Plus size={14} /> {t(next.key)}
+      </button>
+    </div>
+  );
+}
+
 export function TaskWorkspace(): JSX.Element {
   const t = useT();
   const snapshot = useApp((state) => state.snapshot);
   const selected = useApp(selectedTaskView);
   const tabs = useApp((state) => state.tabs);
   const activeTab = useApp((state) => state.activeTab);
-  const busy = useApp((state) => state.busy);
   const run = useApp((state) => state.run);
-  const setView = useApp((state) => state.setView);
   const setError = useApp((state) => state.setError);
   const setToast = useApp((state) => state.setToast);
   const openTab = useApp((state) => state.openTab);
@@ -364,15 +447,7 @@ export function TaskWorkspace(): JSX.Element {
   if (snapshot.tasks.length === 0) {
     return (
       <div className="task-shell">
-        <div className="welcome">
-          <Sparkles size={28} />
-          <h1>{t('taskWelcome')}</h1>
-          <p>{t('taskWelcomeHint')}</p>
-          {snapshot.docker.available ? null : <p className="hint warn">{t('taskDockerDown')}</p>}
-          <button className="btn primary" disabled={busy !== null} onClick={() => setView('newTask')} type="button">
-            <Plus size={14} /> {t('taskNew')}
-          </button>
-        </div>
+        <Welcome />
       </div>
     );
   }

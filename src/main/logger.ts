@@ -4,6 +4,8 @@ import { EVENTS } from '../shared/ipc.ts';
 import type { LogLine } from '../shared/types.ts';
 import { sendToWindow } from './window.ts';
 
+export { describeError } from './errors.ts';
+
 let target: BrowserWindow | null = null;
 
 const backlog: LogLine[] = [];
@@ -61,20 +63,4 @@ export function redactSecrets(text: string): string {
     .replaceAll(TOKEN_PARAM, '$1***')
     .replaceAll(AUTH_HEADER, '$1***')
     .replaceAll(CREDENTIAL_ASSIGNMENT, '$1$2***');
-}
-
-export function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    const cause = error.cause;
-    if (cause instanceof Error && cause.message !== error.message) {
-      return `${error.message} (${cause.message})`;
-    }
-    return error.message;
-  }
-  if (typeof error === 'string') return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
 }

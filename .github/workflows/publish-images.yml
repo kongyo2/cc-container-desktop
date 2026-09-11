@@ -1,0 +1,448 @@
+name: Publish images
+
+# Builds every variant for every platform on native runners, pushes them by
+# digest, merges each variant into a multi-platform candidate tag, pulls the
+# candidates back from Docker Hub and runs the runtime contract, promotes the
+# verified indexes to the official <variant>-<release> tags, checks anonymous
+# pulls, and finally generates src/shared/imageCatalog.json with the real
+# digests, sizes and tool versions (as an artifact and, optionally, a PR).
+# Building a subset of variants is allowed; the catalog then carries the
+# variants that were not built over from the committed catalog.
+#
+# Required repository secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN.
+# Optional repository variable: DOCKERHUB_REPOSITORY (default docker.io/kongyo2/cc-workbench).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Image release, YYYY.MM.N (e.g. 2026.09.1). Official tags are never reused.'
+        required: true
+        type: string
+      variants:
+        description: 'Comma-separated variants to build'
+        required: false
+        default: 'base,web,python,go,rust,jvm,ruby,full'
+        type: string
+      platforms:
+        description: 'Comma-separated platforms'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: string
+      promote:
+        description: 'Promote verified candidates to the official tags'
+        required: false
+        default: true
+        type: boolean
+      open_pr:
+        description: 'Open a pull request that adopts the generated catalog'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: publish-images-${{ inputs.release }}
+  cancel-in-progress: false
+
+env:
+  REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || 'docker.io/kongyo2/cc-workbench' }}
+  CANDIDATE_PREFIX: candidate-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  prepare:
+    name: Validate inputs
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      variants: ${{ steps.plan.outputs.variants }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+      revision: ${{ steps.plan.outputs.revision }}
+      built_at: ${{ steps.plan.outputs.built_at }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the lock and the catalog scripts
+        run: |
+          node --experimental-strip-types scripts/verify-image-catalog.mjs
+          jq -e '.schemaVersion == 1' docker/image-versions.lock.json >/dev/null
+
+      - name: Plan the build matrix
+        id: plan
+        env:
+          RELEASE: ${{ inputs.release }}
+          VARIANTS: ${{ inputs.variants }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE" =~ ^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]{1,3}$ ]]; then
+            echo "::error::release must look like YYYY.MM.N, got '$RELEASE'"
+            exit 1
+          fi
+          matrix="$(jq -cn --arg variants "$VARIANTS" --arg platforms "$PLATFORMS" '
+            {
+              include: [
+                ($variants | split(",") | map(gsub("\\s"; "")) | .[] | select(length > 0)) as $variant |
+                ($platforms | split(",") | map(gsub("\\s"; "")) | .[] | select(length > 0)) as $platform |
+                {
+                  variant: $variant,
+                  platform: $platform,
+                  arch: ($platform | split("/")[1]),
+                  runner: (if $platform == "linux/arm64" then "ubuntu-24.04-arm" else "ubuntu-24.04" end)
+                }
+              ]
+            }')"
+          for variant in $(jq -r '.include[].variant' <<< "$matrix" | sort -u); do
+            case "$variant" in base|web|python|go|rust|jvm|ruby|full) ;; *) echo "::error::unknown variant $variant"; exit 1 ;; esac
+          done
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "variants=$(jq -c '[.include[].variant] | unique' <<< "$matrix")" >> "$GITHUB_OUTPUT"
+          echo "platforms=$(jq -c '[.include[].platform] | unique' <<< "$matrix")" >> "$GITHUB_OUTPUT"
+          echo "revision=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to reuse an official tag
+        env:
+          RELEASE: ${{ inputs.release }}
+          VARIANTS: ${{ steps.plan.outputs.variants }}
+        run: |
+          set -euo pipefail
+          for variant in $(jq -r '.[]' <<< "$VARIANTS"); do
+            tag="$REPOSITORY:$variant-$RELEASE"
+            if docker buildx imagetools inspect "$tag" >/dev/null 2>&1; then
+              echo "::error::$tag already exists; official tags are immutable, choose a new release"
+              exit 1
+            fi
+          done
+
+  build:
+    name: Build ${{ matrix.variant }} (${{ matrix.platform }})
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/Dockerfile
+          target: ${{ matrix.variant }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            IMAGE_RELEASE=${{ inputs.release }}
+            SOURCE_REVISION=${{ needs.prepare.outputs.revision }}
+            BUILT_AT=${{ needs.prepare.outputs.built_at }}
+          outputs: type=image,"name=${{ env.REPOSITORY }}",push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
+          cache-from: type=registry,ref=${{ env.REPOSITORY }}:cache-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REPOSITORY }}:cache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
+
+      - name: Record the digest
+        run: |
+          mkdir -p digests
+          printf '%s\n' "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.variant }}-${{ matrix.arch }}"
+          cat "digests/${{ matrix.variant }}-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.variant }}-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  merge:
+    name: Merge ${{ matrix.variant }} into a candidate index
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJson(needs.prepare.outputs.variants) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.variant }}-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create the candidate index and record its platform manifests
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          candidate="$REPOSITORY:$CANDIDATE_PREFIX-$VARIANT"
+          refs=()
+          for file in digests/*; do refs+=("$REPOSITORY@$(cat "$file")"); done
+          docker buildx imagetools create -t "$candidate" "${refs[@]}"
+          index_digest="$(docker buildx imagetools inspect "$candidate" --format '{{.Manifest.Digest}}')"
+          raw="$(docker buildx imagetools inspect "$candidate" --raw)"
+          mkdir -p out
+          jq -n --arg index "$index_digest" '{indexDigest: $index, platforms: {}}' > "out/$VARIANT.json"
+          for manifest in $(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture != "unknown") | "\(.platform.os)/\(.platform.architecture)=\(.digest)"' <<< "$raw"); do
+            platform="${manifest%%=*}"
+            digest="${manifest#*=}"
+            bytes="$(docker buildx imagetools inspect "$REPOSITORY@$digest" --raw | jq '[.layers[].size] | add')"
+            jq --arg platform "$platform" --arg digest "$digest" --argjson bytes "$bytes" \
+              '.platforms[$platform] = {digest: $digest, compressedLayerBytes: $bytes}' "out/$VARIANT.json" > out/tmp.json
+            mv out/tmp.json "out/$VARIANT.json"
+          done
+          cat "out/$VARIANT.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest-${{ matrix.variant }}
+          path: out/${{ matrix.variant }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: Verify ${{ matrix.variant }} (${{ matrix.platform }}) from the registry
+    needs: [prepare, merge]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifest-${{ matrix.variant }}
+          path: manifests
+
+      - name: Pull the platform manifest and run the runtime contract
+        env:
+          VARIANT: ${{ matrix.variant }}
+          PLATFORM: ${{ matrix.platform }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          digest="$(jq -r --arg platform "$PLATFORM" '.platforms[$platform].digest' "manifests/$VARIANT.json")"
+          test "$digest" != "null"
+          docker pull --platform "$PLATFORM" "$REPOSITORY@$digest"
+          image="$REPOSITORY@$digest"
+          docker run --rm -i --init --network none \
+            -e CC_EXPECT_VARIANT="$VARIANT" -e CC_EXPECT_RELEASE="$RELEASE" -e CC_EXPECT_CONTRACT=1 \
+            "$image" bash -s < docker/scripts/verify-runtime.sh
+          mkdir -p image-info
+          docker run --rm "$image" cat /opt/cc/image-info.json > "image-info/$VARIANT.image-info.json"
+          jq -e --arg variant "$VARIANT" --arg release "$RELEASE" \
+            '.project == "cc-container-desktop" and .variant == $variant and .release == $release and .runtimeContract == 1' \
+            "image-info/$VARIANT.image-info.json" >/dev/null
+          test "$(docker inspect --format '{{index .Config.Labels "com.cc-container-desktop.image.variant"}}' "$image")" = "$VARIANT"
+          test "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$GITHUB_SHA"
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'linux/amd64'
+        with:
+          name: image-info-${{ matrix.variant }}
+          path: image-info/*.image-info.json
+          if-no-files-found: error
+          retention-days: 7
+
+  promote:
+    name: Promote to official tags
+    needs: [prepare, verify]
+    if: inputs.promote
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: manifest-*
+          path: manifests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag the verified indexes
+        env:
+          RELEASE: ${{ inputs.release }}
+          VARIANTS: ${{ needs.prepare.outputs.variants }}
+        run: |
+          set -euo pipefail
+          for variant in $(jq -r '.[]' <<< "$VARIANTS"); do
+            candidate="$REPOSITORY:$CANDIDATE_PREFIX-$variant"
+            official="$REPOSITORY:$variant-$RELEASE"
+            expected="$(jq -r '.indexDigest' "manifests/$variant.json")"
+            if docker buildx imagetools inspect "$official" >/dev/null 2>&1; then
+              actual="$(docker buildx imagetools inspect "$official" --format '{{.Manifest.Digest}}')"
+              if [ "$actual" != "$expected" ]; then
+                echo "::error::$official already exists with $actual, expected $expected; stopping"
+                exit 1
+              fi
+              echo "$official already points at the verified index"
+              continue
+            fi
+            docker buildx imagetools create -t "$official" "$candidate"
+            actual="$(docker buildx imagetools inspect "$official" --format '{{.Manifest.Digest}}')"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$official resolved to $actual after promotion, expected $expected"
+              exit 1
+            fi
+            echo "promoted $official = $actual"
+          done
+
+      - name: Confirm anonymous pulls
+        env:
+          VARIANTS: ${{ needs.prepare.outputs.variants }}
+        run: |
+          set -euo pipefail
+          docker logout docker.io
+          for variant in $(jq -r '.[]' <<< "$VARIANTS"); do
+            digest="$(jq -r '.platforms["linux/amd64"].digest // empty' "manifests/$variant.json")"
+            if [ -z "$digest" ]; then continue; fi
+            docker pull --platform linux/amd64 "$REPOSITORY@$digest" >/dev/null
+            echo "anonymous pull ok: $variant $digest"
+          done
+
+      - uses: actions/checkout@v5
+
+      # The description action addresses Docker Hub by namespace/name, without
+      # the registry host the rest of this workflow needs in the reference.
+      - name: Docker Hub repository name
+        id: hub
+        run: |
+          set -euo pipefail
+          name="${REPOSITORY#docker.io/}"
+          name="${name#index.docker.io/}"
+          if [ "$name" = "$REPOSITORY" ]; then
+            echo "hub=false" >> "$GITHUB_OUTPUT"
+            echo "$REPOSITORY is not on Docker Hub; the description is left alone"
+          else
+            echo "hub=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "repository=$name" >> "$GITHUB_OUTPUT"
+
+      # The tags above are already promoted; a README hiccup must not hide that
+      # from the catalog job, so this step is not allowed to fail the run.
+      - name: Update the Docker Hub description
+        if: steps.hub.outputs.hub == 'true'
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ steps.hub.outputs.repository }}
+          short-description: 'Claude Code runtime images for CC Container Desktop'
+          readme-filepath: docker/README.dockerhub.md
+
+  catalog:
+    name: Generate the catalog
+    needs: [prepare, verify, promote]
+    if: always() && needs.verify.result == 'success' && (needs.promote.result == 'success' || needs.promote.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: manifest-*
+          path: manifests
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-info-*
+          path: image-info
+          merge-multiple: true
+
+      # A partial build (the variants input) regenerates only what was built
+      # and carries the other variants over from the committed catalog; the
+      # generator refuses when a carried-over entry was never published.
+      - name: Generate
+        env:
+          RELEASE: ${{ inputs.release }}
+          REVISION: ${{ needs.prepare.outputs.revision }}
+          VARIANTS: ${{ needs.prepare.outputs.variants }}
+          PROMOTED: ${{ needs.promote.result == 'success' }}
+        run: |
+          set -euo pipefail
+          jq -s 'reduce .[] as $item ({}; . + $item)' <(for f in manifests/*.json; do jq --arg v "$(basename "$f" .json)" '{($v): .}' "$f"; done) > digests.json
+          cat digests.json
+          mkdir -p catalog-out
+          node --experimental-strip-types scripts/generate-image-catalog.mjs \
+            --repository "$REPOSITORY" --release "$RELEASE" --revision "$REVISION" \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --digests digests.json --image-info-dir image-info \
+            --variants "$(jq -r 'join(",")' <<< "$VARIANTS")" --merge src/shared/imageCatalog.json \
+            --out catalog-out/imageCatalog.json
+          if [ "$PROMOTED" = "true" ]; then
+            node --experimental-strip-types scripts/verify-image-catalog.mjs --file catalog-out/imageCatalog.json --online --require-published
+          else
+            node --experimental-strip-types scripts/verify-image-catalog.mjs --file catalog-out/imageCatalog.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-catalog-${{ inputs.release }}
+          path: catalog-out/imageCatalog.json
+          if-no-files-found: error
+
+      - name: Open a pull request that adopts the catalog
+        if: inputs.open_pr && needs.promote.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_PR_TOKEN || github.token }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          branch="catalog/$RELEASE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          cp catalog-out/imageCatalog.json src/shared/imageCatalog.json
+          npx prettier --write src/shared/imageCatalog.json >/dev/null
+          git add src/shared/imageCatalog.json
+          if git diff --cached --quiet; then
+            echo "the catalog did not change"
+            exit 0
+          fi
+          git commit -m "catalog: adopt image release $RELEASE"
+          git push --force-with-lease origin "$branch"
+          gh pr create --base "${{ github.ref_name }}" --head "$branch" \
+            --title "Adopt image release $RELEASE" \
+            --body "Generated by the publish-images workflow (run ${{ github.run_id }}). Repository: $REPOSITORY. Every digest was pulled anonymously and passed the runtime contract on every platform." \
+            || echo "pull request already exists"

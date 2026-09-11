@@ -1,9 +1,12 @@
+import { useMemo } from 'react';
 import type { StoreApi, UseBoundStore } from 'zustand';
 import { create } from 'zustand';
 
+import { isTerminalPhase } from '../../shared/images.ts';
+import type { ImageOperation } from '../../shared/images.ts';
 import type { LogLine, Result, Snapshot, TaskView, TerminalKind } from '../../shared/types.ts';
 
-export type View = 'tasks' | 'newTask' | 'profiles' | 'extensions' | 'environments' | 'log' | 'settings';
+export type View = 'tasks' | 'newTask' | 'images' | 'profiles' | 'extensions' | 'environments' | 'log' | 'settings';
 
 export interface TerminalTab {
   readonly key: string;
@@ -25,6 +28,7 @@ const LOG_LIMIT = 800;
 export interface UiState {
   snapshot: Snapshot | null;
   view: View;
+  routed: boolean;
   selectedTaskId: string | null;
   busy: string | null;
   error: string | null;
@@ -32,6 +36,7 @@ export interface UiState {
   logs: LogEntry[];
   tabs: TerminalTab[];
   activeTab: Record<string, string>;
+  operations: Record<string, ImageOperation>;
 
   setView: (view: View) => void;
   selectTask: (id: string) => void;
@@ -45,8 +50,10 @@ export interface UiState {
   markTabOpened: (key: string, id: string) => void;
   markTabExited: (key: string) => void;
   dropTaskTabs: (taskId: string) => void;
+  applyOperation: (operation: ImageOperation) => void;
   refresh: () => Promise<void>;
   run: <T>(label: string, call: () => Promise<Result<T>>) => Promise<T | null>;
+  request: <T>(call: () => Promise<Result<T>>) => Promise<T | null>;
 }
 
 export function tabsOfTask(tabs: readonly TerminalTab[], taskId: string | null): TerminalTab[] {
@@ -73,9 +80,30 @@ function reconcileSelection(snapshot: Snapshot, selectedTaskId: string | null): 
   return snapshot.tasks[0]?.task.id ?? null;
 }
 
+/** Newer information only: an event or snapshot never rolls an operation back to an earlier sequence. */
+function mergeOperations(
+  current: Record<string, ImageOperation>,
+  incoming: readonly ImageOperation[],
+): Record<string, ImageOperation> {
+  const next = { ...current };
+  for (const operation of incoming) {
+    const known = next[operation.id];
+    if (known === undefined || operation.sequence >= known.sequence) next[operation.id] = operation;
+  }
+  return next;
+}
+
+/** A fresh install lands on the Images page: nothing can be done before an image is registered. */
+function initialView(snapshot: Snapshot): View {
+  const nothingYet =
+    snapshot.images.length === 0 && snapshot.config.environments.length === 0 && snapshot.tasks.length === 0;
+  return nothingYet ? 'images' : 'tasks';
+}
+
 export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, get) => ({
   snapshot: null,
   view: 'tasks',
+  routed: false,
   selectedTaskId: null,
   busy: null,
   error: null,
@@ -83,6 +111,7 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
   logs: [],
   tabs: [],
   activeTab: {},
+  operations: {},
 
   setView: (view) => set({ view }),
   selectTask: (id) => set({ selectedTaskId: id, view: 'tasks' }),
@@ -133,15 +162,20 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
       return { tabs: state.tabs.filter((tab) => tab.taskId !== taskId), activeTab };
     }),
 
+  applyOperation: (operation) => set((state) => ({ operations: mergeOperations(state.operations, [operation]) })),
+
   refresh: async () => {
     const result = await window.cc.snapshot();
     if (result.ok) {
       set((state) => ({
         snapshot: result.value,
+        routed: true,
+        view: state.routed ? state.view : initialView(result.value),
         selectedTaskId: reconcileSelection(result.value, state.selectedTaskId),
+        operations: mergeOperations(state.operations, result.value.operations),
       }));
     } else {
-      set({ error: result.error });
+      set({ error: result.error.message });
     }
   },
 
@@ -150,7 +184,7 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
     try {
       const result = await call();
       if (!result.ok) {
-        set({ error: result.error });
+        set({ error: result.error.message });
         return null;
       }
       return result.value;
@@ -162,9 +196,44 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
       await get().refresh();
     }
   },
+
+  request: async (call) => {
+    set({ error: null });
+    try {
+      const result = await call();
+      if (!result.ok) {
+        set({ error: result.error.message });
+        return null;
+      }
+      return result.value;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      return null;
+    }
+  },
 }));
 
 export function selectedTaskView(state: UiState): TaskView | null {
   if (state.snapshot === null || state.selectedTaskId === null) return null;
   return state.snapshot.tasks.find((view) => view.task.id === state.selectedTaskId) ?? null;
+}
+
+/** Newest first. Pure, so it can be memoised on the (stable) operations record. */
+export function operationList(operations: Readonly<Record<string, ImageOperation>>): readonly ImageOperation[] {
+  return Object.values(operations).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
+/**
+ * Derived lists are memoised on the store's record rather than computed in a
+ * selector: a selector returning a fresh array on every call would make
+ * useSyncExternalStore re-render without end.
+ */
+export function useOperationList(): readonly ImageOperation[] {
+  const operations = useApp((state) => state.operations);
+  return useMemo(() => operationList(operations), [operations]);
+}
+
+export function useActiveOperationList(): readonly ImageOperation[] {
+  const operations = useOperationList();
+  return useMemo(() => operations.filter((operation) => !isTerminalPhase(operation.phase)), [operations]);
 }

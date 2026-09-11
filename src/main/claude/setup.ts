@@ -9,8 +9,8 @@ import {
 import type { Task } from '../../shared/types.ts';
 import { execCapture, execChecked, refOf } from '../docker/container.ts';
 import { writeFileText } from '../docker/files.ts';
+import { environmentFor } from '../config/store.ts';
 import { logInfo, logWarn, redactSecrets } from '../logger.ts';
-import { taskEnvironment } from '../tasks/environment.ts';
 
 const SETUP_TIMEOUT_SECONDS = 1800;
 
@@ -57,7 +57,7 @@ async function markSetupDone(task: Task): Promise<void> {
 export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
   if (await setupDone(task)) return { ran: false, exitCode: null };
 
-  const environment = taskEnvironment(task);
+  const environment = environmentFor(task.environmentId);
   const script = environment === null ? '' : normalizeScriptText(environment.setupScript).trim();
   if (script === '') {
     await markSetupDone(task);

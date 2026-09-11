@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
 
+import { ensureTestImages } from './fixtures/registry.mjs';
+
 export const SHOT_DIR = process.env['CC_E2E_SCREENSHOT_DIR'] ?? '';
 
 export const TASK_PREFIX = 'e2e-';
@@ -44,9 +46,21 @@ export async function call(page, method, args = []) {
   return result;
 }
 
+export function errorText(result) {
+  if (result.ok) return '';
+  return typeof result.error === 'object' && result.error !== null
+    ? `${result.error.code}: ${result.error.message}`
+    : String(result.error);
+}
+
+export function errorCode(result) {
+  if (result.ok) return '';
+  return typeof result.error === 'object' && result.error !== null ? result.error.code : '';
+}
+
 export async function ok(page, method, args = []) {
   const result = await call(page, method, args);
-  if (!result.ok) throw new Error(`${method}: ${result.error}`);
+  if (!result.ok) throw new Error(`${method}: ${errorText(result)}`);
   return result.value;
 }
 
@@ -116,12 +130,44 @@ export function taskById(snapshot, taskId) {
   return snapshot.tasks.find((view) => view.task.id === taskId) ?? null;
 }
 
-export async function launchIsolated({ extraEnv = {} } = {}) {
-  const userData = mkdtempSync(join(tmpdir(), 'cc-e2e-'));
-  const app = await electron.launch({
-    args: ['.', '--no-sandbox', '--disable-gpu'],
-    env: { ...process.env, ...extraEnv, CC_USER_DATA_DIR: userData, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
-  });
+export function operationById(snapshot, operationId) {
+  return snapshot.operations.find((operation) => operation.id === operationId) ?? null;
+}
+
+export function imageByEntry(snapshot, catalogEntryId) {
+  return snapshot.images.find((view) => view.image.catalogEntryId === catalogEntryId) ?? null;
+}
+
+const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'interrupted']);
+
+/** Polls the snapshot until the operation reaches a terminal phase. */
+export async function waitForOperation(page, operationId, timeoutMs = 600_000) {
+  const done = await waitFor(
+    page,
+    async () => operationById(await ok(page, 'snapshot'), operationId),
+    (operation) => operation !== null && TERMINAL.has(operation.phase),
+    timeoutMs,
+  );
+  if (done === null) throw new Error(`operation ${operationId} vanished`);
+  return done;
+}
+
+/**
+ * Launches the app in a scratch userData directory. When `withImages` is
+ * true (the default) the local registry fixture is prepared first and the
+ * app is pointed at its catalog, so `registerImage` and `createTask` work.
+ */
+export async function launchIsolated({ extraEnv = {}, withImages = true, userData: reuseUserData = null } = {}) {
+  const fixture = withImages ? ensureTestImages() : null;
+  const userData = reuseUserData ?? mkdtempSync(join(tmpdir(), 'cc-e2e-'));
+  const env = {
+    ...process.env,
+    ...extraEnv,
+    CC_USER_DATA_DIR: userData,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+    ...(fixture === null ? {} : { CC_IMAGE_CATALOG_FILE: fixture.catalogFile }),
+  };
+  const app = await electron.launch({ args: ['.', '--no-sandbox', '--disable-gpu'], env });
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
@@ -134,12 +180,33 @@ export async function launchIsolated({ extraEnv = {} } = {}) {
     page,
     userData,
     created,
+    fixture,
+
+    /** Downloads and registers a catalog entry, returning the registered image view. */
+    async registerImage(catalogEntryId = fixture?.releaseOne.id) {
+      const operation = await ok(page, 'imageDownloadStart', [{ catalogEntryId }]);
+      const done = await waitForOperation(page, operation.id);
+      if (done.phase !== 'succeeded') {
+        throw new Error(`download of ${catalogEntryId} ended ${done.phase}: ${done.error?.message ?? ''}`);
+      }
+      const view = imageByEntry(await ok(page, 'snapshot'), catalogEntryId);
+      if (view === null) throw new Error(`${catalogEntryId} is not registered after a successful download`);
+      return view;
+    },
+
+    /** Makes sure one active environment exists (registering the first fixture image if needed) and returns its id. */
+    async ensureEnvironment({ name = 'e2e-env', imageId = null } = {}) {
+      const snapshot = await ok(page, 'snapshot');
+      const existing = snapshot.config.environments.find((environment) => !environment.archived);
+      if (existing !== undefined && imageId === null) return existing.id;
+      const chosen = imageId ?? (await this.registerImage()).image.id;
+      const id = `e2e-env-${Date.now().toString(36)}`;
+      await ok(page, 'environmentUpsert', [{ id, name, imageId: chosen, envText: '', setupScript: '' }]);
+      return id;
+    },
 
     async createTask(input) {
-      const environmentId =
-        input.environmentId === undefined
-          ? (await ok(page, 'snapshot')).config.defaultEnvironmentId
-          : input.environmentId;
+      const environmentId = input.environmentId === undefined ? await this.ensureEnvironment() : input.environmentId;
       const result = await ok(page, 'taskCreate', [
         { note: '', profileId: null, source: { kind: 'empty' }, ...input, environmentId },
       ]);
@@ -151,13 +218,13 @@ export async function launchIsolated({ extraEnv = {} } = {}) {
       created.delete(taskId);
     },
 
-    async close() {
+    async close({ keepUserData = false } = {}) {
       try {
         /* oxlint-disable no-await-in-loop -- deletions share one Docker connection; keep them sequential */
         for (const taskId of [...created.keys()]) {
           const result = await call(page, 'taskDelete', [taskId, { exportFirst: false }]);
           if (result.ok) created.delete(taskId);
-          else console.error(`    cleanup: taskDelete(${taskId}) → ${result.error}`);
+          else console.error(`    cleanup: taskDelete(${taskId}) → ${errorText(result)}`);
         }
         /* oxlint-enable no-await-in-loop */
       } catch (error) {
@@ -172,7 +239,7 @@ export async function launchIsolated({ extraEnv = {} } = {}) {
           execFileSync('docker', ['volume', 'rm', '-f', task.volumeName], { stdio: 'ignore' });
         } catch {}
       }
-      rmSync(userData, { recursive: true, force: true });
+      if (!keepUserData) rmSync(userData, { recursive: true, force: true });
     },
   };
   return session;

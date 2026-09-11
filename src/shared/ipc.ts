@@ -1,3 +1,4 @@
+import type { ImageOperation } from './images.ts';
 import type {
   AppConfig,
   ConfigPatch,
@@ -45,7 +46,12 @@ export const CHANNELS = {
   environmentDelete: 'environment:delete',
 
   dockerProbe: 'docker:probe',
-  imageBuild: 'image:build',
+
+  imageDownloadStart: 'image:downloadStart',
+  imageRepairStart: 'image:repairStart',
+  imageCancel: 'image:cancel',
+  imageUnregister: 'image:unregister',
+  imageRefresh: 'image:refresh',
 
   extensionsSave: 'ext:save',
   extensionsApply: 'ext:apply',
@@ -75,6 +81,7 @@ export const EVENTS = {
   termExit: 'evt:term:exit',
   stateChanged: 'evt:state',
   terminalsReset: 'evt:term:reset',
+  imageOperation: 'evt:image:operation',
 } as const;
 
 export interface ExecRequest {
@@ -82,9 +89,20 @@ export interface ExecRequest {
   readonly asRoot: boolean;
 }
 
-export interface BuildRequest {
-  readonly noCache: boolean;
-  readonly refreshClaudeCode: boolean;
+export interface ImageDownloadRequest {
+  readonly catalogEntryId: string;
+}
+
+export interface ImageRepairRequest {
+  readonly imageId: string;
+}
+
+export interface ImageCancelRequest {
+  readonly operationId: string;
+}
+
+export interface ImageUnregisterRequest {
+  readonly imageId: string;
 }
 
 export interface Api {
@@ -107,7 +125,12 @@ export interface Api {
   environmentDelete(id: string): Promise<Result<AppConfig>>;
 
   dockerProbe(): Promise<Result<Snapshot>>;
-  imageBuild(request: BuildRequest): Promise<Result<null>>;
+
+  imageDownloadStart(request: ImageDownloadRequest): Promise<Result<ImageOperation>>;
+  imageRepairStart(request: ImageRepairRequest): Promise<Result<ImageOperation>>;
+  imageCancel(request: ImageCancelRequest): Promise<Result<ImageOperation>>;
+  imageUnregister(request: ImageUnregisterRequest): Promise<Result<Snapshot>>;
+  imageRefresh(): Promise<Result<Snapshot>>;
 
   extensionsSave(extensions: Extensions): Promise<Result<AppConfig>>;
   extensionsApply(): Promise<Result<readonly string[]>>;
@@ -135,4 +158,5 @@ export interface Api {
   onTerminalExit(listener: (exit: TerminalExit) => void): () => void;
   onStateChanged(listener: () => void): () => void;
   onTerminalsReset(listener: (reset: TerminalsReset) => void): () => void;
+  onImageOperation(listener: (operation: ImageOperation) => void): () => void;
 }

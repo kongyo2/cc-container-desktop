@@ -7,6 +7,7 @@ import { StatusStrip } from './components/StatusStrip.tsx';
 import { useT } from './i18n.ts';
 import { EnvironmentsPanel } from './panels/EnvironmentsPanel.tsx';
 import { ExtensionsPanel } from './panels/ExtensionsPanel.tsx';
+import { ImagesPanel } from './panels/ImagesPanel.tsx';
 import { LogPanel } from './panels/LogPanel.tsx';
 import { NewTaskPanel } from './panels/NewTaskPanel.tsx';
 import { ProfilesPanel } from './panels/ProfilesPanel.tsx';
@@ -38,10 +39,29 @@ function Notice({
   );
 }
 
+function StoreProblems({ problems, flush }: { problems: readonly string[]; flush: boolean }): JSX.Element | null {
+  const t = useT();
+  if (problems.length === 0) return null;
+  return (
+    <div style={flush ? { padding: '10px 12px 0' } : undefined} data-testid="store-problems">
+      <Banner kind="error">
+        <strong>{t('storeProblemsTitle')}</strong>
+        {problems.map((problem) => (
+          <div key={problem} style={{ fontFamily: 'var(--mono)', fontSize: 11.5 }}>
+            {problem}
+          </div>
+        ))}
+      </Banner>
+    </div>
+  );
+}
+
 function Panel({ view }: { view: Exclude<View, 'tasks'> }): JSX.Element {
   switch (view) {
     case 'newTask':
       return <NewTaskPanel />;
+    case 'images':
+      return <ImagesPanel />;
     case 'profiles':
       return <ProfilesPanel />;
     case 'extensions':
@@ -67,6 +87,7 @@ export function App(): JSX.Element {
   const refresh = useApp((state) => state.refresh);
   const appendLog = useApp((state) => state.appendLog);
   const dropTaskTabs = useApp((state) => state.dropTaskTabs);
+  const applyOperation = useApp((state) => state.applyOperation);
 
   useEffect(() => {
     startTerminalBus();
@@ -74,12 +95,14 @@ export function App(): JSX.Element {
     const offLog = window.cc.onLog(appendLog);
     const offState = window.cc.onStateChanged(() => void refresh());
     const offReset = window.cc.onTerminalsReset((reset) => dropTaskTabs(reset.taskId));
+    const offOperation = window.cc.onImageOperation(applyOperation);
     return () => {
       offLog();
       offState();
       offReset();
+      offOperation();
     };
-  }, [refresh, appendLog, dropTaskTabs]);
+  }, [refresh, appendLog, dropTaskTabs, applyOperation]);
 
   useEffect(() => {
     if (toast === null) return;
@@ -106,6 +129,7 @@ export function App(): JSX.Element {
 
       <main className={flush ? 'content flush' : 'content'}>
         {busy === null ? null : <div className="busybar" />}
+        <StoreProblems problems={snapshot?.storeProblems ?? []} flush={flush} />
         <Notice kind="error" text={error} flush={flush} onDismiss={() => setError(null)} />
         <Notice kind="info" text={toast} flush={flush} onDismiss={() => setToast(null)} />
         <div className="panel-host" style={{ display: flush ? 'flex' : 'none' }}>

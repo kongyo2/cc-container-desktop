@@ -23,7 +23,6 @@ import {
 const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
 const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
 const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
-const SKIP_BUILD = process.env['CC_E2E_SKIP_BUILD'] === '1';
 
 if (API_KEY === '') {
   console.error('CC_E2E_API_KEY is required');
@@ -49,16 +48,19 @@ try {
   check('no tasks in a fresh userData', snapshot.tasks.length === 0);
   await shoot(page, '01-welcome');
 
-  console.log('\n[2] image');
-  if (!SKIP_BUILD) {
-    await ok(page, 'imageBuild', [{ noCache: false, refreshClaudeCode: false }]);
-  }
-  snapshot = await ok(page, 'snapshot');
-  check('image exists', snapshot.image.exists === true, snapshot.image.tag);
+  console.log('\n[2] image and environment');
+  const registered = await session.registerImage();
   check(
-    'a default environment is ready for the first task',
-    typeof snapshot.config.defaultEnvironmentId === 'string' &&
-      snapshot.config.environments.some((environment) => environment.id === snapshot.config.defaultEnvironmentId),
+    'the base image is registered and ready',
+    registered.availability.kind === 'ready',
+    registered.availability.kind,
+  );
+  const environmentId = await session.ensureEnvironment({ name: 'Workbench', imageId: registered.image.id });
+  snapshot = await ok(page, 'snapshot');
+  check(
+    'the environment is the default for the first task',
+    snapshot.config.defaultEnvironmentId === environmentId &&
+      snapshot.config.environments.some((environment) => environment.id === environmentId),
   );
 
   console.log('\n[3] profile + credential');
@@ -225,7 +227,7 @@ try {
   await selectTask(page, task.id);
   await shoot(page, '02-task');
   /* oxlint-disable no-await-in-loop */
-  for (const screen of ['profiles', 'extensions', 'environments', 'log', 'settings']) {
+  for (const screen of ['images', 'environments', 'profiles', 'extensions', 'log', 'settings']) {
     await goView(page, screen);
     const crashed = await page.evaluate(() => document.body.innerText.trim().length === 0);
     check(`${screen} view rendered`, !crashed);
@@ -244,7 +246,7 @@ try {
   snapshot = await ok(page, 'snapshot');
   check('task is gone from the list', taskById(snapshot, task.id) === null);
   const gone = await call(page, 'taskExec', [task.id, { command: ['true'], asRoot: false }]);
-  check('exec on the deleted task is refused', gone.ok === false, gone.ok ? 'succeeded' : gone.error);
+  check('exec on the deleted task is refused', gone.ok === false, gone.ok ? 'succeeded' : gone.error.message);
 } catch (error) {
   harnessFailure(error);
 } finally {

@@ -131,7 +131,7 @@ export function ExtensionsPanel(): JSX.Element {
     if (statusTaskId === null) return;
     const result = await window.cc.taskMcpStatus(statusTaskId);
     if (result.ok) setStatusRead({ taskId: statusTaskId, statuses: result.value });
-    else setError(result.error);
+    else setError(result.error.message);
   };
 
   useEffect(() => {

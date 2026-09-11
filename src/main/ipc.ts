@@ -1,8 +1,9 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { resolve } from 'node:path';
 
+import type { ImageOperation } from '../shared/images.ts';
 import { CHANNELS } from '../shared/ipc.ts';
-import type { BuildRequest, ExecRequest } from '../shared/ipc.ts';
+import type { ExecRequest } from '../shared/ipc.ts';
 import type {
   AppConfig,
   CreateTaskResult,
@@ -10,40 +11,54 @@ import type {
   DeleteTaskSummary,
   ExecResult,
   ExportSummary,
-  Extensions,
   ImportPick,
   ImportSummary,
   Language,
   McpServerStatus,
-  NewTaskInput,
   OpenTerminalRequest,
   OpenTerminalResult,
-  Profile,
   Result,
   Snapshot,
   Task,
-  TaskPatch,
 } from '../shared/types.ts';
 import { isHttpUrl, parseUrl } from '../shared/url.ts';
-import { parseConfigPatch, parseEnvironmentDraft } from './config/schema.ts';
+import { parseConfigPatch, parseEnvironmentDraft, parseExtensions, parseProfile } from './config/schema.ts';
 import {
   appDataDir,
+  configStoreProblem,
   deleteProfile,
   getConfig,
   getSecret,
   patchConfig,
   secretsAreEncrypted,
+  secretsStoreProblem,
   setEnvironmentArchived,
   setSecret,
   upsertEnvironment,
   upsertProfile,
 } from './config/store.ts';
-import { MISSING_CONTAINER } from './docker/container.ts';
-import { inspectImage, probeDocker } from './docker/engine.ts';
-import { buildImage } from './docker/image.ts';
+import { probeDocker } from './docker/engine.ts';
 import { closeTerminal, resizeTerminal, writeTerminal } from './docker/terminal.ts';
-import { describeError, notifyStateChanged } from './logger.ts';
-import { isInside } from './paths.ts';
+import { AppFailure, toAppError } from './errors.ts';
+import { listOperations } from './images/operations.ts';
+import {
+  parseCancelRequest,
+  parseDownloadRequest,
+  parseRepairRequest,
+  parseUnregisterRequest,
+} from './images/schema.ts';
+import {
+  activeCatalog,
+  cancelImageOperation,
+  imageViews,
+  startDownload,
+  startRepair,
+  unregisterImage,
+} from './images/service.ts';
+import { imagesStoreProblem, operationsStoreProblem } from './images/store.ts';
+import { notifyStateChanged } from './logger.ts';
+import { isInside, stateDir } from './paths.ts';
+import { parseNewTaskInput, parseTaskPatch } from './tasks/schema.ts';
 import {
   createTask,
   deleteEnvironment,
@@ -62,7 +77,7 @@ import {
   taskViews,
   updateTaskDetails,
 } from './tasks/service.ts';
-import { listTasks } from './tasks/store.ts';
+import { tasksStoreProblem } from './tasks/store.ts';
 
 const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
 
@@ -73,7 +88,7 @@ function handle<A extends readonly unknown[], T>(channel: string, fn: (...args: 
     try {
       return { ok: true, value: await fn(...(args as unknown as A)) };
     } catch (error) {
-      return { ok: false, error: describeError(error) };
+      return { ok: false, error: toAppError(error) };
     }
   });
 }
@@ -104,27 +119,36 @@ function handleTaskAction<A extends readonly unknown[]>(channel: string, fn: (..
   });
 }
 
-async function snapshot(): Promise<Snapshot> {
+function storeProblems(catalogProblem: string | null): readonly string[] {
+  return [
+    configStoreProblem(),
+    secretsStoreProblem(),
+    tasksStoreProblem(),
+    imagesStoreProblem(),
+    operationsStoreProblem(),
+    catalogProblem,
+  ].filter((problem): problem is string => problem !== null);
+}
+
+export async function snapshot(): Promise<Snapshot> {
   const config = getConfig();
   const docker = await probeDocker();
-  const base = { config, docker, secretsEncrypted: secretsAreEncrypted(), appVersion, platform: process.platform };
-
-  if (!docker.available) {
-    return {
-      ...base,
-      image: { tag: config.imageTag, exists: false, id: null, createdAt: null, sizeBytes: null },
-      tasks: listTasks().map((task) => ({
-        task,
-        container: MISSING_CONTAINER,
-        imageStale: false,
-        environmentStale: false,
-      })),
-    };
-  }
-
-  const image = await inspectImage(config.imageTag);
-  const tasks = await taskViews(image);
-  return { ...base, image, tasks };
+  const { catalog, problem } = activeCatalog();
+  const images = await imageViews(docker);
+  const tasks = await taskViews(docker, images);
+  return {
+    config,
+    docker,
+    catalog,
+    images,
+    operations: listOperations(),
+    tasks,
+    storeProblems: storeProblems(problem),
+    secretsEncrypted: secretsAreEncrypted(),
+    appVersion,
+    platform: process.platform,
+    dataDir: stateDir(),
+  };
 }
 
 function focusedWindow(): BrowserWindow | null {
@@ -152,17 +176,32 @@ async function pickDirectory(defaultPath: string | null): Promise<string | null>
 }
 
 function requireTaskId(id: unknown): string {
-  if (typeof id !== 'string' || id === '') throw new Error('タスク ID がありません / missing task id');
+  if (typeof id !== 'string' || id === '')
+    throw new AppFailure('INVALID_INPUT', 'タスク ID がありません / missing task id');
   return id;
 }
 
 function requireEnvironmentId(id: unknown): string {
-  if (typeof id !== 'string' || id === '') throw new Error('環境 ID がありません / missing environment id');
+  if (typeof id !== 'string' || id === '')
+    throw new AppFailure('INVALID_INPUT', '環境 ID がありません / missing environment id');
+  return id;
+}
+
+function requireProfileId(id: unknown): string {
+  if (typeof id !== 'string' || id === '')
+    throw new AppFailure('INVALID_INPUT', 'プロファイル ID がありません / missing profile id');
   return id;
 }
 
 function requireArchivedFlag(value: unknown): boolean {
-  if (typeof value !== 'boolean') throw new Error('アーカイブ状態がありません / missing archived state');
+  if (typeof value !== 'boolean')
+    throw new AppFailure('INVALID_INPUT', 'アーカイブ状態がありません / missing archived state');
+  return value;
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== 'string')
+    throw new AppFailure('INVALID_INPUT', `${label} は文字列で指定してください / ${label} must be a string`);
   return value;
 }
 
@@ -174,18 +213,24 @@ export function registerIpc(version: string): void {
     patchConfig({ language: language === 'en' ? 'en' : 'ja' }),
   );
   handleVoid<[string]>(CHANNELS.openExternal, async (url) => {
-    const parsed = parseUrl(url);
-    if (parsed === null) throw new Error(`開けない URL です / not a URL: ${url}`);
+    const parsed = parseUrl(requireString(url, 'URL'));
+    if (parsed === null) throw new AppFailure('INVALID_INPUT', `開けない URL です / not a URL: ${String(url)}`);
     if (!isHttpUrl(parsed)) {
-      throw new Error(`http か https のリンクだけ開けます / only http and https links can be opened: ${url}`);
+      throw new AppFailure(
+        'INVALID_INPUT',
+        `http か https のリンクだけ開けます / only http and https links can be opened: ${String(url)}`,
+      );
     }
     await shell.openExternal(parsed.toString());
   });
   handleVoid<[string]>(CHANNELS.revealPath, (path) => {
     const root = resolve(appDataDir());
-    const target = resolve(path);
+    const target = resolve(requireString(path, 'path'));
     if (!isInside(root, target)) {
-      throw new Error(`このフォルダは開けません / that folder is outside the app's own data: ${path}`);
+      throw new AppFailure(
+        'INVALID_INPUT',
+        `このフォルダは開けません / that folder is outside the app's own data: ${String(path)}`,
+      );
     }
     shell.openPath(target).catch(() => undefined);
   });
@@ -195,23 +240,27 @@ export function registerIpc(version: string): void {
   });
 
   handleConfigEdit<[unknown]>(CHANNELS.configSave, (patch) => patchConfig(parseConfigPatch(patch)));
-  handleConfigEdit<[Profile]>(CHANNELS.profileUpsert, (profile) => upsertProfile(profile));
-  handle<[string], AppConfig>(CHANNELS.profileDelete, async (id) => {
-    const next = deleteProfile(id);
+  handleConfigEdit<[unknown]>(CHANNELS.profileUpsert, (profile) => upsertProfile(parseProfile(profile)));
+  handle<[unknown], AppConfig>(CHANNELS.profileDelete, async (id) => {
+    const profileId = requireProfileId(id);
+    const next = deleteProfile(profileId);
     try {
-      await forgetProfile(id);
+      await forgetProfile(profileId);
     } finally {
       notifyStateChanged();
     }
     return next;
   });
-  handle<[string], readonly string[]>(CHANNELS.profileApply, async (id) => {
-    const lines = await provisionRunningTasks((task) => task.profileId === id);
+  handle<[unknown], readonly string[]>(CHANNELS.profileApply, async (id) => {
+    const profileId = requireProfileId(id);
+    const lines = await provisionRunningTasks((task) => task.profileId === profileId);
     notifyStateChanged();
     return lines;
   });
-  handle<[string], string>(CHANNELS.secretGet, (profileId) => getSecret(profileId));
-  handleVoid<[string, string]>(CHANNELS.secretSet, (profileId, secret) => setSecret(profileId, secret));
+  handle<[unknown], string>(CHANNELS.secretGet, (profileId) => getSecret(requireProfileId(profileId)));
+  handleVoid<[unknown, unknown]>(CHANNELS.secretSet, (profileId, secret) =>
+    setSecret(requireProfileId(profileId), requireString(secret, 'secret')),
+  );
 
   handleConfigEdit<[unknown]>(CHANNELS.environmentUpsert, (draft) => upsertEnvironment(parseEnvironmentDraft(draft)));
   handleConfigEdit<[unknown, unknown]>(CHANNELS.environmentArchive, (id, archived) =>
@@ -220,41 +269,54 @@ export function registerIpc(version: string): void {
   handleConfigEdit<[unknown]>(CHANNELS.environmentDelete, (id) => deleteEnvironment(requireEnvironmentId(id)));
 
   handle<[], Snapshot>(CHANNELS.dockerProbe, snapshot);
-  handleVoid<[BuildRequest]>(CHANNELS.imageBuild, async (request) => {
-    await buildImage(getConfig().imageTag, {
-      noCache: request.noCache === true,
-      refreshClaudeCode: request.refreshClaudeCode === true,
-    });
-    notifyStateChanged();
-  });
 
-  handleConfigEdit<[Extensions]>(CHANNELS.extensionsSave, (extensions) => patchConfig({ extensions }));
+  handle<[unknown], ImageOperation>(CHANNELS.imageDownloadStart, (request) => {
+    const operation = startDownload(parseDownloadRequest(request).catalogEntryId);
+    notifyStateChanged();
+    return operation;
+  });
+  handle<[unknown], ImageOperation>(CHANNELS.imageRepairStart, (request) => {
+    const operation = startRepair(parseRepairRequest(request).imageId);
+    notifyStateChanged();
+    return operation;
+  });
+  handle<[unknown], ImageOperation>(CHANNELS.imageCancel, (request) =>
+    cancelImageOperation(parseCancelRequest(request).operationId),
+  );
+  handleTaskAction<[unknown]>(CHANNELS.imageUnregister, (request) =>
+    unregisterImage(parseUnregisterRequest(request).imageId),
+  );
+  handle<[], Snapshot>(CHANNELS.imageRefresh, snapshot);
+
+  handleConfigEdit<[unknown]>(CHANNELS.extensionsSave, (extensions) =>
+    patchConfig({ extensions: parseExtensions(extensions) }),
+  );
   handle<[], readonly string[]>(CHANNELS.extensionsApply, async () => {
     const lines = await provisionRunningTasks();
     notifyStateChanged();
     return lines;
   });
 
-  handle<[NewTaskInput], CreateTaskResult>(CHANNELS.taskCreate, async (input) => {
+  handle<[unknown], CreateTaskResult>(CHANNELS.taskCreate, async (input) => {
     try {
-      return await createTask(input);
+      return await createTask(parseNewTaskInput(input));
     } finally {
       notifyStateChanged();
     }
   });
-  handle<[string, TaskPatch], Task>(CHANNELS.taskUpdate, async (id, patch) => {
+  handle<[unknown, unknown], Task>(CHANNELS.taskUpdate, async (id, patch) => {
     try {
-      return await updateTaskDetails(requireTaskId(id), patch);
+      return await updateTaskDetails(requireTaskId(id), parseTaskPatch(patch));
     } finally {
       notifyStateChanged();
     }
   });
-  handleTaskAction<[string]>(CHANNELS.taskStart, (id) => startTask(requireTaskId(id)));
-  handleTaskAction<[string]>(CHANNELS.taskStop, (id) => stopTask(requireTaskId(id)));
-  handleTaskAction<[string]>(CHANNELS.taskRecreate, (id) => recreateTask(requireTaskId(id)));
-  handle<[string, DeleteTaskRequest], DeleteTaskSummary>(CHANNELS.taskDelete, async (id, request) => {
+  handleTaskAction<[unknown]>(CHANNELS.taskStart, (id) => startTask(requireTaskId(id)));
+  handleTaskAction<[unknown]>(CHANNELS.taskStop, (id) => stopTask(requireTaskId(id)));
+  handleTaskAction<[unknown]>(CHANNELS.taskRecreate, (id) => recreateTask(requireTaskId(id)));
+  handle<[unknown, DeleteTaskRequest], DeleteTaskSummary>(CHANNELS.taskDelete, async (id, request) => {
     const taskId = requireTaskId(id);
-    const exportFirst = request.exportFirst === true;
+    const exportFirst = typeof request === 'object' && request !== null && request.exportFirst === true;
     const destination = exportFirst ? await pickDirectory(getConfig().lastExportDir) : null;
     try {
       return await deleteTask(taskId, { exportFirst }, destination);
@@ -262,12 +324,12 @@ export function registerIpc(version: string): void {
       notifyStateChanged();
     }
   });
-  handle<[string], string>(CHANNELS.taskProvision, async (id) => {
+  handle<[unknown], string>(CHANNELS.taskProvision, async (id) => {
     const summary = await provisionTask(requireTaskId(id));
     notifyStateChanged();
     return summary;
   });
-  handle<[string], ExportSummary | null>(CHANNELS.taskExport, async (id) => {
+  handle<[unknown], ExportSummary | null>(CHANNELS.taskExport, async (id) => {
     const taskId = requireTaskId(id);
     const destination = await pickDirectory(getConfig().lastExportDir);
     if (destination === null) return null;
@@ -277,17 +339,19 @@ export function registerIpc(version: string): void {
       notifyStateChanged();
     }
   });
-  handle<[string, readonly string[]], ImportSummary>(CHANNELS.taskImport, async (id, paths) => {
+  handle<[unknown, unknown], ImportSummary>(CHANNELS.taskImport, async (id, paths) => {
     const usable =
       Array.isArray(paths) && paths.length > 0 && paths.every((path) => typeof path === 'string' && path.trim() !== '');
-    if (!usable) throw new Error('取り込むパスがありません / import needs one or more non-empty paths');
+    if (!usable) {
+      throw new AppFailure('INVALID_INPUT', '取り込むパスがありません / import needs one or more non-empty paths');
+    }
     try {
-      return await importIntoTask(requireTaskId(id), paths);
+      return await importIntoTask(requireTaskId(id), paths as string[]);
     } finally {
       notifyStateChanged();
     }
   });
-  handle<[string, ImportPick], ImportSummary | null>(CHANNELS.taskPickImport, async (id, pick) => {
+  handle<[unknown, ImportPick], ImportSummary | null>(CHANNELS.taskPickImport, async (id, pick) => {
     const taskId = requireTaskId(id);
     const properties: readonly DialogProperty[] =
       pick === 'folder' ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'];
@@ -299,10 +363,14 @@ export function registerIpc(version: string): void {
       notifyStateChanged();
     }
   });
-  handle<[string, ExecRequest], ExecResult>(CHANNELS.taskExec, (id, request) =>
-    execInTask(requireTaskId(id), { command: [...request.command], asRoot: request.asRoot === true }),
-  );
-  handle<[string], readonly McpServerStatus[]>(CHANNELS.taskMcpStatus, (id) => mcpStatusOfTask(requireTaskId(id)));
+  handle<[unknown, ExecRequest], ExecResult>(CHANNELS.taskExec, (id, request) => {
+    const command = Array.isArray(request?.command) ? request.command : [];
+    if (command.length === 0 || !command.every((part) => typeof part === 'string')) {
+      throw new AppFailure('INVALID_INPUT', 'コマンドがありません / the command is empty');
+    }
+    return execInTask(requireTaskId(id), { command: [...command], asRoot: request.asRoot === true });
+  });
+  handle<[unknown], readonly McpServerStatus[]>(CHANNELS.taskMcpStatus, (id) => mcpStatusOfTask(requireTaskId(id)));
 
   handle<[OpenTerminalRequest], OpenTerminalResult>(CHANNELS.termOpen, (request) =>
     openTaskTerminal({ ...request, taskId: requireTaskId(request.taskId) }),

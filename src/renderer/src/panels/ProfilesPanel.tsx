@@ -113,7 +113,7 @@ export function ProfilesPanel(): JSX.Element {
     if (secret !== null) {
       const secretResult = await window.cc.secretSet(profile.id, secret);
       if (!secretResult.ok) {
-        setError(secretResult.error);
+        setError(secretResult.error.message);
         return null;
       }
     }

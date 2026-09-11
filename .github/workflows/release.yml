@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 0.2.0. Leave empty to use the one in package.json.'
+        description: 'Version to release, e.g. 0.5.0. Leave empty to use the one in package.json.'
         required: false
         type: string
       draft:
@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      require_published_catalog:
+        description: 'Refuse to release unless every catalog digest resolves anonymously on Docker Hub.'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -31,8 +36,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Catalog gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify the bundled catalog against Docker Hub
+        run: |
+          if [ "${{ inputs.require_published_catalog }}" = "true" ]; then
+            npm run catalog:verify:online
+          else
+            npm run catalog:verify
+            echo "::warning::releasing without confirming the catalog digests on Docker Hub"
+          fi
+
   windows:
     name: Windows installer
+    needs: gate
     runs-on: windows-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -91,18 +119,24 @@ jobs:
           set -euo pipefail
           ls -la release
 
+          RELEASE_LINE="$(node -p "require('./src/shared/imageCatalog.json').entries[0].release")"
+          REPO_LINE="$(node -p "require('./src/shared/imageCatalog.json').repository")"
+
           NOTES_FILE="$(mktemp)"
           {
             echo "## Claude Code Container Workbench $VERSION"
             echo
-            echo "Windows 11 用インストーラです。Docker Desktop が必要です。"
-            echo "A Windows 11 installer. Docker Desktop is required."
+            echo "Windows 11 用インストーラです。Docker Desktop (Linux コンテナ) が必要です。"
+            echo "A Windows 11 installer. Docker Desktop (Linux containers) is required."
             echo
             echo "### 使い方 / Getting started"
             echo
             echo '1. 下の `.exe` をダウンロードして実行 / download and run the `.exe` below'
             echo '2. Docker Desktop を起動 / start Docker Desktop'
-            echo '3. アプリの「イメージ」でイメージをビルドし、「+」でタスクを作成 / build the image on the Image page, then create a task with "+"'
+            echo '3. アプリの「イメージ」で用途に合うイメージを「ダウンロードして登録」 / on the Images page, "Download and register" the variant you need'
+            echo '4. 「環境」でそのイメージを選んだ環境を作り、「+」でタスクを作成 / create an environment that uses it, then a task with "+"'
+            echo
+            echo "同梱カタログ / bundled catalog: \`${REPO_LINE}\` release \`${RELEASE_LINE}\`"
             echo
             echo "詳細は [README](https://github.com/${GITHUB_REPOSITORY}/blob/${TAG}/README.md) を参照してください."
           } > "$NOTES_FILE"
@@ -118,7 +152,7 @@ jobs:
     name: Linux AppImage
     needs: windows
     if: inputs.linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
