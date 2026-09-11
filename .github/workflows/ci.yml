@@ -18,8 +18,8 @@ env:
 
 jobs:
   check:
-    name: Lint, types, build
-    runs-on: ubuntu-latest
+    name: Lint, types, tests, build
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -42,13 +42,66 @@ jobs:
       - name: Typecheck dependencies
         run: npm run check:libs
 
+      - name: Unit tests
+        run: npm test
+
+      - name: Catalog
+        run: npm run catalog:verify
+
       - name: Build
         run: npm run build
+
+  images:
+    name: Image contract and download flow
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      - name: Build base and web
+        run: |
+          RELEASE=2026.09.1 REVISION="$GITHUB_SHA" BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            docker buildx bake -f docker/docker-bake.hcl small \
+            --set 'base.tags=cc-workbench-ci:base-2026.09.1' --set 'web.tags=cc-workbench-ci:web-2026.09.1'
+
+      - name: Runtime contract
+        run: |
+          for variant in base web; do
+            docker run --rm -i --init --network none \
+              -e CC_EXPECT_VARIANT="$variant" -e CC_EXPECT_RELEASE=2026.09.1 \
+              "cc-workbench-ci:$variant-2026.09.1" bash -s < docker/scripts/verify-runtime.sh
+          done
+
+      - name: Install Electron's runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb libgtk-3-0t64 libnss3 libasound2t64 libxss1 libnotify4 libsecret-1-0
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Download, register, environment, task (local registry)
+        env:
+          CC_E2E_BASE_IMAGE: cc-workbench-ci:base-2026.09.1
+        run: xvfb-run -a node tests/e2e/images.mjs
 
   packaged:
     name: Packaged app smoke test
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -97,8 +150,8 @@ jobs:
     name: End-to-end against a live endpoint
     if: github.event_name == 'workflow_dispatch'
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
 
@@ -125,30 +178,36 @@ jobs:
         if: steps.creds.outputs.present == 'true'
         run: npm run build
 
-      - name: Build the container image
+      - uses: docker/setup-buildx-action@v3
         if: steps.creds.outputs.present == 'true'
-        env:
-          DOCKER_BUILDKIT: '0'
-        run: docker build -f docker/Dockerfile -t cc-container-desktop:latest docker/
+        with:
+          driver: docker
+
+      - name: Build the base image
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          RELEASE=2026.09.1 REVISION="$GITHUB_SHA" BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            docker buildx bake -f docker/docker-bake.hcl base --set 'base.tags=cc-workbench-ci:base-2026.09.1'
 
       - name: Workbench suite
         if: steps.creds.outputs.present == 'true'
         env:
           CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          CC_E2E_SKIP_BUILD: '1'
+          CC_E2E_BASE_IMAGE: cc-workbench-ci:base-2026.09.1
         run: xvfb-run -a node tests/e2e/workbench.mjs
 
       - name: Deep suite
         if: steps.creds.outputs.present == 'true'
         env:
           CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          CC_E2E_SKIP_BUILD: '1'
+          CC_E2E_BASE_IMAGE: cc-workbench-ci:base-2026.09.1
         run: xvfb-run -a node tests/e2e/deep.mjs
 
       - name: Live model suite
         if: steps.creds.outputs.present == 'true'
         env:
           CC_E2E_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CC_E2E_BASE_IMAGE: cc-workbench-ci:base-2026.09.1
         run: xvfb-run -a node tests/e2e/live.mjs
 
       - name: Report a missing credential

@@ -81,7 +81,7 @@ try {
   console.log('\n[1] set up the endpoint and a task');
   const snapshot = await ok(page, 'snapshot');
   if (!snapshot.docker.available) throw new Error('docker is not available');
-  if (!snapshot.image.exists) throw new Error('the image is not built; run the workbench suite first');
+  await session.ensureEnvironment({ name: 'Live' });
   const profile = {
     ...snapshot.config.profiles[0],
     id: 'live-profile',

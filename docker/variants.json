@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "repository": "docker.io/kongyo2/cc-workbench",
+  "release": "2026.09.1",
+  "tools": {
+    "ubuntu": { "name": "Ubuntu", "versionFrom": "base.tag", "highlight": false },
+    "node": { "name": "Node.js", "versionFrom": "node.version", "highlight": true },
+    "npm": { "name": "npm", "versionFrom": "node.npm", "highlight": false },
+    "claude-code": { "name": "Claude Code", "versionFrom": "claudeCode.version", "highlight": true },
+    "git": { "name": "git", "versionFrom": "apt", "highlight": false },
+    "git-lfs": { "name": "git-lfs", "versionFrom": "apt", "highlight": false },
+    "gh": { "name": "GitHub CLI", "versionFrom": "apt", "highlight": true },
+    "tmux": { "name": "tmux", "versionFrom": "apt", "highlight": false },
+    "ripgrep": { "name": "ripgrep", "versionFrom": "apt", "highlight": false },
+    "fd": { "name": "fd", "versionFrom": "apt", "highlight": false },
+    "jq": { "name": "jq", "versionFrom": "apt", "highlight": false },
+    "yq": { "name": "yq", "versionFrom": "yq.version", "highlight": false },
+    "curl": { "name": "curl", "versionFrom": "apt", "highlight": false },
+    "ssh": { "name": "OpenSSH client", "versionFrom": "apt", "highlight": false },
+    "build-essential": { "name": "gcc / make", "versionFrom": "apt", "highlight": false },
+    "python3-system": { "name": "Python 3 (system)", "versionFrom": "apt", "highlight": false },
+    "pnpm": { "name": "pnpm", "versionFrom": "npmGlobals.pnpm", "highlight": true },
+    "yarn": { "name": "Yarn", "versionFrom": "npmGlobals.yarn", "highlight": false },
+    "bun": { "name": "Bun", "versionFrom": "bun.version", "highlight": true },
+    "typescript": { "name": "TypeScript", "versionFrom": "npmGlobals.typescript", "highlight": true },
+    "eslint": { "name": "ESLint", "versionFrom": "npmGlobals.eslint", "highlight": false },
+    "prettier": { "name": "Prettier", "versionFrom": "npmGlobals.prettier", "highlight": false },
+    "python3": { "name": "Python 3", "versionFrom": "apt", "highlight": true },
+    "pip": { "name": "pip", "versionFrom": "apt", "highlight": false },
+    "venv": { "name": "venv", "versionFrom": "apt", "highlight": false },
+    "uv": { "name": "uv", "versionFrom": "python.packages.uv", "highlight": true },
+    "poetry": { "name": "Poetry", "versionFrom": "python.packages.poetry", "highlight": true },
+    "pytest": { "name": "pytest", "versionFrom": "python.packages.pytest", "highlight": false },
+    "ruff": { "name": "Ruff", "versionFrom": "python.packages.ruff", "highlight": false },
+    "mypy": { "name": "mypy", "versionFrom": "python.packages.mypy", "highlight": false },
+    "black": { "name": "Black", "versionFrom": "python.packages.black", "highlight": false },
+    "go": { "name": "Go", "versionFrom": "go.version", "highlight": true },
+    "rust": { "name": "Rust (rustc / cargo)", "versionFrom": "rust.toolchain", "highlight": true },
+    "rustfmt": { "name": "rustfmt", "versionFrom": "rust.toolchain", "highlight": false },
+    "clippy": { "name": "clippy", "versionFrom": "rust.toolchain", "highlight": false },
+    "openjdk": { "name": "OpenJDK 21", "versionFrom": "apt", "highlight": true },
+    "maven": { "name": "Maven", "versionFrom": "apt", "highlight": true },
+    "gradle": { "name": "Gradle", "versionFrom": "gradle.version", "highlight": true },
+    "ruby": { "name": "Ruby", "versionFrom": "ruby.version", "highlight": true },
+    "bundler": { "name": "Bundler", "versionFrom": "", "highlight": true },
+    "php": { "name": "PHP", "versionFrom": "apt", "highlight": true },
+    "composer": { "name": "Composer", "versionFrom": "apt", "highlight": false },
+    "clang": { "name": "Clang / LLD", "versionFrom": "apt", "highlight": true },
+    "cmake": { "name": "CMake", "versionFrom": "apt", "highlight": false },
+    "ninja": { "name": "Ninja", "versionFrom": "apt", "highlight": false },
+    "conan": { "name": "Conan", "versionFrom": "python.packages.conan", "highlight": false },
+    "postgresql": { "name": "PostgreSQL 16", "versionFrom": "apt", "highlight": true },
+    "redis": { "name": "Redis", "versionFrom": "apt", "highlight": true },
+    "sqlite3": { "name": "SQLite", "versionFrom": "apt", "highlight": false },
+    "docker-cli": { "name": "Docker CLI", "versionFrom": "apt", "highlight": true },
+    "docker-compose": { "name": "Docker Compose", "versionFrom": "apt", "highlight": false },
+    "docker-buildx": { "name": "Docker Buildx", "versionFrom": "apt", "highlight": false }
+  },
+  "variants": [
+    {
+      "id": "base",
+      "inherits": null,
+      "recommended": false,
+      "title": { "ja": "Base", "en": "Base" },
+      "summary": {
+        "ja": "シェル・Git・Claude Code だけの最小構成",
+        "en": "The minimum: shell, git and Claude Code"
+      },
+      "description": {
+        "ja": "Ubuntu 24.04 に Node.js、Claude Code、Git、GitHub CLI、tmux などの共通ツールだけを入れた土台です。追加のツールチェーンは環境のセットアップスクリプトで入れたい人向けです。",
+        "en": "Ubuntu 24.04 with only the shared foundation: Node.js, Claude Code, git, the GitHub CLI, tmux and the usual shell tools. For people who prefer to install their own toolchain from an environment's setup script."
+      },
+      "tools": [
+        "ubuntu",
+        "node",
+        "npm",
+        "claude-code",
+        "git",
+        "git-lfs",
+        "gh",
+        "tmux",
+        "ripgrep",
+        "fd",
+        "jq",
+        "yq",
+        "curl",
+        "ssh",
+        "build-essential",
+        "python3-system"
+      ]
+    },
+    {
+      "id": "web",
+      "inherits": "base",
+      "recommended": true,
+      "title": { "ja": "Web 開発", "en": "Web" },
+      "summary": {
+        "ja": "JavaScript / TypeScript、フロントエンド、Node.js サーバー向け (おすすめ)",
+        "en": "JavaScript / TypeScript, front-end and Node.js servers (recommended)"
+      },
+      "description": {
+        "ja": "Base に pnpm、Yarn、Bun、TypeScript、ESLint、Prettier を加えた構成です。一般的なコード作業を、大きな言語ランタイムを取得せずに始められる初期選択です。",
+        "en": "Base plus pnpm, Yarn, Bun, TypeScript, ESLint and Prettier. The default pick for everyday coding work that does not need a second language runtime."
+      },
+      "tools": ["pnpm", "yarn", "bun", "typescript", "eslint", "prettier"]
+    },
+    {
+      "id": "python",
+      "inherits": "base",
+      "recommended": false,
+      "title": { "ja": "Python 開発", "en": "Python" },
+      "summary": {
+        "ja": "Python アプリ、スクリプト、データ処理向け",
+        "en": "Python applications, scripts and data work"
+      },
+      "description": {
+        "ja": "Base に Python 3 の開発環境 (venv、pip、uv、Poetry、pytest、Ruff、mypy、Black) を加えた構成です。ツールは /opt/pytools の専用 venv に入っていて、OS の Python を汚しません。",
+        "en": "Base plus a Python 3 development setup: venv, pip, uv, Poetry, pytest, Ruff, mypy and Black. The tools live in a dedicated venv under /opt/pytools and leave the OS Python alone."
+      },
+      "tools": ["python3", "pip", "venv", "uv", "poetry", "pytest", "ruff", "mypy", "black"]
+    },
+    {
+      "id": "go",
+      "inherits": "base",
+      "recommended": false,
+      "title": { "ja": "Go 開発", "en": "Go" },
+      "summary": { "ja": "Go のサービス・CLI 開発向け", "en": "Go services and command-line tools" },
+      "description": {
+        "ja": "Base に固定版の Go ツールチェーンを加えた構成です。GOPATH はホームボリューム内 (/home/claude/go) なので、取得したモジュールとビルドキャッシュはタスクを作り直しても残ります。",
+        "en": "Base plus a pinned Go toolchain. GOPATH lives in the home volume (/home/claude/go), so downloaded modules and the build cache survive a recreate."
+      },
+      "tools": ["go"]
+    },
+    {
+      "id": "rust",
+      "inherits": "base",
+      "recommended": false,
+      "title": { "ja": "Rust 開発", "en": "Rust" },
+      "summary": { "ja": "Rust のクレート・CLI・サービス開発向け", "en": "Rust crates, CLIs and services" },
+      "description": {
+        "ja": "Base に固定版の Rust ツールチェーン (rustc、cargo、rustfmt、clippy) と、よく使うクレートのビルドに必要な pkg-config / OpenSSL 開発ヘッダーを加えた構成です。cargo install の成果物はホームボリュームの ~/.cargo/bin に入ります。",
+        "en": "Base plus a pinned Rust toolchain (rustc, cargo, rustfmt, clippy) and the pkg-config / OpenSSL headers common crates need. cargo install puts binaries into ~/.cargo/bin inside the home volume."
+      },
+      "tools": ["rust", "rustfmt", "clippy"]
+    },
+    {
+      "id": "jvm",
+      "inherits": "base",
+      "recommended": false,
+      "title": { "ja": "JVM 開発", "en": "JVM" },
+      "summary": { "ja": "Java / Kotlin など JVM 言語向け", "en": "Java, Kotlin and other JVM languages" },
+      "description": {
+        "ja": "Base に OpenJDK 21、Maven、固定版の Gradle を加えた構成です。JAVA_HOME はログインシェルとアプリの exec の両方で設定されます。",
+        "en": "Base plus OpenJDK 21, Maven and a pinned Gradle. JAVA_HOME is set for login shells and for the app's own exec sessions alike."
+      },
+      "tools": ["openjdk", "maven", "gradle"]
+    },
+    {
+      "id": "ruby",
+      "inherits": "base",
+      "recommended": false,
+      "title": { "ja": "Ruby 開発", "en": "Ruby" },
+      "summary": { "ja": "Ruby / Rails アプリ向け", "en": "Ruby and Rails applications" },
+      "description": {
+        "ja": "Base にソースからビルドした固定版の Ruby と Bundler、ネイティブ拡張のビルドに必要なライブラリ (OpenSSL、YAML、zlib、readline、FFI) を加えた構成です。",
+        "en": "Base plus a pinned Ruby built from source, Bundler, and the libraries native extensions need (OpenSSL, YAML, zlib, readline, FFI)."
+      },
+      "tools": ["ruby", "bundler"]
+    },
+    {
+      "id": "full",
+      "inherits": "web",
+      "recommended": false,
+      "title": { "ja": "Full", "en": "Full" },
+      "summary": {
+        "ja": "複数言語をまたぐリポジトリ向けの全部入り",
+        "en": "Everything, for repositories that span several languages"
+      },
+      "description": {
+        "ja": "Web と Python のすべてに加え、Go、Rust、OpenJDK / Maven / Gradle、Ruby、PHP / Composer、Clang / CMake / Ninja / Conan、PostgreSQL 16、Redis、SQLite、Docker CLI / Compose / Buildx を入れた構成です。Docker デーモンはコンテナ内では動きません。取得サイズは最も大きくなります。",
+        "en": "Everything in Web and Python, plus Go, Rust, OpenJDK / Maven / Gradle, Ruby, PHP / Composer, Clang / CMake / Ninja / Conan, PostgreSQL 16, Redis, SQLite and the Docker CLI / Compose / Buildx. No Docker daemon runs inside the container. The largest download by far."
+      },
+      "tools": [
+        "python3",
+        "pip",
+        "venv",
+        "uv",
+        "poetry",
+        "pytest",
+        "ruff",
+        "mypy",
+        "black",
+        "go",
+        "rust",
+        "rustfmt",
+        "clippy",
+        "openjdk",
+        "maven",
+        "gradle",
+        "ruby",
+        "bundler",
+        "php",
+        "composer",
+        "clang",
+        "cmake",
+        "ninja",
+        "conan",
+        "postgresql",
+        "redis",
+        "sqlite3",
+        "docker-cli",
+        "docker-compose",
+        "docker-buildx"
+      ]
+    }
+  ]
+}

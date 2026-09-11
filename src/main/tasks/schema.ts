@@ -1,64 +1,100 @@
 import { z } from 'zod';
 
-import { isPlainObject } from '../../shared/json.ts';
+import { REGISTERED_IMAGE_ID_PATTERN } from '../../shared/images.ts';
 import { TASK_ID_PATTERN } from '../../shared/tasks.ts';
-import type { Task } from '../../shared/types.ts';
-import { keepValid } from '../config/schema.ts';
+import type { NewTaskInput, Task, TaskPatch } from '../../shared/types.ts';
+import { AppFailure } from '../errors.ts';
+import type { ParseOutcome } from '../state/file.ts';
 
-const managedSchema = z.object({
-  mcpServers: z.array(z.string()).default([]),
-  marketplaces: z.array(z.string()).default([]),
-  plugins: z.array(z.string()).default([]),
+const managedSchema = z.strictObject({
+  mcpServers: z.array(z.string()),
+  marketplaces: z.array(z.string()),
+  plugins: z.array(z.string()),
 });
 
 const sourceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('empty') }),
-  z.object({ kind: z.literal('git'), url: z.string().default(''), ref: z.string().default('') }),
+  z.strictObject({ kind: z.literal('empty') }),
+  z.strictObject({ kind: z.literal('git'), url: z.string(), ref: z.string() }),
 ]);
 
-const taskSchema = z.object({
+const appliedRuntimeSchema = z.strictObject({
+  registeredImageId: z.string().regex(REGISTERED_IMAGE_ID_PATTERN),
+  localImageId: z.string().min(1),
+  engineId: z.string().min(1),
+  environmentId: z.string().min(1),
+  environmentRevision: z.string(),
+  appliedAt: z.string().datetime({ offset: true }),
+});
+
+const taskSchema = z.strictObject({
   id: z.string().regex(TASK_ID_PATTERN),
   name: z.string().min(1),
-  note: z.string().default(''),
-  profileId: z.string().nullable().default(null),
-  environmentId: z.string().nullable().default(null),
-  source: sourceSchema.default({ kind: 'empty' }),
+  note: z.string(),
+  profileId: z.string().nullable(),
+  environmentId: z.string().min(1),
+  source: sourceSchema,
   containerName: z.string().min(1),
   volumeName: z.string().min(1),
-  createdAt: z.string().default(''),
-  managed: managedSchema.default({ mcpServers: [], marketplaces: [], plugins: [] }),
+  createdAt: z.string().datetime({ offset: true }),
+  managed: managedSchema,
+  lastAppliedRuntime: appliedRuntimeSchema.nullable(),
 });
 
-const taskFileSchema = z.object({
-  version: z.literal(1).catch(1).default(1),
-  tasks: z.array(taskSchema).default([]),
+const taskFileSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  tasks: z.array(taskSchema),
 });
 
-export interface TaskFileRead {
-  readonly tasks: readonly Task[];
-  readonly dropped: number;
-  readonly reset: boolean;
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  return issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`;
 }
 
-export function readTaskFile(raw: unknown): TaskFileRead {
-  if (!isPlainObject(raw)) {
-    return { tasks: [], dropped: 0, reset: raw !== null };
-  }
-  const report = { dropped: 0 };
-  const source: Record<string, unknown> = { ...raw };
-  source['tasks'] = keepValid(taskSchema, source['tasks'], report);
-  const parsed = taskFileSchema.safeParse(source);
-  if (!parsed.success) return { tasks: [], dropped: report.dropped, reset: true };
-
+export function readTaskFile(raw: unknown): ParseOutcome<readonly Task[]> {
+  const parsed = taskFileSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
   const seen = new Set<string>();
-  const tasks: Task[] = [];
   for (const task of parsed.data.tasks) {
-    if (seen.has(task.id)) {
-      report.dropped += 1;
-      continue;
-    }
+    if (seen.has(task.id)) return { ok: false, problem: `duplicate task id ${task.id}` };
     seen.add(task.id);
-    tasks.push(task);
   }
-  return { tasks, dropped: report.dropped, reset: false };
+  return { ok: true, value: parsed.data.tasks };
+}
+
+const newTaskInputSchema = z.strictObject({
+  name: z.string(),
+  note: z.string(),
+  profileId: z.string().nullable(),
+  environmentId: z.string(),
+  source: sourceSchema,
+});
+
+export function parseNewTaskInput(raw: unknown): NewTaskInput {
+  const parsed = newTaskInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new AppFailure('INVALID_INPUT', `タスクの内容が不正です / invalid task input: ${firstIssue(parsed.error)}`);
+  }
+  return parsed.data;
+}
+
+const taskPatchSchema = z.strictObject({
+  name: z.string().optional(),
+  note: z.string().optional(),
+  profileId: z.string().nullable().optional(),
+  environmentId: z.string().min(1).optional(),
+});
+
+export function parseTaskPatch(raw: unknown): TaskPatch {
+  const parsed = taskPatchSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new AppFailure(
+      'INVALID_INPUT',
+      `タスクの変更内容が不正です / invalid task patch: ${firstIssue(parsed.error)}`,
+    );
+  }
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value !== undefined) patch[key] = value;
+  }
+  return patch as TaskPatch;
 }

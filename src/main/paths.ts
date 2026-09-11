@@ -8,12 +8,18 @@ function ensureDir(dir: string): string {
   return dir;
 }
 
-export function bundledDockerDir(): string {
-  return app.isPackaged ? join(process.resourcesPath, 'docker') : join(app.getAppPath(), 'docker');
-}
-
 export function userDataDir(): string {
   return ensureDir(app.getPath('userData'));
+}
+
+export const STATE_DIR_NAME = 'state-v1';
+
+export function stateDir(): string {
+  return ensureDir(join(userDataDir(), STATE_DIR_NAME));
+}
+
+export function statePath(fileName: string): string {
+  return join(stateDir(), fileName);
 }
 
 export function brokenCopyPath(path: string): string {
@@ -22,4 +28,8 @@ export function brokenCopyPath(path: string): string {
 
 export function isInside(root: string, target: string): boolean {
   return target === root || target.startsWith(root + sep);
+}
+
+export function isDevelopment(): boolean {
+  return !app.isPackaged;
 }

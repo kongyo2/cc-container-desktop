@@ -1,48 +1,31 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 
 import type { Task } from '../../shared/types.ts';
-import { droppedEntriesNote, keptCopyNote, readJson, writeAtomic } from '../config/store.ts';
-import { logError, logWarn } from '../logger.ts';
-import { userDataDir } from '../paths.ts';
+import { AppFailure } from '../errors.ts';
+import { statePath } from '../paths.ts';
+import { StateFile } from '../state/file.ts';
 import { readTaskFile } from './schema.ts';
 
-let cache: readonly Task[] | null = null;
-
-function tasksPath(): string {
-  return join(userDataDir(), 'tasks.json');
-}
+const tasksFile = new StateFile<readonly Task[]>({
+  path: () => statePath('tasks.json'),
+  label: 'タスク一覧 (tasks.json) / the task list (tasks.json)',
+  parse: readTaskFile,
+  initial: () => [],
+  serialize: (tasks) => ({ schemaVersion: 1, tasks }),
+  persistInitial: false,
+});
 
 export function listTasks(): readonly Task[] {
-  if (cache !== null) return cache;
-  const path = tasksPath();
-  const raw = readJson(path);
-  if (raw === null) {
-    if (existsSync(path)) {
-      logError('app', `タスク一覧を読めませんでした / the task list is unreadable${keptCopyNote(path)}`);
-    }
-    cache = [];
-    return cache;
-  }
-  const result = readTaskFile(raw);
-  if (result.reset) {
-    logError('app', `タスク一覧を読めませんでした / the task list could not be read${keptCopyNote(path)}`);
-  } else if (result.dropped > 0) {
-    logWarn('app', droppedEntriesNote(result.dropped, 'タスク一覧', 'task', path));
-  }
-  cache = result.tasks;
-  return cache;
+  return tasksFile.get();
 }
 
-function persist(tasks: readonly Task[]): void {
-  writeAtomic(tasksPath(), `${JSON.stringify({ version: 1, tasks }, null, 2)}\n`);
-  cache = tasks;
+export function tasksStoreProblem(): string | null {
+  return tasksFile.problem;
 }
 
 export function getTask(id: string): Task {
   const task = listTasks().find((candidate) => candidate.id === id);
-  if (task === undefined) throw new Error(`タスクが見つかりません / no such task: ${id}`);
+  if (task === undefined) throw new AppFailure('INVALID_INPUT', `タスクが見つかりません / no such task: ${id}`);
   return task;
 }
 
@@ -57,23 +40,30 @@ export function newTaskId(): string {
 export function addTask(task: Task): Task {
   const tasks = listTasks();
   if (tasks.some((candidate) => candidate.id === task.id)) {
-    throw new Error(`タスク ID が重複しています / duplicate task id: ${task.id}`);
+    throw new AppFailure('INVALID_INPUT', `タスク ID が重複しています / duplicate task id: ${task.id}`);
   }
-  persist([...tasks, task]);
+  tasksFile.set([...tasks, task]);
   return task;
 }
 
 export function updateTask(id: string, patch: Partial<Omit<Task, 'id'>>): Task {
   const tasks = listTasks();
   const index = tasks.findIndex((candidate) => candidate.id === id);
-  if (index === -1) throw new Error(`タスクが見つかりません / no such task: ${id}`);
-  const next: Task = { ...tasks[index]!, ...patch, id };
-  persist(tasks.with(index, next));
+  const current = tasks[index];
+  if (index === -1 || current === undefined) {
+    throw new AppFailure('INVALID_INPUT', `タスクが見つかりません / no such task: ${id}`);
+  }
+  const next: Task = { ...current, ...patch, id };
+  tasksFile.set(tasks.with(index, next));
   return next;
 }
 
 export function removeTask(id: string): void {
   const tasks = listTasks();
   if (!tasks.some((candidate) => candidate.id === id)) return;
-  persist(tasks.filter((candidate) => candidate.id !== id));
+  tasksFile.set(tasks.filter((candidate) => candidate.id !== id));
+}
+
+export function tasksAppliedTo(imageId: string): readonly Task[] {
+  return listTasks().filter((task) => task.lastAppliedRuntime?.registeredImageId === imageId);
 }

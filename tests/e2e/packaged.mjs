@@ -15,7 +15,7 @@ const userData = mkdtempSync(join(tmpdir(), 'cc-packaged-'));
 const app = await electron.launch({
   executablePath,
   args: ['--no-sandbox', '--disable-gpu'],
-  env: { ...process.env, CC_USER_DATA_DIR: userData },
+  env: { ...process.env, CC_USER_DATA_DIR: userData, CC_IMAGE_CATALOG_FILE: '/nonexistent/catalog.json' },
 });
 
 try {
@@ -30,41 +30,56 @@ try {
   const snapshot = await page.evaluate(() => window.cc.snapshot());
   check('snapshot works', snapshot.ok === true, snapshot.ok ? '' : snapshot.error);
   check('config has the default profile', snapshot.ok && snapshot.value.config.profiles.length >= 1);
-  check('config is the v3 shape', snapshot.ok && snapshot.value.config.version === 3);
+  check('config is the state-v1 shape', snapshot.ok && snapshot.value.config.schemaVersion === 1);
   check(
-    'config seeds a default environment',
-    snapshot.ok &&
-      snapshot.value.config.environments.length === 1 &&
-      snapshot.value.config.defaultEnvironmentId === snapshot.value.config.environments[0].id,
+    'config seeds no environment and the data dir is state-v1',
+    snapshot.ok && snapshot.value.config.environments.length === 0 && snapshot.value.dataDir.endsWith('state-v1'),
   );
   check('task list starts empty', snapshot.ok && snapshot.value.tasks.length === 0);
+  check('nothing is registered on a fresh install', snapshot.ok && snapshot.value.images.length === 0);
+  check(
+    'the bundled catalog lists all eight variants from one repository',
+    snapshot.ok &&
+      snapshot.value.catalog.entries.length === 8 &&
+      snapshot.value.catalog.entries.filter((entry) => entry.recommended).length === 1 &&
+      snapshot.value.catalog.repository.startsWith('docker.io/'),
+  );
+  check('no store problems', snapshot.ok && snapshot.value.storeProblems.length === 0);
   check('docker reachable from the packaged app', snapshot.ok && snapshot.value.docker.available === true);
 
   const dockerfile = await app.evaluate(() => {
     const fs = process.getBuiltinModule('node:fs');
     const path = process.getBuiltinModule('node:path');
-    const file = path.join(process.resourcesPath, 'docker', 'Dockerfile');
-    return {
-      file,
-      exists: fs.existsSync(file),
-      head: fs.existsSync(file) ? fs.readFileSync(file, 'utf8').slice(0, 2000) : '',
-    };
+    return fs.existsSync(path.join(process.resourcesPath, 'docker'));
   });
-  check(
-    'the bundled Dockerfile ships outside the asar',
-    dockerfile.exists && !dockerfile.file.includes('app.asar'),
-    dockerfile.file,
-  );
-  check('and it is the real base image', dockerfile.head.includes('FROM ubuntu:24.04'), dockerfile.head.slice(0, 60));
+  check('no Dockerfile is shipped with the app', dockerfile === false);
 
+  const catalogOverride = await app.evaluate(() => process.env.CC_IMAGE_CATALOG_FILE ?? '');
+  check(
+    'the packaged app ignores catalog overrides',
+    catalogOverride !== '' && snapshot.ok && snapshot.value.catalog.entries.length === 8,
+  );
+
+  const activeView = await page.evaluate(
+    () => document.querySelector('.sidebar-nav button.active')?.dataset.view ?? '',
+  );
+  check('a fresh install opens on the Images page', activeView === 'images', activeView);
+  const cards = await page.evaluate(() => document.querySelectorAll('[data-testid="image-card"]').length);
+  check('the Images page shows the eight variants', cards === 8, String(cards));
+  const recommended = await page.evaluate(() => document.querySelectorAll('.image-card.recommended').length);
+  check('one card is marked as recommended', recommended === 1, String(recommended));
+  const downloadButtons = await page.evaluate(
+    () => [...document.querySelectorAll('[data-testid="image-download"]')].filter((button) => !button.disabled).length,
+  );
+  check(
+    'every card offers "Download and register" while Docker is reachable',
+    downloadButtons === 8,
+    String(downloadButtons),
+  );
   await page.click('.sidebar-nav button[data-view="environments"]');
   await page.waitForTimeout(500);
-  const tools = await page.evaluate(
-    () => document.querySelectorAll('[data-testid="base-image-tools"] tbody tr').length,
-  );
-  check('the environments page lists the base image tools', tools === 11, String(tools));
   const rows = await page.evaluate(() => document.querySelectorAll('[data-testid="env-list"] .env-row').length);
-  check('and the seeded environment', rows === 1, String(rows));
+  check('the environments page starts empty', rows === 0, String(rows));
 
   const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);
   check('window rendered', painted);

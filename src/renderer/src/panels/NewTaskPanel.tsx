@@ -1,12 +1,14 @@
-import { Hammer, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 
 import { activeEnvironments } from '../../../shared/environments.ts';
 import { cloneRefProblem, cloneUrlProblem } from '../../../shared/git.ts';
+import { imageDisplayName, registeredImageById } from '../../../shared/images.ts';
 import { taskNameProblem } from '../../../shared/tasks.ts';
 import type { WorkspaceSource } from '../../../shared/types.ts';
-import { Field, Section, TextField } from '../components/ui.tsx';
+import { Field, Pill, Section, TextField } from '../components/ui.tsx';
+import { availabilityKey, availabilityTone } from '../images.ts';
 import { useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -35,24 +37,28 @@ export function NewTaskPanel(): JSX.Element {
   const [ref, setRef] = useState('');
 
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
-  const { config, docker, image } = snapshot;
+  const { config, docker, images } = snapshot;
   const working = busy !== null;
   const profileId = profileChoice === undefined ? config.defaultProfileId : profileChoice;
 
   const environments = activeEnvironments(config);
   const wanted = environmentChoice ?? config.defaultEnvironmentId;
-  const environmentId =
-    wanted !== null && environments.some((environment) => environment.id === wanted)
-      ? wanted
-      : (environments[0]?.id ?? null);
+  const environment =
+    (wanted !== null ? environments.find((candidate) => candidate.id === wanted) : undefined) ??
+    environments[0] ??
+    null;
+  const environmentId = environment?.id ?? null;
+  const imageView = environment === null ? null : registeredImageById(images, environment.imageId);
+  const imageReady = imageView !== null && imageView.availability.kind === 'ready';
 
   const source: WorkspaceSource =
     kind === 'git' ? { kind: 'git', url: url.trim(), ref: ref.trim() } : { kind: 'empty' };
   const formProblem =
     taskNameProblem(name, language) ?? (kind === 'git' ? (cloneUrlProblem(url) ?? cloneRefProblem(ref)) : null);
-  const blocked = formProblem !== null || !docker.available || !image.exists || environmentId === null;
+  const blocked = formProblem !== null || !docker.available || environmentId === null || !imageReady;
 
   const create = (): void => {
+    if (environmentId === null) return;
     void (async () => {
       const result = await run('task', () => window.cc.taskCreate({ name, note, profileId, environmentId, source }));
       if (result === null) return;
@@ -67,21 +73,6 @@ export function NewTaskPanel(): JSX.Element {
       <p className="hint">{t('taskCreateHint')}</p>
 
       {docker.available ? null : <p className="hint warn">{t('taskDockerDown')}</p>}
-      {docker.available && !image.exists ? (
-        <div className="row" style={{ marginBottom: 12 }}>
-          <span className="hint warn" style={{ margin: 0 }}>
-            {t('taskImageMissing')}
-          </span>
-          <button
-            className="btn sm"
-            disabled={working}
-            onClick={() => void run('build', () => window.cc.imageBuild({ noCache: false, refreshClaudeCode: false }))}
-            type="button"
-          >
-            <Hammer size={13} /> {t('imageBuild')}
-          </button>
-        </div>
-      ) : null}
 
       <div className="grid2">
         <TextField label={t('taskName')} value={name} mono={false} onChange={setName} />
@@ -94,10 +85,10 @@ export function NewTaskPanel(): JSX.Element {
             data-testid="task-environment"
           >
             {environments.length === 0 ? <option value="">{t('taskEnvironmentNone')}</option> : null}
-            {environments.map((environment) => (
-              <option key={environment.id} value={environment.id}>
-                {environment.name}
-                {environment.id === config.defaultEnvironmentId ? ` — ${t('envDefault')}` : ''}
+            {environments.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.name}
+                {candidate.id === config.defaultEnvironmentId ? ` — ${t('envDefault')}` : ''}
               </option>
             ))}
           </select>
@@ -107,11 +98,39 @@ export function NewTaskPanel(): JSX.Element {
       {environments.length === 0 ? (
         <div className="row" style={{ marginBottom: 12 }}>
           <span className="hint warn" style={{ margin: 0 }}>
-            {t('envNoneActive')}
+            {images.length === 0 ? t('envNoImages') : t('envNoneActive')}
           </span>
-          <button className="btn sm" onClick={() => setView('environments')} type="button">
-            {t('navEnvironments')}
+          <button
+            className="btn sm"
+            onClick={() => setView(images.length === 0 ? 'images' : 'environments')}
+            type="button"
+          >
+            {images.length === 0 ? t('taskOpenImages') : t('taskCreateEnvironment')}
           </button>
+        </div>
+      ) : null}
+
+      {environment !== null ? (
+        <div className="row" style={{ marginBottom: 12 }} data-testid="task-environment-image">
+          <span className="legend">{t('taskEnvironmentImage')}</span>
+          {imageView === null ? (
+            <span className="tag err">{t('envImageMissing')}</span>
+          ) : (
+            <>
+              <span>{imageDisplayName(imageView.image, language)}</span>
+              <Pill tone={availabilityTone(imageView.availability)}>{t(availabilityKey(imageView.availability))}</Pill>
+            </>
+          )}
+          {imageReady ? null : (
+            <>
+              <span className="hint warn" style={{ margin: 0 }}>
+                {t('taskImageUnavailable')}
+              </span>
+              <button className="btn sm" onClick={() => setView('images')} type="button">
+                {t('taskOpenImages')}
+              </button>
+            </>
+          )}
         </div>
       ) : null}
 

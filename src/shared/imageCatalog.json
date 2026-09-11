@@ -1,0 +1,1447 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11T06:31:07.058Z",
+  "repository": "docker.io/kongyo2/cc-workbench",
+  "entries": [
+    {
+      "id": "base@2026.09.1",
+      "variant": "base",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Base",
+        "en": "Base"
+      },
+      "summary": {
+        "ja": "シェル・Git・Claude Code だけの最小構成",
+        "en": "The minimum: shell, git and Claude Code"
+      },
+      "description": {
+        "ja": "Ubuntu 24.04 に Node.js、Claude Code、Git、GitHub CLI、tmux などの共通ツールだけを入れた土台です。追加のツールチェーンは環境のセットアップスクリプトで入れたい人向けです。",
+        "en": "Ubuntu 24.04 with only the shared foundation: Node.js, Claude Code, git, the GitHub CLI, tmux and the usual shell tools. For people who prefer to install their own toolchain from an environment's setup script."
+      },
+      "recommended": false,
+      "inherits": null,
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "base-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        }
+      ]
+    },
+    {
+      "id": "web@2026.09.1",
+      "variant": "web",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Web 開発",
+        "en": "Web"
+      },
+      "summary": {
+        "ja": "JavaScript / TypeScript、フロントエンド、Node.js サーバー向け (おすすめ)",
+        "en": "JavaScript / TypeScript, front-end and Node.js servers (recommended)"
+      },
+      "description": {
+        "ja": "Base に pnpm、Yarn、Bun、TypeScript、ESLint、Prettier を加えた構成です。一般的なコード作業を、大きな言語ランタイムを取得せずに始められる初期選択です。",
+        "en": "Base plus pnpm, Yarn, Bun, TypeScript, ESLint and Prettier. The default pick for everyday coding work that does not need a second language runtime."
+      },
+      "recommended": true,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "web-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "pnpm",
+          "name": "pnpm",
+          "version": "12.3.4",
+          "highlight": true
+        },
+        {
+          "id": "yarn",
+          "name": "Yarn",
+          "version": "1.22.22",
+          "highlight": false
+        },
+        {
+          "id": "bun",
+          "name": "Bun",
+          "version": "1.4.2",
+          "highlight": true
+        },
+        {
+          "id": "typescript",
+          "name": "TypeScript",
+          "version": "7.0.2",
+          "highlight": true
+        },
+        {
+          "id": "eslint",
+          "name": "ESLint",
+          "version": "10.10.0",
+          "highlight": false
+        },
+        {
+          "id": "prettier",
+          "name": "Prettier",
+          "version": "3.9.6",
+          "highlight": false
+        }
+      ]
+    },
+    {
+      "id": "python@2026.09.1",
+      "variant": "python",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Python 開発",
+        "en": "Python"
+      },
+      "summary": {
+        "ja": "Python アプリ、スクリプト、データ処理向け",
+        "en": "Python applications, scripts and data work"
+      },
+      "description": {
+        "ja": "Base に Python 3 の開発環境 (venv、pip、uv、Poetry、pytest、Ruff、mypy、Black) を加えた構成です。ツールは /opt/pytools の専用 venv に入っていて、OS の Python を汚しません。",
+        "en": "Base plus a Python 3 development setup: venv, pip, uv, Poetry, pytest, Ruff, mypy and Black. The tools live in a dedicated venv under /opt/pytools and leave the OS Python alone."
+      },
+      "recommended": false,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "python-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3",
+          "name": "Python 3",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "pip",
+          "name": "pip",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "venv",
+          "name": "venv",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "uv",
+          "name": "uv",
+          "version": "0.12.13",
+          "highlight": true
+        },
+        {
+          "id": "poetry",
+          "name": "Poetry",
+          "version": "2.4.3",
+          "highlight": true
+        },
+        {
+          "id": "pytest",
+          "name": "pytest",
+          "version": "9.1.1",
+          "highlight": false
+        },
+        {
+          "id": "ruff",
+          "name": "Ruff",
+          "version": "0.16.7",
+          "highlight": false
+        },
+        {
+          "id": "mypy",
+          "name": "mypy",
+          "version": "2.3.1",
+          "highlight": false
+        },
+        {
+          "id": "black",
+          "name": "Black",
+          "version": "26.5.1",
+          "highlight": false
+        }
+      ]
+    },
+    {
+      "id": "go@2026.09.1",
+      "variant": "go",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Go 開発",
+        "en": "Go"
+      },
+      "summary": {
+        "ja": "Go のサービス・CLI 開発向け",
+        "en": "Go services and command-line tools"
+      },
+      "description": {
+        "ja": "Base に固定版の Go ツールチェーンを加えた構成です。GOPATH はホームボリューム内 (/home/claude/go) なので、取得したモジュールとビルドキャッシュはタスクを作り直しても残ります。",
+        "en": "Base plus a pinned Go toolchain. GOPATH lives in the home volume (/home/claude/go), so downloaded modules and the build cache survive a recreate."
+      },
+      "recommended": false,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "go-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "go",
+          "name": "Go",
+          "version": "1.27.1",
+          "highlight": true
+        }
+      ]
+    },
+    {
+      "id": "rust@2026.09.1",
+      "variant": "rust",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Rust 開発",
+        "en": "Rust"
+      },
+      "summary": {
+        "ja": "Rust のクレート・CLI・サービス開発向け",
+        "en": "Rust crates, CLIs and services"
+      },
+      "description": {
+        "ja": "Base に固定版の Rust ツールチェーン (rustc、cargo、rustfmt、clippy) と、よく使うクレートのビルドに必要な pkg-config / OpenSSL 開発ヘッダーを加えた構成です。cargo install の成果物はホームボリュームの ~/.cargo/bin に入ります。",
+        "en": "Base plus a pinned Rust toolchain (rustc, cargo, rustfmt, clippy) and the pkg-config / OpenSSL headers common crates need. cargo install puts binaries into ~/.cargo/bin inside the home volume."
+      },
+      "recommended": false,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "rust-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "rust",
+          "name": "Rust (rustc / cargo)",
+          "version": "1.98.1",
+          "highlight": true
+        },
+        {
+          "id": "rustfmt",
+          "name": "rustfmt",
+          "version": "1.98.1",
+          "highlight": false
+        },
+        {
+          "id": "clippy",
+          "name": "clippy",
+          "version": "1.98.1",
+          "highlight": false
+        }
+      ]
+    },
+    {
+      "id": "jvm@2026.09.1",
+      "variant": "jvm",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "JVM 開発",
+        "en": "JVM"
+      },
+      "summary": {
+        "ja": "Java / Kotlin など JVM 言語向け",
+        "en": "Java, Kotlin and other JVM languages"
+      },
+      "description": {
+        "ja": "Base に OpenJDK 21、Maven、固定版の Gradle を加えた構成です。JAVA_HOME はログインシェルとアプリの exec の両方で設定されます。",
+        "en": "Base plus OpenJDK 21, Maven and a pinned Gradle. JAVA_HOME is set for login shells and for the app's own exec sessions alike."
+      },
+      "recommended": false,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "jvm-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "openjdk",
+          "name": "OpenJDK 21",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "maven",
+          "name": "Maven",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "gradle",
+          "name": "Gradle",
+          "version": "9.7.1",
+          "highlight": true
+        }
+      ]
+    },
+    {
+      "id": "ruby@2026.09.1",
+      "variant": "ruby",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Ruby 開発",
+        "en": "Ruby"
+      },
+      "summary": {
+        "ja": "Ruby / Rails アプリ向け",
+        "en": "Ruby and Rails applications"
+      },
+      "description": {
+        "ja": "Base にソースからビルドした固定版の Ruby と Bundler、ネイティブ拡張のビルドに必要なライブラリ (OpenSSL、YAML、zlib、readline、FFI) を加えた構成です。",
+        "en": "Base plus a pinned Ruby built from source, Bundler, and the libraries native extensions need (OpenSSL, YAML, zlib, readline, FFI)."
+      },
+      "recommended": false,
+      "inherits": "base",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "ruby-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ruby",
+          "name": "Ruby",
+          "version": "4.0.6",
+          "highlight": true
+        },
+        {
+          "id": "bundler",
+          "name": "Bundler",
+          "version": "",
+          "highlight": true
+        }
+      ]
+    },
+    {
+      "id": "full@2026.09.1",
+      "variant": "full",
+      "release": "2026.09.1",
+      "title": {
+        "ja": "Full",
+        "en": "Full"
+      },
+      "summary": {
+        "ja": "複数言語をまたぐリポジトリ向けの全部入り",
+        "en": "Everything, for repositories that span several languages"
+      },
+      "description": {
+        "ja": "Web と Python のすべてに加え、Go、Rust、OpenJDK / Maven / Gradle、Ruby、PHP / Composer、Clang / CMake / Ninja / Conan、PostgreSQL 16、Redis、SQLite、Docker CLI / Compose / Buildx を入れた構成です。Docker デーモンはコンテナ内では動きません。取得サイズは最も大きくなります。",
+        "en": "Everything in Web and Python, plus Go, Rust, OpenJDK / Maven / Gradle, Ruby, PHP / Composer, Clang / CMake / Ninja / Conan, PostgreSQL 16, Redis, SQLite and the Docker CLI / Compose / Buildx. No Docker daemon runs inside the container. The largest download by far."
+      },
+      "recommended": false,
+      "inherits": "web",
+      "repository": "docker.io/kongyo2/cc-workbench",
+      "tag": "full-2026.09.1",
+      "indexDigest": null,
+      "platforms": [
+        {
+          "platform": "linux/amd64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        },
+        {
+          "platform": "linux/arm64",
+          "manifestDigest": null,
+          "compressedLayerBytes": null
+        }
+      ],
+      "runtimeContract": 1,
+      "sourceRevision": null,
+      "publishedAt": null,
+      "tools": [
+        {
+          "id": "ubuntu",
+          "name": "Ubuntu",
+          "version": "24.04",
+          "highlight": false
+        },
+        {
+          "id": "node",
+          "name": "Node.js",
+          "version": "24.21.0",
+          "highlight": true
+        },
+        {
+          "id": "npm",
+          "name": "npm",
+          "version": "11.19.0",
+          "highlight": false
+        },
+        {
+          "id": "claude-code",
+          "name": "Claude Code",
+          "version": "2.1.268",
+          "highlight": true
+        },
+        {
+          "id": "git",
+          "name": "git",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "git-lfs",
+          "name": "git-lfs",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "gh",
+          "name": "GitHub CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "tmux",
+          "name": "tmux",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ripgrep",
+          "name": "ripgrep",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "fd",
+          "name": "fd",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "jq",
+          "name": "jq",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "yq",
+          "name": "yq",
+          "version": "4.53.6",
+          "highlight": false
+        },
+        {
+          "id": "curl",
+          "name": "curl",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ssh",
+          "name": "OpenSSH client",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "build-essential",
+          "name": "gcc / make",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "python3-system",
+          "name": "Python 3 (system)",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "pnpm",
+          "name": "pnpm",
+          "version": "12.3.4",
+          "highlight": true
+        },
+        {
+          "id": "yarn",
+          "name": "Yarn",
+          "version": "1.22.22",
+          "highlight": false
+        },
+        {
+          "id": "bun",
+          "name": "Bun",
+          "version": "1.4.2",
+          "highlight": true
+        },
+        {
+          "id": "typescript",
+          "name": "TypeScript",
+          "version": "7.0.2",
+          "highlight": true
+        },
+        {
+          "id": "eslint",
+          "name": "ESLint",
+          "version": "10.10.0",
+          "highlight": false
+        },
+        {
+          "id": "prettier",
+          "name": "Prettier",
+          "version": "3.9.6",
+          "highlight": false
+        },
+        {
+          "id": "python3",
+          "name": "Python 3",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "pip",
+          "name": "pip",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "venv",
+          "name": "venv",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "uv",
+          "name": "uv",
+          "version": "0.12.13",
+          "highlight": true
+        },
+        {
+          "id": "poetry",
+          "name": "Poetry",
+          "version": "2.4.3",
+          "highlight": true
+        },
+        {
+          "id": "pytest",
+          "name": "pytest",
+          "version": "9.1.1",
+          "highlight": false
+        },
+        {
+          "id": "ruff",
+          "name": "Ruff",
+          "version": "0.16.7",
+          "highlight": false
+        },
+        {
+          "id": "mypy",
+          "name": "mypy",
+          "version": "2.3.1",
+          "highlight": false
+        },
+        {
+          "id": "black",
+          "name": "Black",
+          "version": "26.5.1",
+          "highlight": false
+        },
+        {
+          "id": "go",
+          "name": "Go",
+          "version": "1.27.1",
+          "highlight": true
+        },
+        {
+          "id": "rust",
+          "name": "Rust (rustc / cargo)",
+          "version": "1.98.1",
+          "highlight": true
+        },
+        {
+          "id": "rustfmt",
+          "name": "rustfmt",
+          "version": "1.98.1",
+          "highlight": false
+        },
+        {
+          "id": "clippy",
+          "name": "clippy",
+          "version": "1.98.1",
+          "highlight": false
+        },
+        {
+          "id": "openjdk",
+          "name": "OpenJDK 21",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "maven",
+          "name": "Maven",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "gradle",
+          "name": "Gradle",
+          "version": "9.7.1",
+          "highlight": true
+        },
+        {
+          "id": "ruby",
+          "name": "Ruby",
+          "version": "4.0.6",
+          "highlight": true
+        },
+        {
+          "id": "bundler",
+          "name": "Bundler",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "php",
+          "name": "PHP",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "composer",
+          "name": "Composer",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "clang",
+          "name": "Clang / LLD",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "cmake",
+          "name": "CMake",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "ninja",
+          "name": "Ninja",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "conan",
+          "name": "Conan",
+          "version": "2.32.0",
+          "highlight": false
+        },
+        {
+          "id": "postgresql",
+          "name": "PostgreSQL 16",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "redis",
+          "name": "Redis",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "sqlite3",
+          "name": "SQLite",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "docker-cli",
+          "name": "Docker CLI",
+          "version": "",
+          "highlight": true
+        },
+        {
+          "id": "docker-compose",
+          "name": "Docker Compose",
+          "version": "",
+          "highlight": false
+        },
+        {
+          "id": "docker-buildx",
+          "name": "Docker Buildx",
+          "version": "",
+          "highlight": false
+        }
+      ]
+    }
+  ]
+}

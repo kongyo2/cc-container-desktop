@@ -37,8 +37,13 @@ export function LogPanel(): JSX.Element {
           <dd>{docker.version ?? t('commonNone')}</dd>
           <dt>{t('dockerApi')}</dt>
           <dd>{docker.apiVersion ?? t('commonNone')}</dd>
-          <dt>OS</dt>
-          <dd>{docker.os ?? t('commonNone')}</dd>
+          <dt>{t('dockerPlatform')}</dt>
+          <dd>
+            {docker.platform ?? t('commonNone')}
+            {docker.os === null ? '' : ` (${docker.os}/${docker.architecture ?? '?'})`}
+          </dd>
+          <dt>{t('dockerEngineId')}</dt>
+          <dd>{docker.engineId ?? t('commonNone')}</dd>
         </dl>
         {docker.available ? null : (
           <p className="hint warn">

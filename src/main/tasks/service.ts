@@ -1,14 +1,16 @@
 import { assertCloneTarget } from '../../shared/git.ts';
+import type { ImageAvailability, RegisteredImageView } from '../../shared/images.ts';
 import { taskContainerName, taskVolumeName } from '../../shared/presets.ts';
 import { exportFolderName, normalizeTaskName } from '../../shared/tasks.ts';
 import type {
   AppConfig,
+  AppliedRuntime,
   ContainerState,
   CreateTaskResult,
   DeleteTaskRequest,
   DeleteTaskSummary,
+  DockerStatus,
   ExportSummary,
-  ImageStatus,
   ImportSummary,
   McpServerStatus,
   NewTaskInput,
@@ -39,12 +41,14 @@ import {
   withRunningContainer,
 } from '../docker/container.ts';
 import type { ContainerRef } from '../docker/container.ts';
-import { requireImageBuilt } from '../docker/engine.ts';
 import { exportWorkspace, importIntoWorkspace } from '../docker/files.ts';
 import { cloneIntoWorkspace } from '../docker/git.ts';
 import { closeTaskTerminals, openTerminal } from '../docker/terminal.ts';
-import { describeError, logInfo, logWarn } from '../logger.ts';
-import { containerSpecFor, environmentRevision, taskEnvironment } from './environment.ts';
+import { AppFailure, describeError } from '../errors.ts';
+import { leaseImage } from '../images/service.ts';
+import { logInfo, logWarn } from '../logger.ts';
+import { environmentRevision, resolveTaskRuntime, taskEnvironment } from './environment.ts';
+import type { ResolvedTaskRuntime } from './environment.ts';
 import { addTask, getTask, listTasks, newTaskId, removeTask, updateTask } from './store.ts';
 
 const queues = new Map<string, Promise<void>>();
@@ -66,27 +70,94 @@ export function withTaskLock<T>(id: string, work: () => Promise<T>): Promise<T> 
 
 function environmentStaleFor(task: Task, container: ContainerState): boolean {
   if (!container.exists) return false;
-  const expectedId = task.environmentId ?? '';
-  const expectedRevision = environmentRevision(taskEnvironment(task));
-  return container.environmentId !== expectedId || container.environmentRevision !== expectedRevision;
+  const environment = taskEnvironment(task);
+  if (environment === null) return true;
+  return (
+    container.environmentId !== environment.id || container.environmentRevision !== environmentRevision(environment)
+  );
 }
 
-export async function taskViews(image: ImageStatus): Promise<readonly TaskView[]> {
+function viewOf(
+  task: Task,
+  container: ContainerState,
+  docker: DockerStatus,
+  images: readonly RegisteredImageView[],
+): TaskView {
+  const environment = taskEnvironment(task);
+  const desiredImageId = environment?.imageId ?? null;
+  const desired = images.find((view) => view.image.id === desiredImageId) ?? null;
+  const desiredAvailability: ImageAvailability | null =
+    desiredImageId === null ? null : desired === null ? { kind: 'missing' } : desired.availability;
+  const appliedImageId = container.exists
+    ? container.registeredImageId
+    : (task.lastAppliedRuntime?.registeredImageId ?? null);
+
+  if (!docker.available || container.status === 'error') {
+    return {
+      task,
+      container,
+      desiredImageId,
+      desiredAvailability,
+      appliedImageId,
+      imageStale: null,
+      environmentStale: null,
+    };
+  }
+  if (!container.exists) {
+    return {
+      task,
+      container,
+      desiredImageId,
+      desiredAvailability,
+      appliedImageId,
+      imageStale: null,
+      environmentStale: null,
+    };
+  }
+
+  let imageStale = false;
+  if (desiredImageId !== null) {
+    if (container.registeredImageId !== desiredImageId) imageStale = true;
+    else if (
+      desired !== null &&
+      desired.availability.kind === 'ready' &&
+      container.imageId !== desired.availability.localImageId
+    ) {
+      imageStale = true;
+    }
+  }
+  return {
+    task,
+    container,
+    desiredImageId,
+    desiredAvailability,
+    appliedImageId,
+    imageStale,
+    environmentStale: environmentStaleFor(task, container),
+  };
+}
+
+export async function taskViews(
+  docker: DockerStatus,
+  images: readonly RegisteredImageView[],
+): Promise<readonly TaskView[]> {
   return Promise.all(
     listTasks().map(async (task): Promise<TaskView> => {
       let container: ContainerState;
-      try {
-        container = await inspectContainer(refOf(task));
-      } catch (error) {
-        logWarn(
-          'app',
-          `[${task.name}] コンテナを確認できません / cannot inspect the container: ${describeError(error)}`,
-        );
-        container = { ...MISSING_CONTAINER, status: 'error' };
+      if (!docker.available) {
+        container = MISSING_CONTAINER;
+      } else {
+        try {
+          container = await inspectContainer(refOf(task));
+        } catch (error) {
+          logWarn(
+            'app',
+            `[${task.name}] コンテナを確認できません / cannot inspect the container: ${describeError(error)}`,
+          );
+          container = { ...MISSING_CONTAINER, status: 'error' };
+        }
       }
-      const imageStale =
-        container.exists && image.id !== null && container.imageId !== null && container.imageId !== image.id;
-      return { task, container, imageStale, environmentStale: environmentStaleFor(task, container) };
+      return viewOf(task, container, docker, images);
     }),
   );
 }
@@ -126,38 +197,56 @@ function checkedSource(source: WorkspaceSource): WorkspaceSource {
 function checkedProfileId(profileId: string | null | undefined): string | null {
   if (profileId === null || profileId === undefined || profileId === '') return null;
   if (profileFor(profileId) === null) {
-    throw new Error(`プロファイルが見つかりません / no such profile: ${profileId}`);
+    throw new AppFailure('INVALID_INPUT', `プロファイルが見つかりません / no such profile: ${profileId}`);
   }
   return profileId;
 }
 
-function checkedEnvironmentId(environmentId: string | null | undefined): string | null {
-  if (environmentId === null || environmentId === undefined || environmentId === '') return null;
+function checkedEnvironmentId(environmentId: string | undefined): string {
+  if (environmentId === undefined || environmentId === '') {
+    throw new AppFailure('ENVIRONMENT_MISSING', '環境を 1 つ選んでください / a task needs an environment');
+  }
   const environment = environmentFor(environmentId);
   if (environment === null) {
-    throw new Error(`環境が見つかりません / no such environment: ${environmentId}`);
+    throw new AppFailure('ENVIRONMENT_MISSING', `環境が見つかりません / no such environment: ${environmentId}`);
   }
   if (environment.archived) {
-    throw new Error(
+    throw new AppFailure(
+      'ENVIRONMENT_ARCHIVED',
       `${environment.name}: アーカイブ済みの環境は選べません。復元してください / archived environments cannot be selected; restore it first`,
     );
   }
   return environmentId;
 }
 
-async function requireImage(): Promise<string> {
-  const tag = getConfig().imageTag;
-  await requireImageBuilt(tag);
-  return tag;
+function appliedRuntimeOf(runtime: ResolvedTaskRuntime): AppliedRuntime {
+  return {
+    registeredImageId: runtime.registeredImageId,
+    localImageId: runtime.localImageId,
+    engineId: runtime.engineId,
+    environmentId: runtime.environmentId,
+    environmentRevision: runtime.environmentRevision,
+    appliedAt: new Date().toISOString(),
+  };
+}
+
+/** Creates (if needed) and starts the container from a runtime fixed for the whole operation, recording what was applied. */
+async function startFromRuntime(task: Task, runtime: ResolvedTaskRuntime): Promise<ContainerState> {
+  const release = leaseImage(runtime.registeredImageId);
+  try {
+    const before = await inspectContainer(refOf(task));
+    const state = await startContainer(refOf(task), () => Promise.resolve(runtime.spec));
+    if (!before.exists && state.exists) updateTask(task.id, { lastAppliedRuntime: appliedRuntimeOf(runtime) });
+    return state;
+  } finally {
+    release();
+  }
 }
 
 export async function createTask(input: NewTaskInput): Promise<CreateTaskResult> {
   const name = normalizeTaskName(input.name);
-  if (name === '') throw new Error('タスク名が空です / the task name is empty');
+  if (name === '') throw new AppFailure('INVALID_INPUT', 'タスク名が空です / the task name is empty');
   const source = checkedSource(input.source);
-  checkedProfileId(input.profileId);
-  checkedEnvironmentId(input.environmentId);
-  await requireImage();
   const profileId = checkedProfileId(input.profileId);
   const environmentId = checkedEnvironmentId(input.environmentId);
 
@@ -173,17 +262,19 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
     volumeName: taskVolumeName(id),
     createdAt: new Date().toISOString(),
     managed: emptyManagedNames(),
+    lastAppliedRuntime: null,
   };
+  const runtime = await resolveTaskRuntime(task);
   addTask(task);
   logInfo(
     'app',
-    `タスクを作成します / creating task "${name}" (${task.containerName}, environment: ${environmentFor(environmentId)?.name ?? '—'})`,
+    `タスクを作成します / creating task "${name}" (${task.containerName}, environment: ${environmentFor(environmentId)?.name ?? '—'}, image: ${runtime.registeredImageId})`,
   );
 
   return withTaskLock(id, async () => {
     const ref = refOf(task);
     try {
-      await startContainer(ref, containerSpecFor(task));
+      await startFromRuntime(task, runtime);
       const warnings: string[] = [];
       try {
         await applyProvision(task);
@@ -219,10 +310,10 @@ export async function createTask(input: NewTaskInput): Promise<CreateTaskResult>
 export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
   return withTaskLock(id, async () => {
     const current = getTask(id);
-    const next: { name?: string; note?: string; profileId?: string | null; environmentId?: string | null } = {};
+    const next: { name?: string; note?: string; profileId?: string | null; environmentId?: string } = {};
     if (patch.name !== undefined) {
       const name = normalizeTaskName(patch.name);
-      if (name === '') throw new Error('タスク名が空です / the task name is empty');
+      if (name === '') throw new AppFailure('INVALID_INPUT', 'タスク名が空です / the task name is empty');
       next.name = name;
     }
     if (patch.note !== undefined) next.note = patch.note.trim();
@@ -240,10 +331,18 @@ export function updateTaskDetails(id: string, patch: TaskPatch): Promise<Task> {
   });
 }
 
+/** Starting an existing container never depends on the desired image; only a missing container needs one. */
 export function startTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    await startContainer(refOf(task), containerSpecFor(task));
+    const existing = await inspectContainer(refOf(task));
+    if (existing.exists) {
+      await startContainer(refOf(task), () => {
+        throw new AppFailure('APP_ERROR', 'unreachable: the container exists');
+      });
+    } else {
+      await startFromRuntime(task, await resolveTaskRuntime(task));
+    }
     const summary = await applyProvision(task);
     await applySetup(task);
     return summary;
@@ -258,15 +357,19 @@ export function stopTask(id: string): Promise<void> {
   });
 }
 
+/** The target image is verified before the old container is touched; the home volume is always kept. */
 export function recreateTask(id: string): Promise<string> {
   return withTaskLock(id, async () => {
     const task = getTask(id);
-    const imageTag = await requireImage();
+    const runtime = await resolveTaskRuntime(task);
     const ref = refOf(task);
     await closeTaskTerminals(id);
-    logInfo('app', `[${task.name}] コンテナを作り直します / recreating the container on ${imageTag}`);
+    logInfo(
+      'app',
+      `[${task.name}] コンテナを作り直します / recreating the container on ${runtime.registeredImageId} (${runtime.localImageId.slice(0, 19)})`,
+    );
     await removeContainer(ref, false);
-    await startContainer(ref, containerSpecFor(task));
+    await startFromRuntime(task, runtime);
     const summary = await applyProvision(task);
     await applySetup(task);
     return summary;
@@ -285,8 +388,12 @@ async function hasWorkspace(ref: ContainerRef): Promise<boolean> {
   return volumeExists(ref.volumeName);
 }
 
-function ensureTaskContainer(task: Task): Promise<ContainerState> {
-  return ensureContainer(refOf(task), containerSpecFor(task));
+/** For file operations: the existing container if there is one, otherwise a container from the desired or last applied image. */
+async function ensureTaskContainer(task: Task): Promise<ContainerState> {
+  return ensureContainer(refOf(task), async () => {
+    const runtime = await resolveTaskRuntime(task, { allowLastApplied: true });
+    return runtime.spec;
+  });
 }
 
 async function exportTo(task: Task, destination: string): Promise<ExportSummary> {
@@ -300,7 +407,8 @@ export function exportTask(id: string, destination: string): Promise<ExportSumma
   return withTaskLock(id, async () => {
     const task = getTask(id);
     if (!(await hasWorkspace(refOf(task)))) {
-      throw new Error(
+      throw new AppFailure(
+        'INVALID_INPUT',
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
@@ -321,13 +429,15 @@ export function deleteTask(
     if (request.exportFirst) {
       if (await hasWorkspace(ref)) {
         if (destination === null || destination === '') {
-          throw new Error(
+          throw new AppFailure(
+            'INVALID_INPUT',
             '取り出し先が選ばれなかったので何も消していません / no export folder was chosen, so nothing was deleted',
           );
         }
         exported = await exportTo(task, destination);
         if (exported.skipped.length > 0) {
-          throw new Error(
+          throw new AppFailure(
+            'APP_ERROR',
             `${exported.skipped.length} 件を取り出せなかったので削除を中止しました。取り出せた分は ${exported.path} にあります / ` +
               `${exported.skipped.length} item(s) could not be exported, so nothing was deleted; the partial export is at ${exported.path}`,
           );
@@ -413,14 +523,25 @@ export async function forgetProfile(profileId: string): Promise<readonly string[
 
 export function deleteEnvironment(environmentId: string): AppConfig {
   const environment = environmentFor(environmentId);
-  if (environment === null) throw new Error(`環境が見つかりません / no such environment: ${environmentId}`);
+  if (environment === null) {
+    throw new AppFailure('ENVIRONMENT_MISSING', `環境が見つかりません / no such environment: ${environmentId}`);
+  }
   const users = listTasks().filter((task) => task.environmentId === environmentId);
   if (users.length > 0) {
     const names = users.map((task) => task.name).join(', ');
-    throw new Error(
+    throw new AppFailure(
+      'INVALID_INPUT',
       `${environment.name}: ${users.length} 件のタスクが使っているので削除できません (${names}) / still used by ${users.length} task(s): ${names}`,
     );
   }
   logInfo('app', `環境を削除しました / environment deleted: ${environment.name}`);
   return removeEnvironment(environmentId);
+}
+
+export function tasksUsingEnvironment(environmentId: string): number {
+  return listTasks().filter((task) => task.environmentId === environmentId).length;
+}
+
+export function configSnapshot(): AppConfig {
+  return getConfig();
 }

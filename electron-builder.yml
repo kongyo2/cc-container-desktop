@@ -11,12 +11,6 @@ files:
   - package.json
   - '!**/*.map'
 
-extraResources:
-  - from: docker
-    to: docker
-    filter:
-      - '**/*'
-
 asar: true
 
 win:

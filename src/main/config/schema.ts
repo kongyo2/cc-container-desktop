@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto';
+
 import { z } from 'zod';
 
 import { environmentEnvProblems, normalizeEnvironmentName, normalizeScriptText } from '../../shared/environments.ts';
-import { isPlainObject } from '../../shared/json.ts';
-import { DEFAULT_IMAGE_TAG, ENDPOINT_PRESETS } from '../../shared/presets.ts';
+import { REGISTERED_IMAGE_ID_PATTERN } from '../../shared/images.ts';
+import { ENDPOINT_PRESETS } from '../../shared/presets.ts';
 import type {
   AppConfig,
   ConfigPatch,
@@ -12,100 +14,113 @@ import type {
   ManagedNames,
   Profile,
 } from '../../shared/types.ts';
+import { AppFailure } from '../errors.ts';
+import type { ParseOutcome } from '../state/file.ts';
 
-const profileSchema = z.object({
+export const INSTANCE_ID_PATTERN: RegExp = /^inst_[0-9a-f]{16}$/u;
+
+const profileSchema = z.strictObject({
   id: z.string().min(1),
-  name: z.string().default(''),
-  baseUrl: z.string().default(''),
-  authMode: z.enum(['authToken', 'apiKey']).default('authToken'),
-  model: z.string().default(''),
-  sonnetModel: z.string().default(''),
-  opusModel: z.string().default(''),
-  haikuModel: z.string().default(''),
-  fableModel: z.string().default(''),
-  apiTimeoutMs: z.number().int().positive().nullable().default(null),
-  contextTokens: z.number().int().positive().nullable().default(null),
-  disableNonEssentialTraffic: z.boolean().default(true),
-  disableTelemetry: z.boolean().default(true),
-  extraEnv: z.record(z.string(), z.string()).default({}),
-  note: z.string().default(''),
+  name: z.string(),
+  baseUrl: z.string(),
+  authMode: z.enum(['authToken', 'apiKey']),
+  model: z.string(),
+  sonnetModel: z.string(),
+  opusModel: z.string(),
+  haikuModel: z.string(),
+  fableModel: z.string(),
+  apiTimeoutMs: z.number().int().positive().nullable(),
+  contextTokens: z.number().int().positive().nullable(),
+  disableNonEssentialTraffic: z.boolean(),
+  disableTelemetry: z.boolean(),
+  extraEnv: z.record(z.string(), z.string()),
+  note: z.string(),
 });
 
-const environmentSchema = z.object({
+const environmentSchema = z.strictObject({
   id: z.string().min(1),
-  name: z.string().default(''),
-  envText: z.string().default(''),
-  setupScript: z.string().default(''),
-  archived: z.boolean().default(false),
-  createdAt: z.string().default(''),
-  updatedAt: z.string().default(''),
+  name: z.string().min(1),
+  imageId: z.string().regex(REGISTERED_IMAGE_ID_PATTERN),
+  envText: z.string(),
+  setupScript: z.string(),
+  archived: z.boolean(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
 });
 
-const mcpServerSchema = z.object({
+const mcpServerSchema = z.strictObject({
   id: z.string().min(1),
-  name: z.string().default(''),
-  enabled: z.boolean().default(true),
-  transport: z.enum(['stdio', 'http', 'sse']).default('http'),
-  command: z.string().default(''),
-  args: z.array(z.string()).default([]),
-  env: z.record(z.string(), z.string()).default({}),
-  url: z.string().default(''),
-  headers: z.record(z.string(), z.string()).default({}),
-  timeoutMs: z.number().int().positive().nullable().default(null),
-  note: z.string().default(''),
+  name: z.string(),
+  enabled: z.boolean(),
+  transport: z.enum(['stdio', 'http', 'sse']),
+  command: z.string(),
+  args: z.array(z.string()),
+  env: z.record(z.string(), z.string()),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()),
+  timeoutMs: z.number().int().positive().nullable(),
+  note: z.string(),
 });
 
-const marketplaceSchema = z.object({
+const marketplaceSchema = z.strictObject({
   id: z.string().min(1),
-  name: z.string().default(''),
-  enabled: z.boolean().default(true),
-  sourceKind: z.enum(['github', 'git']).default('github'),
-  repo: z.string().default(''),
-  url: z.string().default(''),
-  autoUpdate: z.boolean().default(false),
+  name: z.string(),
+  enabled: z.boolean(),
+  sourceKind: z.enum(['github', 'git']),
+  repo: z.string(),
+  url: z.string(),
+  autoUpdate: z.boolean(),
 });
 
-const pluginSchema = z.object({
+const pluginSchema = z.strictObject({
   id: z.string().min(1),
-  plugin: z.string().default(''),
-  marketplace: z.string().default(''),
-  enabled: z.boolean().default(true),
+  plugin: z.string(),
+  marketplace: z.string(),
+  enabled: z.boolean(),
 });
 
-const skillInstallSchema = z.object({
+const skillInstallSchema = z.strictObject({
   id: z.string().min(1),
-  enabled: z.boolean().default(true),
-  source: z.string().default(''),
-  skills: z.array(z.string()).default([]),
-  note: z.string().default(''),
+  enabled: z.boolean(),
+  source: z.string(),
+  skills: z.array(z.string()),
+  note: z.string(),
 });
 
-const extensionsSchema = z.object({
-  mcpServers: z.array(mcpServerSchema).default([]),
-  marketplaces: z.array(marketplaceSchema).default([]),
-  plugins: z.array(pluginSchema).default([]),
-  skillInstalls: z.array(skillInstallSchema).default([]),
+const extensionsSchema = z.strictObject({
+  mcpServers: z.array(mcpServerSchema),
+  marketplaces: z.array(marketplaceSchema),
+  plugins: z.array(pluginSchema),
+  skillInstalls: z.array(skillInstallSchema),
 });
 
-const appConfigSchema = z.object({
-  version: z.literal(3).catch(3).default(3),
-  language: z.enum(['ja', 'en']).catch('ja').default('ja'),
-  defaultProfileId: z.string().nullable().default(null),
-  profiles: z.array(profileSchema).default([]),
-  defaultEnvironmentId: z.string().nullable().default(null),
-  environments: z.array(environmentSchema).default([]),
-  imageTag: z.string().min(1).catch(DEFAULT_IMAGE_TAG).default(DEFAULT_IMAGE_TAG),
-  autoOnboarding: z.boolean().default(true),
-  autoApproveApiKey: z.boolean().default(true),
-  skipPermissions: z.boolean().default(true),
-  lastExportDir: z.string().nullable().default(null),
-  extensions: extensionsSchema.default({ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }),
+const appConfigSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  dataInstanceId: z.string().regex(INSTANCE_ID_PATTERN),
+  language: z.enum(['ja', 'en']),
+  defaultProfileId: z.string().nullable(),
+  profiles: z.array(profileSchema),
+  defaultEnvironmentId: z.string().nullable(),
+  environments: z.array(environmentSchema),
+  autoOnboarding: z.boolean(),
+  autoApproveApiKey: z.boolean(),
+  skipPermissions: z.boolean(),
+  lastExportDir: z.string().nullable(),
+  extensions: extensionsSchema,
 });
+
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  return issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`;
+}
+
+function invalid(label: string, error: z.ZodError): AppFailure {
+  return new AppFailure('INVALID_INPUT', `${label}: ${firstIssue(error)}`);
+}
 
 const configPatchSchema = z.strictObject({
   defaultProfileId: z.string().nullable().optional(),
   defaultEnvironmentId: z.string().nullable().optional(),
-  imageTag: z.string().trim().min(1).optional(),
   autoOnboarding: z.boolean().optional(),
   autoApproveApiKey: z.boolean().optional(),
   skipPermissions: z.boolean().optional(),
@@ -114,9 +129,7 @@ const configPatchSchema = z.strictObject({
 
 export function parseConfigPatch(raw: unknown): ConfigPatch {
   const parsed = configPatchSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(`設定の変更内容が不正です / invalid config patch: ${parsed.error.issues[0]?.message ?? ''}`);
-  }
+  if (!parsed.success) throw invalid('設定の変更内容が不正です / invalid config patch', parsed.error);
   const patch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(parsed.data)) {
     if (value !== undefined) patch[key] = value;
@@ -124,24 +137,47 @@ export function parseConfigPatch(raw: unknown): ConfigPatch {
   return patch as ConfigPatch;
 }
 
+export function parseProfile(raw: unknown): Profile {
+  const parsed = profileSchema.safeParse(raw);
+  if (!parsed.success) throw invalid('プロファイルの内容が不正です / invalid profile', parsed.error);
+  return parsed.data;
+}
+
+export function parseExtensions(raw: unknown): Extensions {
+  const parsed = extensionsSchema.safeParse(raw);
+  if (!parsed.success) throw invalid('拡張の内容が不正です / invalid extensions', parsed.error);
+  return parsed.data;
+}
+
 const environmentDraftSchema = z.strictObject({
   id: z.string().min(1),
   name: z.string(),
+  imageId: z.string(),
   envText: z.string(),
   setupScript: z.string(),
 });
 
 export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
   const parsed = environmentDraftSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(`環境の内容が不正です / invalid environment: ${parsed.error.issues[0]?.message ?? ''}`);
-  }
+  if (!parsed.success) throw invalid('環境の内容が不正です / invalid environment', parsed.error);
   const name = normalizeEnvironmentName(parsed.data.name);
-  if (name === '') throw new Error('環境の名前が空です / the environment name is empty');
+  if (name === '') throw new AppFailure('INVALID_INPUT', '環境の名前が空です / the environment name is empty');
+  if (!REGISTERED_IMAGE_ID_PATTERN.test(parsed.data.imageId)) {
+    throw new AppFailure(
+      'INVALID_INPUT',
+      '環境には登録済みイメージを 1 つ選んでください / an environment must name one registered image',
+    );
+  }
   const envText = normalizeScriptText(parsed.data.envText);
   const problem = environmentEnvProblems(envText)[0];
-  if (problem !== undefined) throw new Error(`環境変数 / environment variables: ${problem}`);
-  return { id: parsed.data.id, name, envText, setupScript: normalizeScriptText(parsed.data.setupScript) };
+  if (problem !== undefined) throw new AppFailure('INVALID_INPUT', `環境変数 / environment variables: ${problem}`);
+  return {
+    id: parsed.data.id,
+    name,
+    imageId: parsed.data.imageId,
+    envText,
+    setupScript: normalizeScriptText(parsed.data.setupScript),
+  };
 }
 
 export function starterProfile(): Profile {
@@ -149,7 +185,7 @@ export function starterProfile(): Profile {
   return {
     id: 'openrouter-default',
     name: 'OpenRouter',
-    baseUrl: openrouter?.baseUrl ?? 'https://openrouter.ai/api/v1',
+    baseUrl: openrouter?.baseUrl ?? 'https://openrouter.ai/api',
     authMode: 'authToken',
     model: openrouter?.model ?? '',
     sonnetModel: openrouter?.model ?? '',
@@ -165,19 +201,6 @@ export function starterProfile(): Profile {
   };
 }
 
-export function starterEnvironment(): Environment {
-  const now = new Date().toISOString();
-  return {
-    id: 'environment-default',
-    name: '環境1',
-    envText: '',
-    setupScript: '',
-    archived: false,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
 export function emptyExtensions(): Extensions {
   return { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
 }
@@ -186,84 +209,26 @@ export function emptyManagedNames(): ManagedNames {
   return { mcpServers: [], marketplaces: [], plugins: [] };
 }
 
+export function newInstanceId(): string {
+  return `inst_${randomBytes(8).toString('hex')}`;
+}
+
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
-  const environment = starterEnvironment();
   return {
-    version: 3,
+    schemaVersion: 1,
+    dataInstanceId: newInstanceId(),
     language: 'ja',
     defaultProfileId: profile.id,
     profiles: [profile],
-    defaultEnvironmentId: environment.id,
-    environments: [environment],
-    imageTag: DEFAULT_IMAGE_TAG,
+    defaultEnvironmentId: null,
+    environments: [],
     autoOnboarding: true,
     autoApproveApiKey: true,
     skipPermissions: true,
     lastExportDir: null,
     extensions: emptyExtensions(),
   };
-}
-
-interface Checker {
-  readonly safeParse: (value: unknown) => { readonly success: boolean };
-}
-
-export function keepValid(schema: Checker, raw: unknown, report: { dropped: number }): unknown[] {
-  if (!Array.isArray(raw)) {
-    if (raw !== undefined && raw !== null) report.dropped += 1;
-    return [];
-  }
-  const items: unknown[] = [];
-  for (const item of raw) {
-    if (schema.safeParse(item).success) items.push(item);
-    else report.dropped += 1;
-  }
-  return items;
-}
-
-function salvage(raw: unknown): { source: unknown; dropped: number } {
-  if (!isPlainObject(raw)) return { source: raw, dropped: 0 };
-  const report = { dropped: 0 };
-  const source: Record<string, unknown> = { ...raw };
-
-  if (source['defaultProfileId'] === undefined && typeof source['activeProfileId'] === 'string') {
-    source['defaultProfileId'] = source['activeProfileId'];
-  }
-
-  if (source['environments'] === undefined) {
-    const starter = starterEnvironment();
-    source['environments'] = [starter];
-    if (source['defaultEnvironmentId'] === undefined) source['defaultEnvironmentId'] = starter.id;
-  }
-
-  source['profiles'] = keepValid(profileSchema, source['profiles'], report);
-  source['environments'] = keepValid(environmentSchema, source['environments'], report);
-
-  const extensions = source['extensions'];
-  if (isPlainObject(extensions)) {
-    const next: Record<string, unknown> = { ...extensions };
-    next['mcpServers'] = keepValid(mcpServerSchema, next['mcpServers'], report);
-    next['marketplaces'] = keepValid(marketplaceSchema, next['marketplaces'], report);
-    next['plugins'] = keepValid(pluginSchema, next['plugins'], report);
-    next['skillInstalls'] = keepValid(skillInstallSchema, next['skillInstalls'], report);
-    source['extensions'] = next;
-  }
-
-  return { source, dropped: report.dropped };
-}
-
-export interface ConfigRead {
-  readonly config: AppConfig;
-  readonly dropped: number;
-  readonly reset: boolean;
-}
-
-export function readConfig(raw: unknown): ConfigRead {
-  const { source, dropped } = salvage(raw);
-  const parsed = appConfigSchema.safeParse(source);
-  if (!parsed.success) return { config: defaultConfig(), dropped, reset: true };
-  return { config: fromSchema(parsed.data), dropped, reset: false };
 }
 
 function resolveDefaultProfile(defaultProfileId: string | null, profiles: readonly Profile[]): string | null {
@@ -284,31 +249,46 @@ function resolveDefaultEnvironment(
   return usable[0]?.id ?? null;
 }
 
-function dedupeById<T extends { readonly id: string }>(items: readonly T[]): T[] {
+function duplicateId(items: readonly { readonly id: string }[]): string | null {
   const seen = new Set<string>();
-  const kept: T[] = [];
   for (const item of items) {
-    if (seen.has(item.id)) continue;
+    if (seen.has(item.id)) return item.id;
     seen.add(item.id);
-    kept.push(item);
   }
-  return kept;
+  return null;
 }
 
-function fromSchema(value: z.infer<typeof appConfigSchema>): AppConfig {
-  const environments = dedupeById(value.environments);
+/** Dangling defaults are re-pointed; everything else must be exactly the current shape. */
+export function normalizeConfig(config: AppConfig): AppConfig {
   return {
-    version: 3,
-    language: value.language,
-    defaultProfileId: resolveDefaultProfile(value.defaultProfileId, value.profiles),
-    profiles: value.profiles,
-    defaultEnvironmentId: resolveDefaultEnvironment(value.defaultEnvironmentId, environments),
-    environments,
-    imageTag: value.imageTag,
-    autoOnboarding: value.autoOnboarding,
-    autoApproveApiKey: value.autoApproveApiKey,
-    skipPermissions: value.skipPermissions,
-    lastExportDir: value.lastExportDir,
-    extensions: value.extensions,
+    ...config,
+    schemaVersion: 1,
+    defaultProfileId: resolveDefaultProfile(config.defaultProfileId, config.profiles),
+    defaultEnvironmentId: resolveDefaultEnvironment(config.defaultEnvironmentId, config.environments),
   };
+}
+
+export function readConfig(raw: unknown): ParseOutcome<AppConfig> {
+  const parsed = appConfigSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
+  const duplicateProfile = duplicateId(parsed.data.profiles);
+  if (duplicateProfile !== null) return { ok: false, problem: `duplicate profile id ${duplicateProfile}` };
+  const duplicateEnvironment = duplicateId(parsed.data.environments);
+  if (duplicateEnvironment !== null) return { ok: false, problem: `duplicate environment id ${duplicateEnvironment}` };
+  return { ok: true, value: normalizeConfig(parsed.data) };
+}
+
+const secretEntrySchema = z.strictObject({ enc: z.enum(['safeStorage', 'plain']), value: z.string().min(1) });
+
+const secretsFileSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  entries: z.record(z.string(), secretEntrySchema),
+});
+
+export type SecretEntries = Readonly<Record<string, { readonly enc: 'safeStorage' | 'plain'; readonly value: string }>>;
+
+export function readSecretsFile(raw: unknown): ParseOutcome<SecretEntries> {
+  const parsed = secretsFileSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
+  return { ok: true, value: parsed.data.entries };
 }

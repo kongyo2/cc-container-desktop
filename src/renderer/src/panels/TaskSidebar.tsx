@@ -1,4 +1,4 @@
-import { Layers, ListTodo, Plus, Puzzle, ScrollText, Settings, Boxes } from 'lucide-react';
+import { Boxes, HardDriveDownload, Layers, ListTodo, Plus, Puzzle, ScrollText, Settings } from 'lucide-react';
 import type { JSX } from 'react';
 
 import { environmentById } from '../../../shared/environments.ts';
@@ -6,13 +6,14 @@ import type { TaskView } from '../../../shared/types.ts';
 import type { MessageKey } from '../../../shared/i18n.ts';
 import { profileById } from '../../../shared/profiles.ts';
 import { useT } from '../i18n.ts';
-import { useApp } from '../store.ts';
+import { useActiveOperationList, useApp } from '../store.ts';
 import type { View } from '../store.ts';
 
 const NAV: ReadonlyArray<{ id: View; icon: JSX.Element; key: MessageKey }> = [
+  { id: 'images', icon: <HardDriveDownload size={15} />, key: 'navImages' },
+  { id: 'environments', icon: <Layers size={15} />, key: 'navEnvironments' },
   { id: 'profiles', icon: <Boxes size={15} />, key: 'navProfiles' },
   { id: 'extensions', icon: <Puzzle size={15} />, key: 'navExtensions' },
-  { id: 'environments', icon: <Layers size={15} />, key: 'navEnvironments' },
   { id: 'log', icon: <ScrollText size={15} />, key: 'navLog' },
   { id: 'settings', icon: <Settings size={15} />, key: 'navSettings' },
 ];
@@ -31,6 +32,7 @@ export function TaskSidebar(): JSX.Element {
   const selectedTaskId = useApp((state) => state.selectedTaskId);
   const selectTask = useApp((state) => state.selectTask);
   const setView = useApp((state) => state.setView);
+  const activeOperations = useActiveOperationList();
 
   const tasks = snapshot?.tasks ?? [];
 
@@ -56,7 +58,7 @@ export function TaskSidebar(): JSX.Element {
         {tasks.map((item) => {
           const profile = snapshot === null ? null : profileById(snapshot.config, item.task.profileId);
           const environment = snapshot === null ? null : environmentById(snapshot.config, item.task.environmentId);
-          const stale = item.imageStale || item.environmentStale;
+          const stale = item.imageStale === true || item.environmentStale === true;
           const selected = view === 'tasks' && item.task.id === selectedTaskId;
           return (
             <button
@@ -70,8 +72,8 @@ export function TaskSidebar(): JSX.Element {
               <span className="task-item-body">
                 <span className="task-item-name">{item.task.name}</span>
                 <span className="task-item-meta">
-                  {stale ? `${item.imageStale ? t('taskImageStale') : t('taskEnvironmentStale')} · ` : ''}
-                  {environment === null ? t('taskEnvironmentNone') : environment.name}
+                  {stale ? `${item.imageStale === true ? t('taskImageStale') : t('taskEnvironmentStale')} · ` : ''}
+                  {environment === null ? t('taskEnvironmentMissing') : environment.name}
                   {' · '}
                   {profile === null ? t('commonUnset') : profile.name}
                 </span>
@@ -93,6 +95,11 @@ export function TaskSidebar(): JSX.Element {
           >
             {item.icon}
             <span>{t(item.key)}</span>
+            {item.id === 'images' && activeOperations.length > 0 ? (
+              <span className="nav-badge" data-testid="images-nav-badge">
+                {activeOperations.length}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>

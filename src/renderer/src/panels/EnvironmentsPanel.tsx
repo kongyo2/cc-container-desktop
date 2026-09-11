@@ -1,8 +1,7 @@
-import { ArchiveRestore, Hammer, Pencil, Plus, RefreshCw, RotateCcw, Star, Trash2 } from 'lucide-react';
+import { ArchiveRestore, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 
-import { BASE_IMAGE_TOOLS } from '../../../shared/baseImage.ts';
 import { parseEnvText } from '../../../shared/env.ts';
 import {
   activeEnvironments,
@@ -11,10 +10,11 @@ import {
   suggestEnvironmentName,
 } from '../../../shared/environments.ts';
 import { newId } from '../../../shared/id.ts';
-import type { BuildRequest } from '../../../shared/ipc.ts';
+import { imageDisplayName, preferredRegisteredImage, registeredImageById } from '../../../shared/images.ts';
 import type { Environment, EnvironmentDraft, TaskView } from '../../../shared/types.ts';
 import { EnvironmentDialog } from '../components/EnvironmentDialog.tsx';
-import { ConfirmBanner, Section, formatBytes, formatTime } from '../components/ui.tsx';
+import { ConfirmBanner, Pill, Section, formatTime } from '../components/ui.tsx';
+import { availabilityKey, availabilityTone } from '../images.ts';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -27,6 +27,7 @@ function draftOf(environment: Environment): EnvironmentDraft {
   return {
     id: environment.id,
     name: environment.name,
+    imageId: environment.imageId,
     envText: environment.envText,
     setupScript: environment.setupScript,
   };
@@ -43,20 +44,17 @@ export function EnvironmentsPanel(): JSX.Element {
   const busy = useApp((state) => state.busy);
   const run = useApp((state) => state.run);
   const setToast = useApp((state) => state.setToast);
+  const setView = useApp((state) => state.setView);
 
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
-  const { config, docker, image, tasks } = snapshot;
+  const { config, tasks, images } = snapshot;
   const working = busy !== null;
   const active = activeEnvironments(config);
   const archived = archivedEnvironments(config);
-
-  const build = (request: BuildRequest): void => {
-    void run('build', () => window.cc.imageBuild(request));
-  };
 
   const summaryOf = (environment: Environment): string => {
     const variables = Object.keys(parseEnvText(environment.envText).env).length;
@@ -70,10 +68,34 @@ export function EnvironmentsPanel(): JSX.Element {
     ].join(' · ');
   };
 
+  const imageLine = (environment: Environment): JSX.Element => {
+    const view = registeredImageById(images, environment.imageId);
+    if (view === null) {
+      return (
+        <span className="env-row-image">
+          <span className="legend">{t('envImage')}</span> <span className="tag err">{t('envImageMissing')}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="env-row-image">
+        <span className="legend">{t('envImage')}</span> {imageDisplayName(view.image, language)}
+        <Pill tone={availabilityTone(view.availability)}>{t(availabilityKey(view.availability))}</Pill>
+      </span>
+    );
+  };
+
   const openCreate = (): void => {
+    const preferred = preferredRegisteredImage(images);
     setDialog({
       mode: 'create',
-      draft: { id: newId('env'), name: suggestEnvironmentName(config, language), envText: '', setupScript: '' },
+      draft: {
+        id: newId('env'),
+        name: suggestEnvironmentName(config, language),
+        imageId: preferred?.image.id ?? '',
+        envText: '',
+        setupScript: '',
+      },
     });
   };
 
@@ -95,88 +117,6 @@ export function EnvironmentsPanel(): JSX.Element {
   return (
     <>
       <Section
-        title={t('envBaseImageTitle')}
-        actions={
-          <>
-            <button
-              className={image.exists ? 'btn sm' : 'btn primary sm'}
-              disabled={working || !docker.available}
-              onClick={() => build({ noCache: false, refreshClaudeCode: false })}
-              type="button"
-              data-testid="image-build"
-            >
-              <Hammer size={13} /> {t('imageBuild')}
-            </button>
-            <button
-              className="btn sm"
-              disabled={working || !docker.available || !image.exists}
-              title={t('imageRefreshClaudeHint')}
-              onClick={() => build({ noCache: false, refreshClaudeCode: true })}
-              type="button"
-            >
-              <RefreshCw size={13} /> {t('imageRefreshClaude')}
-            </button>
-            <button
-              className="btn sm"
-              disabled={working || !docker.available}
-              onClick={() => build({ noCache: true, refreshClaudeCode: false })}
-              type="button"
-            >
-              <RotateCcw size={13} /> {t('imageRebuild')}
-            </button>
-          </>
-        }
-      >
-        <p className="hint">{t('envBaseImageHint')}</p>
-
-        <dl className="kv">
-          <dt>{t('imageTag')}</dt>
-          <dd>{image.tag}</dd>
-          <dt>{t('imageStatus')}</dt>
-          <dd>
-            {image.exists
-              ? `${t('imageBuilt')} — ${t('imageCreated')} ${formatTime(image.createdAt)} · ${t('imageSize')} ${formatBytes(image.sizeBytes)}`
-              : t('panelNotBuilt')}
-          </dd>
-        </dl>
-
-        {docker.available ? null : (
-          <p className="hint warn">
-            {t('taskDockerDown')}
-            {docker.error === null ? '' : ` — ${docker.error}`}
-          </p>
-        )}
-        {docker.available && !image.exists ? (
-          <p className="hint warn">
-            {t('imageNotBuilt')} {t('envBaseImageBuildHint')}
-          </p>
-        ) : null}
-
-        <p className="legend" style={{ margin: '4px 0 6px' }}>
-          {t('envToolsTitle')}
-        </p>
-        <table className="tools-table" data-testid="base-image-tools">
-          <thead>
-            <tr>
-              <th>{t('envToolsCategory')}</th>
-              <th>{t('envToolsIncluded')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {BASE_IMAGE_TOOLS.map((tool) => (
-              <tr key={tool.category.en}>
-                <td>{tool.category[language]}</td>
-                <td>{tool.included[language]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="hint">{t('envToolsNodeNote')}</p>
-        <p className="hint">{t('envToolsServicesNote')}</p>
-        <p className="hint">{t('imageAfterBuildHint')}</p>
-      </Section>
-
-      <Section
         title={t('envListTitle')}
         actions={
           <button
@@ -191,6 +131,16 @@ export function EnvironmentsPanel(): JSX.Element {
         }
       >
         <p className="hint">{t('envListHint')}</p>
+        {images.length === 0 ? (
+          <div className="row" style={{ marginBottom: 12 }}>
+            <span className="hint warn" style={{ margin: 0 }}>
+              {t('envNoImages')}
+            </span>
+            <button className="btn sm" onClick={() => setView('images')} type="button">
+              {t('envOpenImages')}
+            </button>
+          </div>
+        ) : null}
         {active.length === 0 ? <p className="empty">{t('envEmpty')}</p> : null}
 
         <div className="env-list" data-testid="env-list">
@@ -203,6 +153,7 @@ export function EnvironmentsPanel(): JSX.Element {
                     <span>{environment.name}</span>
                     {isDefault ? <span className="tag ok">{t('envDefault')}</span> : null}
                   </div>
+                  <div className="env-row-meta">{imageLine(environment)}</div>
                   <div className="env-row-meta">{summaryOf(environment)}</div>
                 </div>
                 <div className="row">
@@ -254,6 +205,7 @@ export function EnvironmentsPanel(): JSX.Element {
                         <span>{environment.name}</span>
                         <span className="tag">{t('envArchivedTitle')}</span>
                       </div>
+                      <div className="env-row-meta">{imageLine(environment)}</div>
                       <div className="env-row-meta">{summaryOf(environment)}</div>
                       {confirmDeleteId === environment.id ? (
                         <ConfirmBanner

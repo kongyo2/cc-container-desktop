@@ -1,71 +1,88 @@
 # Claude Code コンテナ ワークベンチ
 
-Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron アプリ。作業は「タスク」単位で、タスクごとに専用のコンテナとホームボリュームを持ちます。コンテナは固定のベースイメージから作られ、タスクごとに「環境」(環境変数とセットアップスクリプト) を選びます。エンドポイント・モデル・API キーはプロファイルとしてタスクに割り当てます。ホストには Node も Claude Code も入れません。
+Claude Code を Docker コンテナの中で動かす Windows 11 向け Electron アプリ。作業は「タスク」単位で、タスクごとに専用のコンテナとホームボリュームを持ちます。コンテナは Docker Hub で配布しているビルド済みイメージから作られ、どのイメージを使うかは「環境」(イメージ + 環境変数 + セットアップスクリプト) で決めます。エンドポイント・モデル・API キーはプロファイルとしてタスクに割り当てます。ホストには Node も Claude Code も入れず、ローカルでのイメージビルドも不要です。
 
 [English](README.en.md)
 
 ## 使い方
 
-1. Docker Desktop を起動し、「環境」でベースイメージをビルドします (初回のみ。全ツールチェーンを入れるので数十分かかります)。
-2. 「プロファイル」でエンドポイントと API キーを設定します。
-3. 必要なら「環境」で環境を作ります。名前、`.env` 形式の環境変数、コンテナを作った直後に 1 回走る Bash のセットアップスクリプトを持ちます。最初から「環境1」が 1 つあります。
-4. 左上の「+」でタスクを作ります。環境を 1 つ選び、空のワークスペースで始めるか、公開 Git リポジトリを clone します。
-5. タスク画面の「Claude Code」でコンテナ内の tmux セッションに入ります。タブを閉じてもアプリを閉じても Claude Code は動き続け、同じボタンで再接続できます。
-6. ファイルやフォルダはタスク画面へドロップ (または「取り込む」ボタン) でワークスペースにコピーし、成果は「取り出す」でホストのフォルダに書き出します。
+1. Docker Desktop を起動します (Linux コンテナモード)。
+2. 「イメージ」で用途に合うパターンを選び、**ダウンロードして登録** を押します。取得 → 検証 → 登録が進み、カードが「登録済み」になります。初回は Web をおすすめします。
+3. 登録済みのカードの **このイメージで環境を作る** (または「環境」の「環境を作成」) で環境を作ります。環境は名前、イメージ、`.env` 形式の環境変数、コンテナを作った直後に 1 回走る Bash のセットアップスクリプトを持ちます。
+4. 「プロファイル」でエンドポイントと API キーを設定します (イメージの取得には不要です)。
+5. 左上の「+」でタスクを作ります。環境を 1 つ選び、空のワークスペースで始めるか、公開 Git リポジトリを clone します。
+6. タスク画面の「Claude Code」でコンテナ内の tmux セッションに入ります。タブを閉じてもアプリを閉じても Claude Code は動き続け、同じボタンで再接続できます。
+7. ファイルやフォルダはタスク画面へドロップ (または「取り込む」ボタン) でワークスペースにコピーし、成果は「取り出す」でホストのフォルダに書き出します。
 
-## ベースイメージ
+## イメージ
 
-すべてのタスクは同じ固定イメージから作られます。中身はアプリに同梱の `docker/Dockerfile` で決まり、アプリからは編集しません。Claude Code のクラウド環境と同じ構成です。
+すべてのイメージは同じ土台 (Ubuntu 24.04、Node.js 24、Claude Code、Git、GitHub CLI、tmux、ripgrep、fd、jq、yq、gcc/make) と同じ実行契約を共有するので、アプリの機能はどれを選んでも同じように動きます。用途に合わせて 8 パターンから選びます。
 
-| カテゴリ         | 内容                                                                     |
-| ---------------- | ------------------------------------------------------------------------ |
-| Python           | Python 3.x、pip、poetry、uv、black、mypy、pytest、ruff                   |
-| Node.js          | 20、21、22 (npm、yarn、pnpm、bun、eslint、prettier、chromedriver)        |
-| Ruby             | 3.1、3.2、3.3 (gem、bundler、rbenv)                                      |
-| PHP              | 8.3 と Composer                                                          |
-| Java             | OpenJDK 21、Maven、Gradle                                                |
-| Go               | Go (モジュール対応)                                                      |
-| Rust             | rustc と cargo                                                           |
-| C/C++            | GCC、Clang、cmake、ninja、conan                                          |
-| Docker           | docker、dockerd、docker compose                                          |
-| データベース     | PostgreSQL 16、Redis 7.0                                                 |
-| ユーティリティ   | git、gh、jq、yq、ripgrep、tmux、vim、nano                                |
+| パターン   | 用途                                          | 土台に加えて入っているもの                                                                                              |
+| ---------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `base`     | シェル、Git、軽い編集。追加は自分で入れたい人 | なし                                                                                                                    |
+| `web` ★    | JavaScript / TypeScript、フロントエンド、Node | pnpm、Yarn、Bun、TypeScript、ESLint、Prettier                                                                           |
+| `python`   | Python アプリ、スクリプト、データ処理         | Python 3 (venv / pip)、uv、Poetry、pytest、Ruff、mypy、Black                                                            |
+| `go`       | Go のサービス・CLI                            | Go ツールチェーン                                                                                                       |
+| `rust`     | Rust のクレート・サービス                     | rustc / cargo、rustfmt、clippy、OpenSSL 開発ヘッダー                                                                    |
+| `jvm`      | Java / Kotlin                                 | OpenJDK 21、Maven、Gradle                                                                                               |
+| `ruby`     | Ruby / Rails                                  | Ruby、Bundler、ネイティブ拡張用ライブラリ                                                                               |
+| `full`     | 複数言語をまたぐリポジトリ                    | 上のすべて + PHP / Composer、Clang / CMake / Ninja / Conan、PostgreSQL 16、Redis、SQLite、Docker CLI / Compose / Buildx |
 
-Node.js は `/opt/node20`、`/opt/node21`、`/opt/node22` にあり、既定で 22 が `PATH` に入っています。別のバージョンを使うときは、その `bin` (例: `/opt/node20/bin`) を `PATH` の先頭に足すよう Claude に頼んでください。PostgreSQL と Redis は `sudo service postgresql start` / `sudo service redis-server start` で起動します。Docker デーモンはコンテナ内では起動できません。
+★ アプリが最初におすすめするパターンです。
 
-「Claude Code を更新」は Claude Code とグローバルの npm ツールの層だけを入れ直します。
+- 配布先は Docker Hub のリポジトリ `kongyo2/cc-workbench`、対応プラットフォームは `linux/amd64` と `linux/arm64` です。正式タグは `<パターン>-<配布版>` (例 `web-2026.09.1`) で、一度公開したタグは書き換えません。修正は新しい配布版として出します。
+- アプリはタグではなく、同梱カタログ (`src/shared/imageCatalog.json`) に記録されたプラットフォームごとの manifest digest で取得します。登録台帳にもその digest を保存するので、あとからタグが動いても取得内容は変わりません。カタログにまだ digest がない配布版はタグで取得し、実際に届いた digest を登録時に固定します。
+- 取得したイメージは登録前に検証します。OS / CPU、ラベル、`claude` ユーザー (1000:1000)、`/home/claude/workspace`、Node.js と Claude Code、tmux などの共通実行契約を、ネットワークなしの一時コンテナで確認し、失敗したら登録しません。
+- Docker が止まっていてもカタログと登録済み一覧は閲覧できます。Windows コンテナモードや未対応の CPU では取得を始めず、理由を表示します。
+- 「登録解除」はアプリの台帳から外す操作です。Docker 内のイメージ本体は削除しません。環境やタスクが参照している登録は解除できません。
+- 新しい Claude Code やツールの版は、新しい配布版のイメージとして配ります。カタログの更新はアプリの更新と一緒に届きます。既存のタスクは勝手には変わりません。
 
 ## 環境
 
-環境は「名前」「環境変数 (`.env` 形式)」「セットアップスクリプト」の組です。
+環境は「名前」「イメージ」「環境変数 (`.env` 形式)」「セットアップスクリプト」の組です。
 
+- イメージは登録済みで利用可能なものから 1 つ選びます (必須)。環境のイメージをあとから変えると、その環境のタスクに「イメージの変更を適用できます」が出ます。「作り直す」でホームボリュームを保ったまま新しいイメージに載せ替えます。
 - 環境変数はタスクのコンテナを作るときに設定され、コンテナ内のすべてのプロセス (シェル、Claude Code、そのツール) に渡ります。`HOME`・`USER`・`TERM`・`COLORTERM`・`LANG` はアプリが設定するので指定できません。
-- 環境変数は `config.json` に平文で保存され、`docker inspect` でも見えます。API キーなどの秘密はここではなく、プロファイルの API キー欄 (OS の暗号化ストア) に入れてください。ここでいう「セッション」はタスクのコンテナのことです。
+- 環境変数は `config.json` に平文で保存され、`docker inspect` でも見えます。API キーなどの秘密はここではなく、プロファイルの API キー欄 (OS の暗号化ストア) に入れてください。
 - セットアップスクリプトは、コンテナを作った直後 (clone のあと、Claude Code を開く前) にワークスペースで `claude` ユーザーとして 1 回だけ実行されます。停止・起動では再実行されず、「作り直す」で再実行されます。失敗した場合は次の起動時にもう一度実行します。
-- 環境への変更は新しいコンテナに適用されます。すでにあるタスクには「環境更新あり」が出るので、「作り直す」でホームボリュームを保ったまま反映します。
+- 環境変数やセットアップスクリプトへの変更は新しいコンテナに適用されます。すでにあるタスクには「環境更新あり」が出るので、「作り直す」で反映します。
 - 環境はアーカイブできます。アーカイブ済みの環境は新しいタスクから選べませんが、使っているタスクはそのまま動きます。タスクが使っていない環境だけ削除できます。
 
 ## タスクとデータの置き場所
 
-| もの                       | 場所                                                                                                                   |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| ワークスペース・設定・履歴 | タスクごとの Docker ボリューム `cc-task-<id>-home` (`/home/claude`)                                                    |
-| コンテナ                   | `cc-task-<id>`。停止しても削除しない限りボリュームは残ります                                                           |
-| イメージ                   | 全タスク共通。再ビルドすると各タスクに「イメージ更新あり」が出て、「作り直す」でボリュームを保ったまま載せ替えられます |
-| アプリの設定・タスク一覧   | `%APPDATA%\cc-container-desktop\config.json` (環境もここ) / `tasks.json`。API キーは `secrets.json` (OS の暗号化ストア経由) |
+| もの                       | 場所                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ワークスペース・設定・履歴 | タスクごとの Docker ボリューム `cc-task-<id>-home` (`/home/claude`)                                                                                      |
+| コンテナ                   | `cc-task-<id>`。停止しても削除しない限りボリュームは残ります。作成元の登録イメージと digest はコンテナのラベルに記録されます                              |
+| イメージ                   | Docker 内のイメージ本体はプラットフォーム digest で参照します。登録台帳は `images.json`、取得履歴は `image-operations.json`                              |
+| アプリの設定・タスク一覧   | `%APPDATA%\cc-container-desktop\state-v1\config.json` (環境もここ) / `tasks.json`。API キーは `secrets.json` (OS の暗号化ストア経由)。「設定」から開けます |
 
-タスクの削除はコンテナとボリュームを消します。「削除する前にワークスペースを取り出す」を付けると、取り出しに失敗した項目が 1 つでもあれば削除しません。
+- 保存ファイルは現在の形式 (`schemaVersion: 1`) だけを厳密に読みます。読めないファイルがあると起動時に表示され、そのファイルへの更新は止まります (空データで上書きしません)。退避コピーが `*.broken-*` として残ります。
+- 以前の版 (`state-v1` の外にある `config.json` / `tasks.json` / `secrets.json` や固定タグのイメージ) は読み込みません。データは新しい領域から始まります。
+- タスクの削除はコンテナとボリュームを消します。「削除する前にワークスペースを取り出す」を付けると、取り出しに失敗した項目が 1 つでもあれば削除しません。
 
-### v0.3 以前から
+## Docker Hub の制限で取得できないとき
 
-v0.3 の編集可能な Dockerfile・setup.sh・post-create.sh は扱いません (`%APPDATA%\cc-container-desktop\docker` に残ったままです)。setup.sh に書いていたものはベースイメージに含まれるか、環境のセットアップスクリプトへ移してください。v0.3 で作ったタスクには「環境更新あり」が出ます。「作り直す」で新しいベースイメージと環境に載せ替えてください。
+Docker Hub の匿名取得には回数制限があります。制限中は、ターミナルで `docker login` したうえで、カードの「詳細」にある pull コマンド (digest 指定) を実行し、完了後にアプリの同じボタンを押すと、ローカルのイメージを検証して登録します。アプリが資格情報を読み出すことはありません。
 
 ## 開発
 
 ```
 npm ci
-npm run dev        # 開発モード
-npm run check      # format / lint / typecheck / build
-npm run e2e:deep   # Docker が必要 (API キー不要)。専用の userData と e2e- 接頭辞のタスクで動きます
-npm run e2e        # Docker と CC_E2E_API_KEY が必要
+npm run dev              # 開発モード
+npm run check            # format / lint / typecheck / unit test / catalog / build
+npm test                 # 純粋関数・状態遷移・stream 解析・台帳の単体テスト (Docker 不要)
+npm run e2e:images       # Docker が必要 (API キー不要)。ローカルレジストリに base を公開し、取得→登録→環境→タスクを通します
+npm run e2e:deep         # Docker が必要 (API キー不要)
+npm run e2e              # Docker と CC_E2E_API_KEY が必要
 ```
+
+### イメージのビルドと公開
+
+- `docker/Dockerfile` は共通の土台 (`core`) と 8 つの最終ターゲットを持ちます。各ステージは自分が実行するスクリプトだけをコピーするので、1 つのバリアントのインストーラーを直しても `core` はビルドキャッシュから再利用されます。バージョンは `docker/image-versions.lock.json` に固定し、`npm run lock:update` で最新版とチェックサムに更新します (ビルドと分けています)。
+- ローカルでのビルド: `npm run images:build -- base` (すべては `npm run images:build`)。TLS を検査するプロキシの下では BuildKit secret `build-ca-bundle` に CA バンドルを渡します。
+- 各イメージには `/opt/cc/image-info.json` (パターン、配布版、実行契約、ソース revision、実測したツールの版) と `/opt/cc/apt-packages.txt` が入ります。`docker/scripts/verify-runtime.sh` が実行契約の基準で、CI とアプリの登録検証が同じスクリプトを使います。
+- 公開は GitHub Actions の `publish-images` (workflow_dispatch) で行います。パターン × プラットフォームをネイティブランナーでビルドして digest で push し、パターンごとに候補タグへまとめ、Docker Hub から取り直して契約検査を通したものだけを正式タグへ昇格します。匿名 pull を確認したあと、実 digest とサイズを入れた `imageCatalog.json` を生成して PR を開きます。必要なシークレットは `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`、リポジトリは変数 `DOCKERHUB_REPOSITORY` (既定 `docker.io/kongyo2/cc-workbench`) です。
+- `npm run catalog:verify` はカタログの形式を、`npm run catalog:verify:online` は各 digest が Docker Hub から匿名で取得できることを確認します。アプリのリリースワークフローは後者をゲートにします。
+- 開発ビルドだけ、環境変数 `CC_IMAGE_CATALOG_FILE` で別のカタログ (例: ローカルレジストリ) を使えます。パッケージ版では無視されます。

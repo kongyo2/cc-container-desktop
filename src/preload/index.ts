@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
+import type { ImageOperation } from '../shared/images.ts';
 import { CHANNELS, EVENTS } from '../shared/ipc.ts';
 import type { Api } from '../shared/ipc.ts';
 import type { LogLine, TerminalData, TerminalExit, TerminalsReset } from '../shared/types.ts';
@@ -30,7 +31,12 @@ const api: Api = {
   environmentDelete: (id) => ipcRenderer.invoke(CHANNELS.environmentDelete, id),
 
   dockerProbe: () => ipcRenderer.invoke(CHANNELS.dockerProbe),
-  imageBuild: (request) => ipcRenderer.invoke(CHANNELS.imageBuild, request),
+
+  imageDownloadStart: (request) => ipcRenderer.invoke(CHANNELS.imageDownloadStart, request),
+  imageRepairStart: (request) => ipcRenderer.invoke(CHANNELS.imageRepairStart, request),
+  imageCancel: (request) => ipcRenderer.invoke(CHANNELS.imageCancel, request),
+  imageUnregister: (request) => ipcRenderer.invoke(CHANNELS.imageUnregister, request),
+  imageRefresh: () => ipcRenderer.invoke(CHANNELS.imageRefresh),
 
   extensionsSave: (extensions) => ipcRenderer.invoke(CHANNELS.extensionsSave, extensions),
   extensionsApply: () => ipcRenderer.invoke(CHANNELS.extensionsApply),
@@ -58,6 +64,7 @@ const api: Api = {
   onTerminalExit: (listener) => subscribe<TerminalExit>(EVENTS.termExit, listener),
   onStateChanged: (listener) => subscribe<void>(EVENTS.stateChanged, () => listener()),
   onTerminalsReset: (listener) => subscribe<TerminalsReset>(EVENTS.terminalsReset, listener),
+  onImageOperation: (listener) => subscribe<ImageOperation>(EVENTS.imageOperation, listener),
 };
 
 contextBridge.exposeInMainWorld('cc', api);

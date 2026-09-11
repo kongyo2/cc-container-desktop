@@ -122,16 +122,29 @@ export const CONTAINER_USER = 'claude';
 export const CONTAINER_UID = 1000;
 export const CONTAINER_GID = 1000;
 
-export const DEFAULT_IMAGE_TAG = 'cc-container-desktop:latest';
-
 export const CLAUDE_TMUX_SESSION = 'cc';
 
 export const MANAGED_LABEL = 'com.cc-container-desktop.managed';
+export const INSTANCE_LABEL = 'com.cc-container-desktop.instance';
+export const ROLE_LABEL = 'com.cc-container-desktop.role';
 export const TASK_LABEL = 'com.cc-container-desktop.task';
+export const OPERATION_LABEL = 'com.cc-container-desktop.operation';
 export const ENVIRONMENT_LABEL = 'com.cc-container-desktop.environment';
 export const ENVIRONMENT_REVISION_LABEL = 'com.cc-container-desktop.environment-revision';
+export const REGISTERED_IMAGE_LABEL = 'com.cc-container-desktop.image';
+export const IMAGE_DIGEST_LABEL = 'com.cc-container-desktop.image-digest';
+export const RUNTIME_CONTRACT_LABEL = 'com.cc-container-desktop.runtime-contract';
+
+export const IMAGE_PROJECT_LABEL = 'com.cc-container-desktop.project';
+export const IMAGE_VARIANT_LABEL = 'com.cc-container-desktop.image.variant';
+export const IMAGE_RELEASE_LABEL = 'com.cc-container-desktop.image.release';
+export const IMAGE_CONTRACT_LABEL = 'com.cc-container-desktop.image.runtime-contract';
+export const OCI_REVISION_LABEL = 'org.opencontainers.image.revision';
+
+export const CONTAINER_IMAGE_INFO: string = `${CONTAINER_SCRIPT_DIR}/image-info.json`;
 
 const TASK_RESOURCE_PREFIX = 'cc-task-';
+const VERIFY_RESOURCE_PREFIX = 'cc-verify-';
 
 export function taskContainerName(taskId: string): string {
   return `${TASK_RESOURCE_PREFIX}${taskId}`;
@@ -139,4 +152,8 @@ export function taskContainerName(taskId: string): string {
 
 export function taskVolumeName(taskId: string): string {
   return `${TASK_RESOURCE_PREFIX}${taskId}-home`;
+}
+
+export function verifyContainerName(operationId: string): string {
+  return `${VERIFY_RESOURCE_PREFIX}${operationId}`;
 }

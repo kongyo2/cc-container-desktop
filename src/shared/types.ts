@@ -1,3 +1,12 @@
+import type {
+  AppError,
+  ImageAvailability,
+  ImageCatalog,
+  ImageOperation,
+  ImagePlatform,
+  RegisteredImageView,
+} from './images.ts';
+
 export type Language = 'ja' | 'en';
 
 export type AuthMode = 'authToken' | 'apiKey';
@@ -23,6 +32,7 @@ export interface Profile {
 export interface Environment {
   readonly id: string;
   readonly name: string;
+  readonly imageId: string;
   readonly envText: string;
   readonly setupScript: string;
   readonly archived: boolean;
@@ -30,16 +40,16 @@ export interface Environment {
   readonly updatedAt: string;
 }
 
-export type EnvironmentDraft = Pick<Environment, 'id' | 'name' | 'envText' | 'setupScript'>;
+export type EnvironmentDraft = Pick<Environment, 'id' | 'name' | 'imageId' | 'envText' | 'setupScript'>;
 
 export interface AppConfig {
-  readonly version: 3;
+  readonly schemaVersion: 1;
+  readonly dataInstanceId: string;
   readonly language: Language;
   readonly defaultProfileId: string | null;
   readonly profiles: readonly Profile[];
   readonly defaultEnvironmentId: string | null;
   readonly environments: readonly Environment[];
-  readonly imageTag: string;
   readonly autoOnboarding: boolean;
   readonly autoApproveApiKey: boolean;
   readonly skipPermissions: boolean;
@@ -52,7 +62,6 @@ export type ConfigPatch = Partial<
     AppConfig,
     | 'defaultProfileId'
     | 'defaultEnvironmentId'
-    | 'imageTag'
     | 'autoOnboarding'
     | 'autoApproveApiKey'
     | 'skipPermissions'
@@ -63,24 +72,34 @@ export type ConfigPatch = Partial<
 export type WorkspaceSource =
   { readonly kind: 'empty' } | { readonly kind: 'git'; readonly url: string; readonly ref: string };
 
+export interface AppliedRuntime {
+  readonly registeredImageId: string;
+  readonly localImageId: string;
+  readonly engineId: string;
+  readonly environmentId: string;
+  readonly environmentRevision: string;
+  readonly appliedAt: string;
+}
+
 export interface Task {
   readonly id: string;
   readonly name: string;
   readonly note: string;
   readonly profileId: string | null;
-  readonly environmentId: string | null;
+  readonly environmentId: string;
   readonly source: WorkspaceSource;
   readonly containerName: string;
   readonly volumeName: string;
   readonly createdAt: string;
   readonly managed: ManagedNames;
+  readonly lastAppliedRuntime: AppliedRuntime | null;
 }
 
 export interface NewTaskInput {
   readonly name: string;
   readonly note: string;
   readonly profileId: string | null;
-  readonly environmentId: string | null;
+  readonly environmentId: string;
   readonly source: WorkspaceSource;
 }
 
@@ -88,7 +107,7 @@ export interface TaskPatch {
   readonly name?: string;
   readonly note?: string;
   readonly profileId?: string | null;
-  readonly environmentId?: string | null;
+  readonly environmentId?: string;
 }
 
 export interface CreateTaskResult {
@@ -101,15 +120,11 @@ export interface DockerStatus {
   readonly version: string | null;
   readonly apiVersion: string | null;
   readonly os: string | null;
+  readonly architecture: string | null;
+  readonly platform: ImagePlatform | null;
+  readonly engineId: string | null;
+  readonly name: string | null;
   readonly error: string | null;
-}
-
-export interface ImageStatus {
-  readonly tag: string;
-  readonly exists: boolean;
-  readonly id: string | null;
-  readonly createdAt: string | null;
-  readonly sizeBytes: number | null;
 }
 
 export interface ContainerState {
@@ -122,13 +137,18 @@ export interface ContainerState {
   readonly homeVolume: string | null;
   readonly environmentId: string | null;
   readonly environmentRevision: string | null;
+  readonly registeredImageId: string | null;
+  readonly pinnedDigest: string | null;
 }
 
 export interface TaskView {
   readonly task: Task;
   readonly container: ContainerState;
-  readonly imageStale: boolean;
-  readonly environmentStale: boolean;
+  readonly desiredImageId: string | null;
+  readonly desiredAvailability: ImageAvailability | null;
+  readonly appliedImageId: string | null;
+  readonly imageStale: boolean | null;
+  readonly environmentStale: boolean | null;
 }
 
 export interface ExecResult {
@@ -140,15 +160,19 @@ export interface ExecResult {
 export interface Snapshot {
   readonly config: AppConfig;
   readonly docker: DockerStatus;
-  readonly image: ImageStatus;
+  readonly catalog: ImageCatalog;
+  readonly images: readonly RegisteredImageView[];
+  readonly operations: readonly ImageOperation[];
   readonly tasks: readonly TaskView[];
+  readonly storeProblems: readonly string[];
   readonly secretsEncrypted: boolean;
   readonly appVersion: string;
   readonly platform: string;
+  readonly dataDir: string;
 }
 
 export interface LogLine {
-  readonly stream: 'build' | 'app' | 'provision' | 'setup';
+  readonly stream: 'image' | 'app' | 'provision' | 'setup';
   readonly level: 'info' | 'warn' | 'error';
   readonly text: string;
   readonly at: number;
@@ -181,7 +205,7 @@ export interface OpenTerminalResult {
   readonly id: string;
 }
 
-export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
+export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: AppError };
 
 export interface ExportSummary {
   readonly path: string;

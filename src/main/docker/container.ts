@@ -8,12 +8,19 @@ import {
   CONTAINER_WORKSPACE,
   ENVIRONMENT_LABEL,
   ENVIRONMENT_REVISION_LABEL,
+  IMAGE_DIGEST_LABEL,
+  INSTANCE_LABEL,
   MANAGED_LABEL,
+  REGISTERED_IMAGE_LABEL,
+  ROLE_LABEL,
+  RUNTIME_CONTRACT_LABEL,
   TASK_LABEL,
 } from '../../shared/presets.ts';
 import type { ContainerState, ExecResult, Task } from '../../shared/types.ts';
-import { describeError, logInfo, logWarn } from '../logger.ts';
-import { docker, isNotFound, requireImageBuilt } from './engine.ts';
+import { dataInstanceId } from '../config/store.ts';
+import { AppFailure, classifyDockerError, describeError, isNotFound } from '../errors.ts';
+import { logInfo, logWarn } from '../logger.ts';
+import { docker } from './engine.ts';
 
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
@@ -26,7 +33,10 @@ export interface ContainerRef {
 }
 
 export interface ContainerSpec {
-  readonly imageTag: string;
+  readonly localImageId: string;
+  readonly registeredImageId: string;
+  readonly pinnedDigest: string;
+  readonly runtimeContract: number;
   readonly env: readonly string[];
   readonly environmentId: string;
   readonly environmentRevision: string;
@@ -72,6 +82,8 @@ export const MISSING_CONTAINER: ContainerState = {
   homeVolume: null,
   environmentId: null,
   environmentRevision: null,
+  registeredImageId: null,
+  pinnedDigest: null,
 };
 
 async function nullIfNotFound<T>(read: () => Promise<T>): Promise<T | null> {
@@ -117,6 +129,8 @@ function stateOf(raw: InspectResponse): ContainerState {
     homeVolume: homeVolumeOf(raw),
     environmentId: labelString(labels, ENVIRONMENT_LABEL),
     environmentRevision: labelString(labels, ENVIRONMENT_REVISION_LABEL),
+    registeredImageId: labelString(labels, REGISTERED_IMAGE_LABEL),
+    pinnedDigest: labelString(labels, IMAGE_DIGEST_LABEL),
   };
 }
 
@@ -125,13 +139,14 @@ export async function inspectContainer(ref: ContainerRef): Promise<ContainerStat
   return raw === null ? MISSING_CONTAINER : stateOf(raw);
 }
 
+/** Ownership means: created by this app, for this task, by this data instance. Anything else is left alone. */
 function ownedBy(labels: unknown, taskId: string): boolean {
   const map = labelsOf(labels);
-  return map[MANAGED_LABEL] === 'true' && map[TASK_LABEL] === taskId;
+  return map[MANAGED_LABEL] === 'true' && map[TASK_LABEL] === taskId && map[INSTANCE_LABEL] === dataInstanceId();
 }
 
 function ownerLabels(taskId: string): Record<string, string> {
-  return { [MANAGED_LABEL]: 'true', [TASK_LABEL]: taskId };
+  return { [MANAGED_LABEL]: 'true', [ROLE_LABEL]: 'task', [TASK_LABEL]: taskId, [INSTANCE_LABEL]: dataInstanceId() };
 }
 
 function containerLabels(ref: ContainerRef, spec: ContainerSpec): Record<string, string> {
@@ -139,20 +154,24 @@ function containerLabels(ref: ContainerRef, spec: ContainerSpec): Record<string,
     ...ownerLabels(ref.taskId),
     [ENVIRONMENT_LABEL]: spec.environmentId,
     [ENVIRONMENT_REVISION_LABEL]: spec.environmentRevision,
+    [REGISTERED_IMAGE_LABEL]: spec.registeredImageId,
+    [IMAGE_DIGEST_LABEL]: spec.pinnedDigest,
+    [RUNTIME_CONTRACT_LABEL]: String(spec.runtimeContract),
   };
 }
 
-function foreignError(name: string, noun: string): Error {
-  return new Error(
-    `${name} はこのタスクのために作られた${noun}ではないので触りません / ${name} exists but was not created for this task; it was left alone`,
+function foreignError(name: string, noun: string): AppFailure {
+  return new AppFailure(
+    'FOREIGN_RESOURCE',
+    `${name} はこのタスクのために作られた${noun}ではないので触りません / ${name} exists but was not created for this task by this app instance; it was left alone`,
   );
 }
 
-function foreignContainerError(ref: ContainerRef): Error {
+function foreignContainerError(ref: ContainerRef): AppFailure {
   return foreignError(ref.containerName, 'コンテナ');
 }
 
-function foreignVolumeError(name: string): Error {
+function foreignVolumeError(name: string): AppFailure {
   return foreignError(name, 'ボリューム');
 }
 
@@ -189,39 +208,42 @@ async function ownedRaw(ref: ContainerRef): Promise<InspectResponse | null> {
 }
 
 async function createContainer(ref: ContainerRef, spec: ContainerSpec): Promise<void> {
-  await requireImageBuilt(spec.imageTag);
   await ensureVolume(ref);
   logInfo(
     'app',
-    `コンテナを作成します / creating container: ${ref.containerName} (${spec.env.length} env var${spec.env.length === 1 ? '' : 's'} from the environment)`,
+    `コンテナを作成します / creating container: ${ref.containerName} from ${spec.registeredImageId} (${spec.env.length} env var${spec.env.length === 1 ? '' : 's'} from the environment)`,
   );
-  await docker().createContainer({
-    name: ref.containerName,
-    Image: spec.imageTag,
-    Hostname: ref.containerName,
-    User: CONTAINER_USER,
-    WorkingDir: CONTAINER_WORKSPACE,
-    Tty: false,
-    OpenStdin: false,
-    Env: [...BASE_ENV, ...spec.env],
-    Labels: containerLabels(ref, spec),
-    Cmd: ['sleep', 'infinity'],
-    HostConfig: {
-      Binds: [`${ref.volumeName}:${CONTAINER_HOME}`],
-      Init: true,
-      RestartPolicy: { Name: 'unless-stopped' },
-    },
-  });
+  try {
+    await docker().createContainer({
+      name: ref.containerName,
+      Image: spec.localImageId,
+      Hostname: ref.containerName,
+      User: CONTAINER_USER,
+      WorkingDir: CONTAINER_WORKSPACE,
+      Tty: false,
+      OpenStdin: false,
+      Env: [...BASE_ENV, ...spec.env],
+      Labels: containerLabels(ref, spec),
+      Cmd: ['sleep', 'infinity'],
+      HostConfig: {
+        Binds: [`${ref.volumeName}:${CONTAINER_HOME}`],
+        Init: true,
+        RestartPolicy: { Name: 'unless-stopped' },
+      },
+    });
+  } catch (error) {
+    throw classifyDockerError(error, 'create');
+  }
 }
 
-export async function ensureContainer(ref: ContainerRef, spec: ContainerSpec): Promise<ContainerState> {
+export async function ensureContainer(ref: ContainerRef, spec: () => Promise<ContainerSpec>): Promise<ContainerState> {
   const raw = await ownedRaw(ref);
   if (raw !== null) return stateOf(raw);
-  await createContainer(ref, spec);
+  await createContainer(ref, await spec());
   return inspectContainer(ref);
 }
 
-export async function startContainer(ref: ContainerRef, spec: ContainerSpec): Promise<ContainerState> {
+export async function startContainer(ref: ContainerRef, spec: () => Promise<ContainerSpec>): Promise<ContainerState> {
   const state = await ensureContainer(ref, spec);
   if (!state.running) {
     await containerHandle(ref).start();
@@ -407,16 +429,16 @@ export async function requireRunning(ref: ContainerRef): Promise<void> {
   try {
     raw = await ownedRaw(ref);
   } catch (error) {
-    throw new Error(`${NOT_RUNNING_MESSAGE} (${describeError(error)})`, { cause: error });
+    throw new AppFailure('TASK_NOT_RUNNING', `${NOT_RUNNING_MESSAGE} (${describeError(error)})`, { cause: error });
   }
-  if (raw === null || raw.State?.Running !== true) throw new Error(NOT_RUNNING_MESSAGE);
+  if (raw === null || raw.State?.Running !== true) throw new AppFailure('TASK_NOT_RUNNING', NOT_RUNNING_MESSAGE);
 }
 
 export function translateContainerError(error: unknown): unknown {
   if (!isNotFound(error)) return error;
   const message = describeError(error);
   if (!/no such container/iu.test(message)) return error;
-  return new Error(NOT_RUNNING_MESSAGE, { cause: error });
+  return new AppFailure('TASK_NOT_RUNNING', NOT_RUNNING_MESSAGE, { cause: error });
 }
 
 export async function withRunningContainer<T>(ref: ContainerRef, action: () => Promise<T>): Promise<T> {

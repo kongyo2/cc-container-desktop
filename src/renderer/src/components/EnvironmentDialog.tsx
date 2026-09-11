@@ -9,8 +9,10 @@ import {
   environmentEnvProblems,
   environmentNameProblem,
 } from '../../../shared/environments.ts';
+import { imageDisplayName } from '../../../shared/images.ts';
 import type { EnvironmentDraft } from '../../../shared/types.ts';
-import { useLanguage, useT } from '../i18n.ts';
+import { availabilityKey } from '../images.ts';
+import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
 export interface EnvironmentDialogProps {
@@ -24,16 +26,27 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
   const language = useLanguage();
   const run = useApp((state) => state.run);
   const busy = useApp((state) => state.busy);
+  const snapshot = useApp((state) => state.snapshot);
   const setToast = useApp((state) => state.setToast);
+  const setView = useApp((state) => state.setView);
 
   const [name, setName] = useState(initial.name);
+  const [imageId, setImageId] = useState(initial.imageId);
   const [envText, setEnvText] = useState(initial.envText);
   const [setupScript, setSetupScript] = useState(initial.setupScript);
 
+  const images = snapshot?.images ?? [];
+  const tasks = snapshot?.tasks ?? [];
+  const current = images.find((view) => view.image.id === imageId) ?? null;
+  const selectable = images.filter((view) => view.availability.kind === 'ready' || view.image.id === initial.imageId);
   const nameProblem = environmentNameProblem(name, language);
   const envProblems = environmentEnvProblems(envText);
   const working = busy !== null;
-  const canSave = nameProblem === null && envProblems.length === 0 && !working;
+  const canSave = nameProblem === null && envProblems.length === 0 && imageId !== '' && current !== null && !working;
+  const affected =
+    mode === 'edit' && imageId !== initial.imageId
+      ? tasks.filter((view) => view.task.environmentId === initial.id).length
+      : 0;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -46,10 +59,10 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
   const save = (): void => {
     void (async () => {
       const saved = await run('environment', () =>
-        window.cc.environmentUpsert({ id: initial.id, name, envText, setupScript }),
+        window.cc.environmentUpsert({ id: initial.id, name, imageId, envText, setupScript }),
       );
       if (saved === null) return;
-      setToast(t('commonSaved'));
+      setToast(affected > 0 ? `${t('commonSaved')} — ${affected} ${t('envImageChanged')}` : t('commonSaved'));
       onClose();
     })();
   };
@@ -98,6 +111,56 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
             onChange={(event) => setName(event.target.value)}
           />
           {nameProblem === null || name === '' ? null : <p className="modal-problem">{nameProblem}</p>}
+
+          <label className="modal-label" htmlFor="env-dialog-image">
+            {t('envDialogImage')}
+          </label>
+          {images.length === 0 ? (
+            <div className="row" style={{ marginBottom: 20 }}>
+              <span className="modal-problem" style={{ margin: 0 }}>
+                {t('envNoImages')}
+              </span>
+              <button
+                className="modal-btn"
+                type="button"
+                onClick={() => {
+                  onClose();
+                  setView('images');
+                }}
+              >
+                {t('envOpenImages')}
+              </button>
+            </div>
+          ) : (
+            <select
+              id="env-dialog-image"
+              className="modal-input"
+              value={imageId}
+              onChange={(event) => setImageId(event.target.value)}
+              data-testid="environment-image"
+            >
+              {imageId === '' ? (
+                <option value="">{pick(language, 'イメージを選択…', 'Choose an image…')}</option>
+              ) : null}
+              {selectable.map((view) => (
+                <option key={view.image.id} value={view.image.id}>
+                  {imageDisplayName(view.image, language)} · {view.image.platform}
+                  {view.availability.kind === 'ready' ? '' : ` — ${t(availabilityKey(view.availability))}`}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className="modal-note">
+            {t('envDialogImageNote')}
+            {current !== null && current.availability.kind !== 'ready'
+              ? ` ${t('envImageUnavailable')}: ${t(availabilityKey(current.availability))}`
+              : ''}
+          </p>
+          {affected > 0 ? (
+            <p className="modal-problem">
+              {affected} {t('envImageChanged')}
+            </p>
+          ) : null}
 
           <label className="modal-label" htmlFor="env-dialog-vars">
             {t('envDialogVars')}

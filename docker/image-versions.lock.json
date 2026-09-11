@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-11T05:30:00Z",
+  "base": {
+    "image": "docker.io/library/ubuntu",
+    "tag": "24.04",
+    "indexDigest": "sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+    "platforms": {
+      "linux/amd64": "sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61",
+      "linux/arm64": "sha256:ec0b1c9058e44c837a21c3f9d8a3d5e9aaa94ed28edceb18e154af5efecf0950"
+    }
+  },
+  "node": {
+    "version": "24.21.0",
+    "npm": "11.19.0",
+    "archives": {
+      "linux/amd64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz",
+        "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+      },
+      "linux/arm64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz",
+        "sha256": "6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2"
+      }
+    }
+  },
+  "claudeCode": {
+    "package": "@anthropic-ai/claude-code",
+    "version": "2.1.268",
+    "integrity": "sha512-DSRUVAbRRH7WaHm99OErT4FJQDkbhIUb8mIaevcFrXtKCZwA9UmKY5+SOFWmgyeEUj2Uh1pFw0Rk/gYffmUEUw=="
+  },
+  "yq": {
+    "version": "4.53.6",
+    "binaries": {
+      "linux/amd64": {
+        "url": "https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64",
+        "sha256": "c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385"
+      },
+      "linux/arm64": {
+        "url": "https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_arm64",
+        "sha256": "88a1016bc1d657375a35864e4f44b6f333df8ff97b559f51bba0adcb2169df09"
+      }
+    }
+  },
+  "npmGlobals": {
+    "pnpm": "12.3.4",
+    "yarn": "1.22.22",
+    "typescript": "7.0.2",
+    "eslint": "10.10.0",
+    "prettier": "3.9.6"
+  },
+  "bun": {
+    "version": "1.4.2",
+    "archives": {
+      "linux/amd64": {
+        "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip",
+        "sha256": "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"
+      },
+      "linux/arm64": {
+        "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-aarch64.zip",
+        "sha256": "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"
+      }
+    }
+  },
+  "python": {
+    "packages": {
+      "uv": "0.12.13",
+      "poetry": "2.4.3",
+      "pytest": "9.1.1",
+      "ruff": "0.16.7",
+      "mypy": "2.3.1",
+      "black": "26.5.1",
+      "conan": "2.32.0"
+    }
+  },
+  "go": {
+    "version": "1.27.1",
+    "archives": {
+      "linux/amd64": {
+        "url": "https://go.dev/dl/go1.27.1.linux-amd64.tar.gz",
+        "sha256": "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"
+      },
+      "linux/arm64": {
+        "url": "https://go.dev/dl/go1.27.1.linux-arm64.tar.gz",
+        "sha256": "3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec"
+      }
+    }
+  },
+  "rust": {
+    "toolchain": "1.98.1",
+    "rustup": {
+      "version": "1.29.1",
+      "binaries": {
+        "linux/amd64": {
+          "url": "https://static.rust-lang.org/rustup/archive/1.29.1/x86_64-unknown-linux-gnu/rustup-init",
+          "sha256": "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
+        },
+        "linux/arm64": {
+          "url": "https://static.rust-lang.org/rustup/archive/1.29.1/aarch64-unknown-linux-gnu/rustup-init",
+          "sha256": "15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433"
+        }
+      }
+    }
+  },
+  "gradle": {
+    "version": "9.7.1",
+    "url": "https://services.gradle.org/distributions/gradle-9.7.1-bin.zip",
+    "sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a"
+  },
+  "ruby": {
+    "version": "4.0.6",
+    "url": "https://cache.ruby-lang.org/pub/ruby/4.0/ruby-4.0.6.tar.xz",
+    "sha256": "9c9d121fe3314ea7c801e690b9de981d2b9d12d7849db99c27482468a541ba0a"
+  },
+  "apt": {
+    "note": "apt packages are not pinned; the versions apt resolved at build time are recorded in /opt/cc/image-info.json of every published image.",
+    "repositories": {
+      "githubCli": "https://cli.github.com/packages",
+      "docker": "https://download.docker.com/linux/ubuntu"
+    }
+  }
+}

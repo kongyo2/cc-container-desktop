@@ -1,7 +1,8 @@
+import { FolderOpen } from 'lucide-react';
 import type { JSX } from 'react';
 
 import type { ConfigPatch, Language } from '../../../shared/types.ts';
-import { Check, DeferredTextField, Field, Section } from '../components/ui.tsx';
+import { Check, Field, Section } from '../components/ui.tsx';
 import { useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
 
@@ -46,17 +47,14 @@ export function SettingsPanel(): JSX.Element {
           onChange={(skipPermissions) => save({ skipPermissions })}
         />
 
-        <div className="grid2" style={{ marginTop: 10 }}>
-          <DeferredTextField
-            label={t('settingsImageTag')}
-            value={config.imageTag}
-            hint={t('settingsImageTagHint')}
-            onCommit={(value) => {
-              const imageTag = value.trim();
-              if (imageTag !== '') save({ imageTag });
-            }}
-          />
-        </div>
+        <Field label={t('settingsDataDir')} hint={t('settingsDataDirHint')}>
+          <div className="inline-input">
+            <input type="text" value={snapshot.dataDir} readOnly spellCheck={false} />
+            <button className="btn sm" type="button" onClick={() => void window.cc.revealPath(snapshot.dataDir)}>
+              <FolderOpen size={13} /> {t('settingsOpenDataDir')}
+            </button>
+          </div>
+        </Field>
       </Section>
 
       <Section title="About">
@@ -67,6 +65,8 @@ export function SettingsPanel(): JSX.Element {
           <dd>{snapshot.platform}</dd>
           <dt>secrets</dt>
           <dd>{snapshot.secretsEncrypted ? 'encrypted (safeStorage)' : 'plain text'}</dd>
+          <dt>{t('settingsInstanceId')}</dt>
+          <dd>{config.dataInstanceId}</dd>
         </dl>
         {snapshot.secretsEncrypted ? null : <p className="hint warn">{t('settingsSecretsPlain')}</p>}
       </Section>
