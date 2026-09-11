@@ -1,4 +1,5 @@
-// docker buildx bake definition for the CC Workbench images.
+// docker buildx bake definition for the CC Workbench images. Run it from the
+// repository root (paths below are resolved against the working directory):
 //
 //   docker buildx bake -f docker/docker-bake.hcl                      # every variant, linux/amd64, local tags
 //   docker buildx bake -f docker/docker-bake.hcl web --set '*.platform=linux/amd64,linux/arm64'
@@ -40,7 +41,7 @@ group "small" {
 }
 
 target "_common" {
-  context    = "."
+  context    = "docker"
   dockerfile = "Dockerfile"
   platforms  = split(",", PLATFORMS)
   args = {
