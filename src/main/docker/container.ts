@@ -23,7 +23,9 @@ import { docker } from './engine.ts';
 
 const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
-const BASE_ENV: readonly string[] = ['TERM=xterm-256color', 'LANG=C.UTF-8', 'IS_SANDBOX=1'];
+const BASE_ENV: readonly string[] = ['TERM=xterm-256color', 'LANG=C.UTF-8'];
+
+const ENFORCED_ENV: readonly string[] = ['IS_SANDBOX=1'];
 
 export interface ContainerRef {
   readonly taskId: string;
@@ -218,7 +220,7 @@ async function createContainer(ref: ContainerRef, spec: ContainerSpec): Promise<
       WorkingDir: CONTAINER_WORKSPACE,
       Tty: false,
       OpenStdin: false,
-      Env: [...BASE_ENV, ...spec.env],
+      Env: [...BASE_ENV, ...spec.env, ...ENFORCED_ENV],
       Labels: containerLabels(ref, spec),
       Cmd: ['sleep', 'infinity'],
       HostConfig: {
