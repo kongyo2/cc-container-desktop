@@ -508,8 +508,8 @@
         "en": "Go services and command-line tools"
       },
       "description": {
-        "ja": "Base に固定版の Go ツールチェーンを加えた構成です。GOPATH はホームボリューム内 (/home/claude/go) なので、取得したモジュールとビルドキャッシュはタスクを作り直しても残ります。",
-        "en": "Base plus a pinned Go toolchain. GOPATH lives in the home volume (/home/claude/go), so downloaded modules and the build cache survive a recreate."
+        "ja": "Base に固定版の Go ツールチェーンを加えた構成です。GOPATH はホームボリューム内 (/root/go) なので、取得したモジュールとビルドキャッシュはタスクを作り直しても残ります。",
+        "en": "Base plus a pinned Go toolchain. GOPATH lives in the home volume (/root/go), so downloaded modules and the build cache survive a recreate."
       },
       "recommended": false,
       "inherits": "base",

@@ -14,7 +14,6 @@ python3 -m venv /opt/pytools
   "mypy==$(cc_lock '.python.packages.mypy')" \
   "black==$(cc_lock '.python.packages.black')"
 cc_link_bins /opt/pytools/bin pip pip3 uv uvx poetry pytest ruff mypy black
-chown -R 1000:1000 /opt/pytools
 
 export PATH="/opt/pytools/bin:${PATH}"
 test "$(python3 -c 'import sys; print(sys.prefix)')" = /opt/pytools
@@ -24,8 +23,9 @@ uv --version && poetry --version && pytest --version && ruff --version && mypy -
 
 cc_profile_append cc-python.sh \
   '# cc-container-desktop: python tooling (python3, pip and the tools are the /opt/pytools venv)' \
-  'export PATH="/home/claude/.local/bin:/opt/pytools/bin:${PATH}"' \
-  'export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR:-/home/claude/.local/bin}"' \
-  'export PIP_DISABLE_PIP_VERSION_CHECK=1'
+  'export PATH="/root/.local/bin:/opt/pytools/bin:${PATH}"' \
+  'export UV_TOOL_BIN_DIR="${UV_TOOL_BIN_DIR:-/root/.local/bin}"' \
+  'export PIP_DISABLE_PIP_VERSION_CHECK=1' \
+  'export PIP_ROOT_USER_ACTION=ignore'
 
 rm -rf /root/.cache /tmp/*

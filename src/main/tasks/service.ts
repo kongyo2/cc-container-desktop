@@ -464,7 +464,7 @@ export function importIntoTask(id: string, paths: readonly string[]): Promise<Im
 
 export function execInTask(id: string, request: ExecRequest): Promise<ExecResult> {
   const ref = refOf(getTask(id));
-  return withRunningContainer(ref, () => execCapture(ref, request.command, { asRoot: request.asRoot }));
+  return withRunningContainer(ref, () => execCapture(ref, request.command));
 }
 
 export function mcpStatusOfTask(id: string): Promise<readonly McpServerStatus[]> {

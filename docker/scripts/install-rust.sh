@@ -17,7 +17,6 @@ export CARGO_HOME=/opt/cargo
 rm -f /tmp/rustup-init
 
 cc_link_bins /opt/cargo/bin cargo rustc rustup rustfmt cargo-fmt cargo-clippy clippy-driver rustdoc rust-gdb rust-lldb
-chown -R 1000:1000 /opt/rustup /opt/cargo
 rm -rf /opt/cargo/registry /opt/cargo/git
 
 test "$(/opt/cargo/bin/rustc --version | awk '{print $2}')" = "$(cc_lock '.rust.toolchain')"
@@ -25,6 +24,6 @@ test "$(/opt/cargo/bin/rustc --version | awk '{print $2}')" = "$(cc_lock '.rust.
 cc_profile_append cc-rust.sh \
   '# cc-container-desktop: rust toolchain (rustup proxies live in /opt/cargo/bin)' \
   'export RUSTUP_HOME=/opt/rustup' \
-  'export PATH="${PATH}:/home/claude/.cargo/bin"'
+  'export PATH="${PATH}:/root/.cargo/bin"'
 
 rm -rf /root/.cache /tmp/*

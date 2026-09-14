@@ -10,7 +10,6 @@ cc_apt_install \
 
 /opt/pytools/bin/pip install --no-cache-dir "conan==$(cc_lock '.python.packages.conan')"
 cc_link_bins /opt/pytools/bin conan
-chown -R 1000:1000 /opt/pytools
 conan --version
 
 install -m 0755 -d /etc/apt/keyrings
@@ -21,6 +20,10 @@ echo "deb [arch=$(cc_arch) signed-by=/etc/apt/keyrings/docker.asc] $(cc_lock '.a
   > /etc/apt/sources.list.d/docker.list
 cc_apt_install docker-ce-cli docker-buildx-plugin docker-compose-plugin
 docker --version && docker compose version && docker buildx version
+
+cc_profile_append cc-full.sh \
+  '# cc-container-desktop: composer, run as root like everything else in a task' \
+  'export COMPOSER_ALLOW_SUPERUSER=1'
 
 service postgresql stop 2>/dev/null || true
 service redis-server stop 2>/dev/null || true

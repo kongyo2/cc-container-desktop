@@ -82,7 +82,7 @@ export function ArgEditor({
     <TextAreaField
       label={label}
       {...hintProps(hint)}
-      placeholder={placeholder ?? '-y\n@modelcontextprotocol/server-filesystem\n/home/claude/workspace'}
+      placeholder={placeholder ?? '-y\n@modelcontextprotocol/server-filesystem\n/root/workspace'}
       defaultValue={value.join('\n')}
       onCommit={(text) =>
         onChange(

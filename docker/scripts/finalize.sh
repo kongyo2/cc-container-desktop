@@ -11,7 +11,7 @@ probe() {
   local name="$1"
   shift
   local out
-  if out="$(su - claude -c "$*" 2>/dev/null | head -n 1)"; then
+  if out="$(env -i HOME=/root USER=root LOGNAME=root TERM=dumb bash -lc "$*" 2>/dev/null | head -n 1)"; then
     printf '%s\t%s\n' "$name" "$out"
   fi
 }

@@ -87,7 +87,6 @@ export const EVENTS = {
 
 export interface ExecRequest {
   readonly command: readonly string[];
-  readonly asRoot: boolean;
 }
 
 export interface ImageDownloadRequest {

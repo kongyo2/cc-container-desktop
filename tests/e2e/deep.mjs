@@ -24,7 +24,7 @@ import {
 } from './helpers.mjs';
 
 const API_KEY = process.env['CC_E2E_API_KEY'] ?? 'sk-e2e-placeholder-token';
-const LOCAL_SKILL_SOURCE = '/home/claude/workspace/deep-skill-source';
+const LOCAL_SKILL_SOURCE = '/root/workspace/deep-skill-source';
 
 const scratch = mkdtempSync(join(tmpdir(), 'cc-deep-'));
 const session = await launchIsolated();
@@ -176,7 +176,7 @@ try {
   check('an unknown profile is refused', badProfile.ok === false, errorText(badProfile));
   check('none of the refused creations left a task behind', (await ok(page, 'snapshot')).tasks.length === 0);
 
-  const execGhost = await call(page, 'taskExec', ['ghost', { command: ['true'], asRoot: false }]);
+  const execGhost = await call(page, 'taskExec', ['ghost', { command: ['true'] }]);
   check('exec on an unknown task is refused', execGhost.ok === false, errorText(execGhost));
   const termGhost = await call(page, 'termOpen', [{ taskId: 'ghost', kind: 'shell', cols: 80, rows: 24 }]);
   check('a terminal on an unknown task is refused', termGhost.ok === false, errorText(termGhost));
@@ -271,8 +271,21 @@ try {
     dockerVolumeExists(alpha.volumeName) && dockerVolumeExists(beta.volumeName),
   );
 
-  let alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
-  let betaEnv = (await readContainerJson(page, beta.id, '/home/claude/.claude/settings.json')).env;
+  const asWho = await sh(page, alpha.id, 'printf "%s|%s|%s|%s" "$(id -u)" "$(id -un)" "$HOME" "$IS_SANDBOX"');
+  check('exec runs as root, at home in /root', asWho.stdout === '0|root|/root|1', JSON.stringify(asWho.stdout));
+  const containerUser = execFileSync(
+    'docker',
+    ['inspect', '--format', '{{.Config.User}}|{{.Config.WorkingDir}}', alpha.containerName],
+    { encoding: 'utf8' },
+  ).trim();
+  check('the container itself is created as root', containerUser === 'root|/root/workspace', containerUser);
+  const leftovers = await sh(page, alpha.id, "awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd | sort");
+  check('the image carries no other account to fall back to', leftovers.stdout.trim() === '', leftovers.stdout);
+  const writable = await sh(page, alpha.id, 'touch /usr/local/bin/cc-root-probe && rm /usr/local/bin/cc-root-probe');
+  check('a setup script can write outside the home volume', writable.exitCode === 0, JSON.stringify(writable.stderr));
+
+  let alphaEnv = (await readContainerJson(page, alpha.id, '/root/.claude/settings.json')).env;
+  let betaEnv = (await readContainerJson(page, beta.id, '/root/.claude/settings.json')).env;
   check(
     'the bearer task sets AUTH_TOKEN and explicitly blanks API_KEY',
     alphaEnv.ANTHROPIC_AUTH_TOKEN === API_KEY && alphaEnv.ANTHROPIC_API_KEY === '',
@@ -290,25 +303,25 @@ try {
     'no timeout leaks into the keyed task',
     betaEnv.API_TIMEOUT_MS === undefined && betaEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === undefined,
   );
-  const betaClaudeJson = await readContainerJson(page, beta.id, '/home/claude/.claude.json');
+  const betaClaudeJson = await readContainerJson(page, beta.id, '/root/.claude.json');
   check(
     'api-key mode pre-approves the key',
     Array.isArray(betaClaudeJson.customApiKeyResponses?.approved) &&
       betaClaudeJson.customApiKeyResponses.approved.length > 0,
   );
 
-  await writeContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt', 'alpha\n');
+  await writeContainerFile(page, alpha.id, '/root/workspace/only-in-alpha.txt', 'alpha\n');
   const betaSees = await sh(page, beta.id, 'test -e ~/workspace/only-in-alpha.txt && echo yes || echo no');
   check('a file written in one task is invisible to the other', betaSees.stdout.trim() === 'no');
 
   await ok(page, 'configSave', [{ defaultProfileId: keyed.id }]);
   await ok(page, 'taskProvision', [alpha.id]);
-  alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
+  alphaEnv = (await readContainerJson(page, alpha.id, '/root/.claude/settings.json')).env;
   check('changing the default profile does not touch a task that has its own', alphaEnv.CC_DEEP_MARKER === 'bearer');
 
   const switched = await ok(page, 'taskUpdate', [alpha.id, { profileId: keyed.id }]);
   check('taskUpdate returns the task with the new profile', switched.profileId === keyed.id);
-  alphaEnv = (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env;
+  alphaEnv = (await readContainerJson(page, alpha.id, '/root/.claude/settings.json')).env;
   check(
     'switching a running task to api-key mode rewrites its env and drops AUTH_TOKEN',
     alphaEnv.ANTHROPIC_API_KEY === 'sk-fake-for-header-check' && alphaEnv.ANTHROPIC_AUTH_TOKEN === undefined,
@@ -334,41 +347,38 @@ try {
 
   console.log('\n[D] ~/.claude.json is merged, never clobbered');
 
-  const alphaJson = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const alphaJson = await readContainerJson(page, alpha.id, '/root/.claude.json');
   const beforeMerge = { ...alphaJson, userID: 'deep-user-123', numStartups: 42 };
   beforeMerge.projects = {
     ...beforeMerge.projects,
-    '/home/claude/workspace': {
-      ...(beforeMerge.projects?.['/home/claude/workspace'] ?? {}),
+    '/root/workspace': {
+      ...(beforeMerge.projects?.['/root/workspace'] ?? {}),
       history: [{ display: 'earlier prompt' }],
     },
     '/some/other/project': { hasTrustDialogAccepted: false },
   };
-  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', `${JSON.stringify(beforeMerge, null, 2)}\n`);
+  await writeContainerFile(page, alpha.id, '/root/.claude.json', `${JSON.stringify(beforeMerge, null, 2)}\n`);
   await ok(page, 'taskProvision', [alpha.id]);
-  const merged = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const merged = await readContainerJson(page, alpha.id, '/root/.claude.json');
   check('unrelated top-level keys survive', merged.userID === 'deep-user-123' && merged.numStartups === 42);
-  check(
-    'project history survives',
-    merged.projects['/home/claude/workspace'].history?.[0]?.display === 'earlier prompt',
-  );
+  check('project history survives', merged.projects['/root/workspace'].history?.[0]?.display === 'earlier prompt');
   check('other projects survive untouched', merged.projects['/some/other/project'].hasTrustDialogAccepted === false);
   check('onboarding flag re-asserted', merged.hasCompletedOnboarding === true);
 
-  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', 'this is not json at all');
+  await writeContainerFile(page, alpha.id, '/root/.claude.json', 'this is not json at all');
   const afterCorrupt = await call(page, 'taskProvision', [alpha.id]);
   check('a corrupt .claude.json does not break provisioning', afterCorrupt.ok === true, errorText(afterCorrupt));
-  const rebuilt = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const rebuilt = await readContainerJson(page, alpha.id, '/root/.claude.json');
   check('corrupt .claude.json is rebuilt with the flags', rebuilt.hasCompletedOnboarding === true);
 
-  await writeContainerFile(page, alpha.id, '/home/claude/.claude/settings.json', '{ broken');
+  await writeContainerFile(page, alpha.id, '/root/.claude/settings.json', '{ broken');
   const afterBadSettings = await call(page, 'taskProvision', [alpha.id]);
   check(
     'a corrupt settings.json does not break provisioning',
     afterBadSettings.ok === true,
     errorText(afterBadSettings),
   );
-  const settingsBack = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
+  const settingsBack = await readContainerJson(page, alpha.id, '/root/.claude/settings.json');
   check('corrupt settings.json is rebuilt with env', typeof settingsBack.env?.ANTHROPIC_BASE_URL === 'string');
   check(
     'the bypass-permissions prompt is pre-accepted where current Claude Code reads it',
@@ -389,12 +399,12 @@ try {
       `'description: A probe skill the end-to-end suite installs to prove the skills CLI ran.' '---' '' ` +
       `'DEEP-SKILL-MARKER' > ${LOCAL_SKILL_SOURCE}/deep-probe/SKILL.md`,
   );
-  const handMadeJson = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const handMadeJson = await readContainerJson(page, alpha.id, '/root/.claude.json');
   handMadeJson.mcpServers = {
     ...(handMadeJson.mcpServers ?? {}),
     'hand-added': { type: 'http', url: 'https://example.test/mcp' },
   };
-  await writeContainerFile(page, alpha.id, '/home/claude/.claude.json', `${JSON.stringify(handMadeJson, null, 2)}\n`);
+  await writeContainerFile(page, alpha.id, '/root/.claude.json', `${JSON.stringify(handMadeJson, null, 2)}\n`);
 
   const mcp = (id, name, extra) => ({
     id,
@@ -421,7 +431,7 @@ try {
         mcp('x-stdio', 'local_fs', {
           transport: 'stdio',
           command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/claude/workspace'],
+          args: ['-y', '@modelcontextprotocol/server-filesystem', '/root/workspace'],
           env: { DEBUG: '1' },
         }),
         mcp('x-off', 'disabled_one', { enabled: false, url: 'https://disabled.test/mcp' }),
@@ -453,7 +463,7 @@ try {
   const appliedAll = await ok(page, 'extensionsApply');
   check('applying extensions reaches every running task', appliedAll.length === 2, JSON.stringify(appliedAll));
 
-  const servers = (await readContainerJson(page, alpha.id, '/home/claude/.claude.json')).mcpServers;
+  const servers = (await readContainerJson(page, alpha.id, '/root/.claude.json')).mcpServers;
   check(
     'a remote server carries an explicit type',
     servers.agentskills?.type === 'http' && servers.agentskills?.url === 'https://agentskills.io/mcp',
@@ -476,7 +486,7 @@ try {
     JSON.stringify(taskById(snapshot, alpha.id)?.task.managed),
   );
 
-  const extSettings = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
+  const extSettings = await readContainerJson(page, alpha.id, '/root/.claude/settings.json');
   check(
     'the marketplace is registered',
     extSettings.extraKnownMarketplaces?.['acme-tools']?.source?.repo === 'acme-corp/claude-plugins',
@@ -487,7 +497,7 @@ try {
       extSettings.enabledPlugins?.['experimental@acme-tools'] === false,
   );
 
-  const localSkill = await readContainerFile(page, alpha.id, '/home/claude/.claude/skills/deep-probe/SKILL.md');
+  const localSkill = await readContainerFile(page, alpha.id, '/root/.claude/skills/deep-probe/SKILL.md');
   check('the skills CLI installed the named skill', localSkill.includes('DEEP-SKILL-MARKER'));
   check(
     'the apply reports both tasks by name',
@@ -499,7 +509,7 @@ try {
     window.__ccProvisionLogs.some((line) => line.includes('ソースが空です')),
   );
   check('an entry with no source is reported, not run', emptySourceWarned);
-  const handSkill = await readContainerFile(page, alpha.id, '/home/claude/.claude/skills/hand-written/SKILL.md');
+  const handSkill = await readContainerFile(page, alpha.id, '/root/.claude/skills/hand-written/SKILL.md');
   check('a hand-written skill is left alone', handSkill.includes('hand made'));
 
   const statuses = await ok(page, 'taskMcpStatus', [alpha.id]);
@@ -507,13 +517,13 @@ try {
 
   await ok(page, 'extensionsSave', [{ mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] }]);
   await ok(page, 'taskProvision', [alpha.id]);
-  const afterRemoval = await readContainerJson(page, alpha.id, '/home/claude/.claude.json');
+  const afterRemoval = await readContainerJson(page, alpha.id, '/root/.claude.json');
   check('removing a server removes it from the container', afterRemoval.mcpServers?.agentskills === undefined);
   check(
     'the hand-added server still survives',
     afterRemoval.mcpServers?.['hand-added']?.url === 'https://example.test/mcp',
   );
-  const settingsAfter = await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json');
+  const settingsAfter = await readContainerJson(page, alpha.id, '/root/.claude/settings.json');
   check('removing a marketplace removes it', settingsAfter.extraKnownMarketplaces?.['acme-tools'] === undefined);
   check('removing a plugin removes it', settingsAfter.enabledPlugins?.['formatter@acme-tools'] === undefined);
   const keptSkill = await sh(page, alpha.id, 'test -e ~/.claude/skills/deep-probe/SKILL.md && echo yes || echo no');
@@ -591,7 +601,7 @@ try {
     'and a handle from before the stop is harmless',
     (await call(page, 'termResize', [openDuringStop.id, 90, 30])).ok === true,
   );
-  const execStopped = await call(page, 'taskExec', [alpha.id, { command: ['true'], asRoot: false }]);
+  const execStopped = await call(page, 'taskExec', [alpha.id, { command: ['true'] }]);
   check(
     'exec on a stopped task fails with a readable message',
     execStopped.ok === false && /起動していません|not running/u.test(errorText(execStopped)),
@@ -603,7 +613,7 @@ try {
   check('restart brings it back', taskById(await ok(page, 'snapshot'), alpha.id)?.container.running === true);
   check(
     'the workspace survived the restart',
-    (await readContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt')) === 'alpha\n',
+    (await readContainerFile(page, alpha.id, '/root/workspace/only-in-alpha.txt')) === 'alpha\n',
   );
   check('starting an already running task is a no-op', (await call(page, 'taskStart', [alpha.id])).ok === true);
 
@@ -654,7 +664,7 @@ try {
 
   console.log('\n[I] a same-name container the app did not create');
 
-  await writeContainerFile(page, beta.id, '/home/claude/workspace/beta-marker.txt', 'beta\n');
+  await writeContainerFile(page, beta.id, '/root/workspace/beta-marker.txt', 'beta\n');
   await ok(page, 'taskStop', [beta.id]);
   execFileSync('docker', ['rm', '-f', beta.containerName], { stdio: 'ignore' });
   execFileSync('docker', ['create', '--name', beta.containerName, session.fixture.releaseOne.localTag], {
@@ -667,7 +677,7 @@ try {
       adopted.ok === false && errorText(adopted).includes(beta.containerName),
       JSON.stringify(adopted),
     );
-    const execForeign = await call(page, 'taskExec', [beta.id, { command: ['true'], asRoot: false }]);
+    const execForeign = await call(page, 'taskExec', [beta.id, { command: ['true'] }]);
     check('exec into the foreign container is refused too', execForeign.ok === false);
     const termForeign = await call(page, 'termOpen', [{ taskId: beta.id, kind: 'shell', cols: 80, rows: 24 }]);
     check('a terminal into the foreign container is refused too', termForeign.ok === false);
@@ -680,7 +690,7 @@ try {
   await ok(page, 'taskStart', [beta.id]);
   check(
     'once the impostor is gone the task starts again on its own volume',
-    (await readContainerFile(page, beta.id, '/home/claude/workspace/beta-marker.txt')) === 'beta\n',
+    (await readContainerFile(page, beta.id, '/root/workspace/beta-marker.txt')) === 'beta\n',
   );
 
   console.log('\n[J] a new image release is applied per task, through the environment');
@@ -718,7 +728,7 @@ try {
   );
   check(
     'recreate keeps the home volume',
-    (await readContainerFile(page, alpha.id, '/home/claude/workspace/only-in-alpha.txt')) === 'alpha\n',
+    (await readContainerFile(page, alpha.id, '/root/workspace/only-in-alpha.txt')) === 'alpha\n',
   );
   check(
     'the new release is really there',
@@ -727,7 +737,7 @@ try {
   check('the other task is still flagged', taskById(snapshot, beta.id)?.imageStale === true);
   check(
     'the recreated container is provisioned',
-    typeof (await readContainerJson(page, alpha.id, '/home/claude/.claude/settings.json')).env?.ANTHROPIC_BASE_URL ===
+    typeof (await readContainerJson(page, alpha.id, '/root/.claude/settings.json')).env?.ANTHROPIC_BASE_URL ===
       'string',
   );
   await ok(page, 'environmentUpsert', [{ ...envOneDraft, imageId: baseImage.image.id }]);
@@ -754,8 +764,10 @@ try {
     'set -e',
     'echo "setup ran with $CC_E2E_MARKER"',
     'echo "$CC_E2E_MARKER" >> ~/workspace/setup-ran.txt',
-    'test "$(pwd)" = /home/claude/workspace',
-    'test "$(id -un)" = claude',
+    'test "$(pwd)" = /root/workspace',
+    'test "$(id -u)" = 0',
+    'test "$(id -un)" = root',
+    'test "$HOME" = /root',
     'node --version > ~/workspace/setup-node.txt',
     '',
   ].join('\n');
@@ -782,7 +794,7 @@ try {
       gammaLabels['com.cc-container-desktop.environment-revision'] !==
         envLabels['com.cc-container-desktop.environment-revision'],
   );
-  const ranOnce = await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt');
+  const ranOnce = await readContainerFile(page, gamma.id, '/root/workspace/setup-ran.txt');
   check(
     'the setup script ran once, in the workspace, with the variables',
     ranOnce === 'deep\n',
@@ -790,7 +802,7 @@ try {
   );
   check(
     'the setup script runs with the image tools on PATH',
-    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-node.txt')).startsWith('v'),
+    (await readContainerFile(page, gamma.id, '/root/workspace/setup-node.txt')).startsWith('v'),
   );
   check(
     'the done-marker was written',
@@ -805,7 +817,7 @@ try {
   await ok(page, 'taskStart', [gamma.id]);
   check(
     'stop/start does not rerun the setup script',
-    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt')) === 'deep\n',
+    (await readContainerFile(page, gamma.id, '/root/workspace/setup-ran.txt')) === 'deep\n',
   );
 
   await ok(page, 'environmentUpsert', [
@@ -823,7 +835,7 @@ try {
   );
   check(
     'recreate reruns the setup script and keeps the workspace',
-    (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-ran.txt')) === 'deep\nedited\n',
+    (await readContainerFile(page, gamma.id, '/root/workspace/setup-ran.txt')) === 'deep\nedited\n',
   );
   await ok(page, 'environmentUpsert', [
     {
@@ -895,7 +907,7 @@ try {
   await ok(page, 'taskStart', [delta.task.id]);
   check(
     'the next start retries the setup script',
-    (await readContainerFile(page, delta.task.id, '/home/claude/workspace/attempts.txt')) === 'attempt\nattempt\n',
+    (await readContainerFile(page, delta.task.id, '/root/workspace/attempts.txt')) === 'attempt\nattempt\n',
   );
   await ok(page, 'taskDelete', [delta.task.id, { exportFirst: false }]);
   session.forgetTask(delta.task.id);
@@ -928,11 +940,11 @@ try {
   check('CJK file names survive the import', found.stdout.includes('./inbox/日本語 と スペース.txt'));
   check('a single file lands at the workspace root', found.stdout.includes('./single.txt'));
   check(
-    'imported files are owned by claude',
+    'imported files are owned by root',
     (await sh(page, alpha.id, 'stat -c %U:%G ~/workspace/single.txt ~/workspace/inbox/nested/deeper/leaf.txt')).stdout
       .split('\n')
       .filter(Boolean)
-      .every((line) => line === 'claude:claude'),
+      .every((line) => line === 'root:root'),
   );
   const missingImport = await call(page, 'taskImport', [alpha.id, [join(scratch, 'does-not-exist')]]);
   check('importing a missing path is an error', missingImport.ok === false);
@@ -1066,7 +1078,7 @@ try {
       snapshot.config.profiles.some((p) => p.id === snapshot.config.defaultProfileId),
   );
   await ok(page, 'taskProvision', [beta.id]);
-  const betaNoProfile = await readContainerJson(page, beta.id, '/home/claude/.claude/settings.json');
+  const betaNoProfile = await readContainerJson(page, beta.id, '/root/.claude/settings.json');
   check('a task without a profile gets no env block', betaNoProfile.env === undefined);
 
   console.log('\n[N] delete removes exactly this task');

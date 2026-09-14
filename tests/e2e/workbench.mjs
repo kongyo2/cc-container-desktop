@@ -100,15 +100,15 @@ try {
     view?.task.environmentId === snapshot.config.defaultEnvironmentId && view?.environmentStale === false,
   );
 
-  const claudeJson = await readContainerJson(page, task.id, '/home/claude/.claude.json');
+  const claudeJson = await readContainerJson(page, task.id, '/root/.claude.json');
   check('hasCompletedOnboarding is true', claudeJson.hasCompletedOnboarding === true);
   check(
     'workspace is trusted',
-    claudeJson.projects?.['/home/claude/workspace']?.hasTrustDialogAccepted === true,
+    claudeJson.projects?.['/root/workspace']?.hasTrustDialogAccepted === true,
     JSON.stringify(claudeJson.projects ?? {}),
   );
 
-  const settings = await readContainerJson(page, task.id, '/home/claude/.claude/settings.json');
+  const settings = await readContainerJson(page, task.id, '/root/.claude/settings.json');
   check('ANTHROPIC_BASE_URL written', settings.env?.ANTHROPIC_BASE_URL === BASE_URL, settings.env?.ANTHROPIC_BASE_URL);
   check('ANTHROPIC_MODEL written', settings.env?.ANTHROPIC_MODEL === MODEL, settings.env?.ANTHROPIC_MODEL);
   check(
@@ -123,14 +123,9 @@ try {
 
   console.log('\n[5] settings.json survives a rewrite of unrelated keys');
   const withExtra = { ...settings, statusLine: { type: 'command', command: 'echo hi' } };
-  await writeContainerFile(
-    page,
-    task.id,
-    '/home/claude/.claude/settings.json',
-    `${JSON.stringify(withExtra, null, 2)}\n`,
-  );
+  await writeContainerFile(page, task.id, '/root/.claude/settings.json', `${JSON.stringify(withExtra, null, 2)}\n`);
   await ok(page, 'taskProvision', [task.id]);
-  const reProvisioned = await readContainerJson(page, task.id, '/home/claude/.claude/settings.json');
+  const reProvisioned = await readContainerJson(page, task.id, '/root/.claude/settings.json');
   check('hand-added keys preserved', reProvisioned.statusLine?.command === 'echo hi');
   check('env still correct', reProvisioned.env?.ANTHROPIC_MODEL === MODEL);
 
@@ -245,7 +240,7 @@ try {
   );
   snapshot = await ok(page, 'snapshot');
   check('task is gone from the list', taskById(snapshot, task.id) === null);
-  const gone = await call(page, 'taskExec', [task.id, { command: ['true'], asRoot: false }]);
+  const gone = await call(page, 'taskExec', [task.id, { command: ['true'] }]);
   check('exec on the deleted task is refused', gone.ok === false, gone.ok ? 'succeeded' : gone.error.message);
 } catch (error) {
   harnessFailure(error);

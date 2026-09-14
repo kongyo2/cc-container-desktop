@@ -11,12 +11,13 @@ ENV LC_ALL=C.UTF-8
 COPY --chmod=0755 scripts/lib.sh scripts/install-base.sh /opt/cc-build/scripts/
 COPY image-versions.lock.json /opt/cc-build/image-versions.lock.json
 RUN --mount=type=secret,id=build-ca-bundle,required=false /opt/cc-build/scripts/install-base.sh
-ENV PATH="/home/claude/.local/bin:/usr/local/bin:/opt/node/bin:${PATH}"
+ENV PATH="/root/.local/bin:/usr/local/bin:/opt/node/bin:${PATH}"
 ENV NPM_CONFIG_PREFIX=/usr/local
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 ENV TERM=xterm-256color
 ENV EDITOR=nano
 ENV DISABLE_AUTOUPDATER=1
+ENV IS_SANDBOX=1
 
 FROM core AS base
 ARG TARGETARCH
@@ -35,8 +36,8 @@ LABEL org.opencontainers.image.title="CC Workbench (base)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="base" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS web-tools
@@ -61,8 +62,8 @@ LABEL org.opencontainers.image.title="CC Workbench (web)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="web" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS python
@@ -74,7 +75,7 @@ COPY --chmod=0755 scripts/install-python.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/install-python.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh python
-ENV PATH="/home/claude/.local/bin:/opt/pytools/bin:${PATH}"
+ENV PATH="/root/.local/bin:/opt/pytools/bin:${PATH}"
 LABEL org.opencontainers.image.title="CC Workbench (python)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: Python 3 development tooling" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -85,8 +86,8 @@ LABEL org.opencontainers.image.title="CC Workbench (python)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="python" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS go
@@ -98,8 +99,8 @@ COPY --chmod=0755 scripts/install-go.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/install-go.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh go
-ENV GOPATH=/home/claude/go
-ENV PATH="${PATH}:/usr/local/go/bin:/home/claude/go/bin"
+ENV GOPATH=/root/go
+ENV PATH="${PATH}:/usr/local/go/bin:/root/go/bin"
 LABEL org.opencontainers.image.title="CC Workbench (go)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: Go toolchain" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -110,8 +111,8 @@ LABEL org.opencontainers.image.title="CC Workbench (go)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="go" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS rust
@@ -124,7 +125,7 @@ RUN /opt/cc-build/scripts/install-rust.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh rust
 ENV RUSTUP_HOME=/opt/rustup
-ENV PATH="${PATH}:/home/claude/.cargo/bin"
+ENV PATH="${PATH}:/root/.cargo/bin"
 LABEL org.opencontainers.image.title="CC Workbench (rust)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: Rust toolchain" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -135,8 +136,8 @@ LABEL org.opencontainers.image.title="CC Workbench (rust)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="rust" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS jvm
@@ -159,8 +160,8 @@ LABEL org.opencontainers.image.title="CC Workbench (jvm)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="jvm" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM core AS ruby
@@ -172,7 +173,7 @@ COPY --chmod=0755 scripts/install-ruby.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/install-ruby.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh ruby
-ENV PATH="${PATH}:/opt/ruby/bin:/home/claude/.local/share/gem/bin"
+ENV PATH="${PATH}:/opt/ruby/bin:/root/.local/share/gem/bin"
 LABEL org.opencontainers.image.title="CC Workbench (ruby)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: Ruby and Bundler" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -183,8 +184,8 @@ LABEL org.opencontainers.image.title="CC Workbench (ruby)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="ruby" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
 
 FROM web-tools AS full
@@ -206,10 +207,10 @@ COPY --chmod=0755 scripts/install-full.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/install-full.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh full
-ENV GOPATH=/home/claude/go
+ENV GOPATH=/root/go
 ENV RUSTUP_HOME=/opt/rustup
 ENV JAVA_HOME=/opt/java
-ENV PATH="/home/claude/.local/bin:/opt/pytools/bin:${PATH}:/usr/local/go/bin:/home/claude/go/bin:/home/claude/.cargo/bin:/opt/ruby/bin:/home/claude/.local/share/gem/bin"
+ENV PATH="/root/.local/bin:/opt/pytools/bin:${PATH}:/usr/local/go/bin:/root/go/bin:/root/.cargo/bin:/opt/ruby/bin:/root/.local/share/gem/bin"
 LABEL org.opencontainers.image.title="CC Workbench (full)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: every toolchain" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -220,6 +221,6 @@ LABEL org.opencontainers.image.title="CC Workbench (full)" \
       com.cc-container-desktop.project="cc-workbench" \
       com.cc-container-desktop.image.variant="full" \
       com.cc-container-desktop.image.release="${IMAGE_RELEASE}"
-USER claude
-WORKDIR /home/claude/workspace
+USER root
+WORKDIR /root/workspace
 CMD ["sleep", "infinity"]
