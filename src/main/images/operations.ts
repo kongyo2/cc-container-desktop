@@ -1,19 +1,12 @@
 import { randomBytes } from 'node:crypto';
 
-import { isTerminalPhase } from '../../shared/images.ts';
+import { isTerminalPhase, sortOperationsForDisplay } from '../../shared/images.ts';
 import type { AppError, ImageOperation } from '../../shared/images.ts';
 import { EVENTS } from '../../shared/ipc.ts';
 import { AppFailure, toAppError } from '../errors.ts';
 import { logInfo, logWarn, notifyStateChanged } from '../logger.ts';
 import { broadcast } from '../window.ts';
-import {
-  createOperation,
-  finishOperation,
-  patchOperation,
-  pruneHistory,
-  recoverOperation,
-  sortForDisplay,
-} from './operationState.ts';
+import { createOperation, finishOperation, patchOperation, pruneHistory, recoverOperation } from './operationState.ts';
 import type { NewOperationInput, OperationPatch } from './operationState.ts';
 import { listRegisteredImages, readOperationHistory, writeOperationHistory } from './store.ts';
 
@@ -46,10 +39,10 @@ function loadHistory(): void {
 }
 
 function persist(): void {
-  const all = [...[...live.values()].map((entry) => entry.operation), ...history];
-  history = pruneHistory(all).filter((operation) => !live.has(operation.id));
+  const kept = pruneHistory([...activeOperations(), ...history]);
+  history = kept.filter((operation) => !live.has(operation.id));
   try {
-    writeOperationHistory(pruneHistory(all));
+    writeOperationHistory(kept);
   } catch (error) {
     logWarn(
       'image',
@@ -84,7 +77,7 @@ export function newOperationId(): string {
 
 export function listOperations(): readonly ImageOperation[] {
   loadHistory();
-  return sortForDisplay([...[...live.values()].map((entry) => entry.operation), ...history]);
+  return sortOperationsForDisplay([...activeOperations(), ...history]);
 }
 
 function findOperation(id: string): ImageOperation | null {

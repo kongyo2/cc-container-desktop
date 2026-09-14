@@ -177,23 +177,16 @@ async function pickDirectory(defaultPath: string | null): Promise<string | null>
   return picked[0] ?? null;
 }
 
-function requireTaskId(id: unknown): string {
-  if (typeof id !== 'string' || id === '')
-    throw new AppFailure('INVALID_INPUT', 'タスク ID がありません / missing task id');
+function requireId(id: unknown, missing: string): string {
+  if (typeof id !== 'string' || id === '') throw new AppFailure('INVALID_INPUT', missing);
   return id;
 }
 
-function requireEnvironmentId(id: unknown): string {
-  if (typeof id !== 'string' || id === '')
-    throw new AppFailure('INVALID_INPUT', '環境 ID がありません / missing environment id');
-  return id;
-}
+const requireTaskId = (id: unknown): string => requireId(id, 'タスク ID がありません / missing task id');
 
-function requireProfileId(id: unknown): string {
-  if (typeof id !== 'string' || id === '')
-    throw new AppFailure('INVALID_INPUT', 'プロファイル ID がありません / missing profile id');
-  return id;
-}
+const requireEnvironmentId = (id: unknown): string => requireId(id, '環境 ID がありません / missing environment id');
+
+const requireProfileId = (id: unknown): string => requireId(id, 'プロファイル ID がありません / missing profile id');
 
 function requireArchivedFlag(value: unknown): boolean {
   if (typeof value !== 'boolean')

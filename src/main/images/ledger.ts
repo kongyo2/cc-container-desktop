@@ -47,10 +47,6 @@ export function upsertRegistration(
   return images.map((image) => (image.id === next.id ? merged : image));
 }
 
-export function removeRegistration(images: readonly RegisteredImage[], id: string): readonly RegisteredImage[] {
-  return images.filter((image) => image.id !== id);
-}
-
 export function findRegistration(images: readonly RegisteredImage[], id: string | null): RegisteredImage | null {
   if (id === null) return null;
   return images.find((image) => image.id === id) ?? null;

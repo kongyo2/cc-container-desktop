@@ -16,6 +16,7 @@ import type {
 } from '../../shared/types.ts';
 import { AppFailure } from '../errors.ts';
 import type { ParseOutcome } from '../state/file.ts';
+import { definedFields, duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
 
 const INSTANCE_ID_PATTERN: RegExp = /^inst_[0-9a-f]{16}$/u;
 
@@ -109,15 +110,6 @@ const appConfigSchema = z.strictObject({
   extensions: extensionsSchema,
 });
 
-function firstIssue(error: z.ZodError): string {
-  const issue = error.issues[0];
-  return issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`;
-}
-
-function invalid(label: string, error: z.ZodError): AppFailure {
-  return new AppFailure('INVALID_INPUT', `${label}: ${firstIssue(error)}`);
-}
-
 const configPatchSchema = z.strictObject({
   defaultProfileId: z.string().nullable().optional(),
   defaultEnvironmentId: z.string().nullable().optional(),
@@ -129,23 +121,19 @@ const configPatchSchema = z.strictObject({
 
 export function parseConfigPatch(raw: unknown): ConfigPatch {
   const parsed = configPatchSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('設定の変更内容が不正です / invalid config patch', parsed.error);
-  const patch: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(parsed.data)) {
-    if (value !== undefined) patch[key] = value;
-  }
-  return patch as ConfigPatch;
+  if (!parsed.success) throw invalidInput('設定の変更内容が不正です / invalid config patch', parsed.error);
+  return definedFields(parsed.data) as ConfigPatch;
 }
 
 export function parseProfile(raw: unknown): Profile {
   const parsed = profileSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('プロファイルの内容が不正です / invalid profile', parsed.error);
+  if (!parsed.success) throw invalidInput('プロファイルの内容が不正です / invalid profile', parsed.error);
   return parsed.data;
 }
 
 export function parseExtensions(raw: unknown): Extensions {
   const parsed = extensionsSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('拡張の内容が不正です / invalid extensions', parsed.error);
+  if (!parsed.success) throw invalidInput('拡張の内容が不正です / invalid extensions', parsed.error);
   return parsed.data;
 }
 
@@ -159,7 +147,7 @@ const environmentDraftSchema = z.strictObject({
 
 export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
   const parsed = environmentDraftSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('環境の内容が不正です / invalid environment', parsed.error);
+  if (!parsed.success) throw invalidInput('環境の内容が不正です / invalid environment', parsed.error);
   const name = normalizeEnvironmentName(parsed.data.name);
   if (name === '') throw new AppFailure('INVALID_INPUT', '環境の名前が空です / the environment name is empty');
   if (!REGISTERED_IMAGE_ID_PATTERN.test(parsed.data.imageId)) {
@@ -249,15 +237,6 @@ function resolveDefaultEnvironment(
   return usable[0]?.id ?? null;
 }
 
-function duplicateId(items: readonly { readonly id: string }[]): string | null {
-  const seen = new Set<string>();
-  for (const item of items) {
-    if (seen.has(item.id)) return item.id;
-    seen.add(item.id);
-  }
-  return null;
-}
-
 export function normalizeConfig(config: AppConfig): AppConfig {
   return {
     ...config,
@@ -269,7 +248,7 @@ export function normalizeConfig(config: AppConfig): AppConfig {
 
 export function readConfig(raw: unknown): ParseOutcome<AppConfig> {
   const parsed = appConfigSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
+  if (!parsed.success) return parseFailure(parsed.error);
   const duplicateProfile = duplicateId(parsed.data.profiles);
   if (duplicateProfile !== null) return { ok: false, problem: `duplicate profile id ${duplicateProfile}` };
   const duplicateEnvironment = duplicateId(parsed.data.environments);
@@ -288,6 +267,6 @@ export type SecretEntries = Readonly<Record<string, { readonly enc: 'safeStorage
 
 export function readSecretsFile(raw: unknown): ParseOutcome<SecretEntries> {
   const parsed = secretsFileSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
+  if (!parsed.success) return parseFailure(parsed.error);
   return { ok: true, value: parsed.data.entries };
 }

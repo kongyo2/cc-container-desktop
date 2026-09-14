@@ -1,5 +1,6 @@
-import type { JSX, ReactNode } from 'react';
-import { useState } from 'react';
+import { X } from 'lucide-react';
+import type { JSX, MouseEvent, ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useT } from '../i18n.ts';
 
@@ -216,6 +217,59 @@ export function ConfirmBanner({
       <button className="btn sm" onClick={onCancel} type="button">
         {t('commonCancel')}
       </button>
+    </div>
+  );
+}
+
+export function ModalShell({
+  variant,
+  titleId,
+  testId,
+  title,
+  footer,
+  onClose,
+  children,
+}: {
+  variant: string;
+  titleId: string;
+  testId: string;
+  title: ReactNode;
+  footer: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}): JSX.Element {
+  const t = useT();
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const onBackdrop = (event: MouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" onMouseDown={onBackdrop}>
+      <div
+        className={`modal ${variant}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid={testId}
+      >
+        <header className="modal-head">
+          <h1 id={titleId}>{title}</h1>
+          <button className="modal-x" type="button" onClick={onClose} aria-label={t('commonClose')}>
+            <X size={20} />
+          </button>
+        </header>
+        <div className="modal-body">{children}</div>
+        <footer className="modal-foot">{footer}</footer>
+      </div>
     </div>
   );
 }

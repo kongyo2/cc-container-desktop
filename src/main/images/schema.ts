@@ -16,8 +16,8 @@ import type {
   ImageRepairRequest,
   ImageUnregisterRequest,
 } from '../../shared/ipc.ts';
-import { AppFailure } from '../errors.ts';
 import type { ParseOutcome } from '../state/file.ts';
+import { duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
 
 const localizedSchema = z.strictObject({ ja: z.string(), en: z.string() });
 
@@ -47,18 +47,12 @@ const imagesFileSchema = z.strictObject({
   images: z.array(registeredImageSchema),
 });
 
-function firstIssue(error: z.ZodError): string {
-  const issue = error.issues[0];
-  return issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`;
-}
-
 export function parseImagesFile(raw: unknown): ParseOutcome<readonly RegisteredImage[]> {
   const parsed = imagesFileSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
-  const seen = new Set<string>();
+  if (!parsed.success) return parseFailure(parsed.error);
+  const duplicate = duplicateId(parsed.data.images);
+  if (duplicate !== null) return { ok: false, problem: `duplicate registration id ${duplicate}` };
   for (const image of parsed.data.images) {
-    if (seen.has(image.id)) return { ok: false, problem: `duplicate registration id ${image.id}` };
-    seen.add(image.id);
     if (image.pinnedDigest === null && image.tag === null) {
       return { ok: false, problem: `registration ${image.id} has neither a digest nor a tag` };
     }
@@ -114,17 +108,13 @@ const operationsFileSchema = z.strictObject({
 
 export function parseOperationsFile(raw: unknown): ParseOutcome<readonly ImageOperation[]> {
   const parsed = operationsFileSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
+  if (!parsed.success) return parseFailure(parsed.error);
   const operations: ImageOperation[] = [];
   for (const entry of parsed.data.operations) {
     const operation = operationSchema.safeParse(entry);
     if (operation.success) operations.push(operation.data);
   }
   return { ok: true, value: operations };
-}
-
-function invalid(label: string, error: z.ZodError): AppFailure {
-  return new AppFailure('INVALID_INPUT', `${label}: ${firstIssue(error)}`);
 }
 
 const downloadRequestSchema = z.strictObject({ catalogEntryId: z.string().min(1) });
@@ -135,30 +125,30 @@ const unregisterRequestSchema = z.strictObject({ imageId: z.string().regex(REGIS
 
 export function parseDownloadRequest(raw: unknown): ImageDownloadRequest {
   const parsed = downloadRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('image:downloadStart', parsed.error);
+  if (!parsed.success) throw invalidInput('image:downloadStart', parsed.error);
   return parsed.data;
 }
 
 export function parseCustomRequest(raw: unknown): ImageCustomRequest {
   const parsed = customRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('image:customStart', parsed.error);
+  if (!parsed.success) throw invalidInput('image:customStart', parsed.error);
   return parsed.data;
 }
 
 export function parseRepairRequest(raw: unknown): ImageRepairRequest {
   const parsed = repairRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('image:repairStart', parsed.error);
+  if (!parsed.success) throw invalidInput('image:repairStart', parsed.error);
   return parsed.data;
 }
 
 export function parseCancelRequest(raw: unknown): ImageCancelRequest {
   const parsed = cancelRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('image:cancel', parsed.error);
+  if (!parsed.success) throw invalidInput('image:cancel', parsed.error);
   return parsed.data;
 }
 
 export function parseUnregisterRequest(raw: unknown): ImageUnregisterRequest {
   const parsed = unregisterRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalid('image:unregister', parsed.error);
+  if (!parsed.success) throw invalidInput('image:unregister', parsed.error);
   return parsed.data;
 }

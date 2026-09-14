@@ -10,6 +10,7 @@ import {
   RELEASE_PATTERN,
 } from '../../shared/images.ts';
 import type { ImageCatalog, ImageCatalogEntry } from '../../shared/images.ts';
+import { issueTexts } from '../state/parse.ts';
 
 const localizedSchema = z.strictObject({ ja: z.string().min(1), en: z.string().min(1) });
 
@@ -95,9 +96,7 @@ function entryProblems(entry: z.infer<typeof entrySchema>, repository: string): 
 
 export function catalogProblems(raw: unknown): readonly string[] {
   const parsed = catalogSchema.safeParse(raw);
-  if (!parsed.success) {
-    return parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`);
-  }
+  if (!parsed.success) return issueTexts(parsed.error);
   const repository = normalizeRepository(parsed.data.repository);
   const problems: string[] = [];
   if (repository !== parsed.data.repository) {

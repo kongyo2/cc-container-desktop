@@ -11,6 +11,7 @@ import type {
   PluginConfig,
   SkillInstallConfig,
 } from '../../../shared/types.ts';
+import { withoutId } from '../../../shared/collections.ts';
 import { skillInstallCommand, skillInstallProblem } from '../../../shared/skillInstall.ts';
 import { newId } from '../../../shared/id.ts';
 import { validateMcpServer } from '../../../shared/mcp.ts';
@@ -20,10 +21,6 @@ import { pick, useLanguage, useT } from '../i18n.ts';
 import { selectedTaskView, useApp } from '../store.ts';
 
 const EMPTY_EXTENSIONS: Extensions = { mcpServers: [], marketplaces: [], plugins: [], skillInstalls: [] };
-
-function withoutId<T extends { readonly id: string }>(entries: readonly T[], id: string): T[] {
-  return entries.filter((entry) => entry.id !== id);
-}
 
 function EntryHead({
   title,

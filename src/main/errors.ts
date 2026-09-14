@@ -63,15 +63,18 @@ export function toAppError(error: unknown): AppError {
   return { code: 'APP_ERROR', message: describeError(error), retryable: false };
 }
 
+function fieldOf(error: unknown, key: string): unknown {
+  if (typeof error !== 'object' || error === null) return undefined;
+  return (error as Record<string, unknown>)[key];
+}
+
 function statusCodeOf(error: unknown): number | null {
-  if (typeof error !== 'object' || error === null) return null;
-  const status = (error as { statusCode?: unknown }).statusCode;
+  const status = fieldOf(error, 'statusCode');
   return typeof status === 'number' ? status : null;
 }
 
 function errnoOf(error: unknown): string | null {
-  if (typeof error !== 'object' || error === null) return null;
-  const code = (error as { code?: unknown }).code;
+  const code = fieldOf(error, 'code');
   return typeof code === 'string' ? code : null;
 }
 

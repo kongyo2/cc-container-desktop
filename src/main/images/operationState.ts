@@ -129,7 +129,3 @@ export function pruneHistory(
     .slice(-keep);
   return [...active, ...finished];
 }
-
-export function sortForDisplay(operations: readonly ImageOperation[]): readonly ImageOperation[] {
-  return [...operations].sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-}

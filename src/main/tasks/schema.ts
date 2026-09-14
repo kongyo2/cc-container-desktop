@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { REGISTERED_IMAGE_ID_PATTERN } from '../../shared/images.ts';
 import { TASK_ID_PATTERN } from '../../shared/tasks.ts';
 import type { NewTaskInput, Task, TaskPatch } from '../../shared/types.ts';
-import { AppFailure } from '../errors.ts';
 import type { ParseOutcome } from '../state/file.ts';
+import { definedFields, duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
 
 const managedSchema = z.strictObject({
   mcpServers: z.array(z.string()),
@@ -45,19 +45,11 @@ const taskFileSchema = z.strictObject({
   tasks: z.array(taskSchema),
 });
 
-function firstIssue(error: z.ZodError): string {
-  const issue = error.issues[0];
-  return issue === undefined ? 'invalid' : `${issue.path.join('.') || '(root)'}: ${issue.message}`;
-}
-
 export function readTaskFile(raw: unknown): ParseOutcome<readonly Task[]> {
   const parsed = taskFileSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false, problem: firstIssue(parsed.error) };
-  const seen = new Set<string>();
-  for (const task of parsed.data.tasks) {
-    if (seen.has(task.id)) return { ok: false, problem: `duplicate task id ${task.id}` };
-    seen.add(task.id);
-  }
+  if (!parsed.success) return parseFailure(parsed.error);
+  const duplicate = duplicateId(parsed.data.tasks);
+  if (duplicate !== null) return { ok: false, problem: `duplicate task id ${duplicate}` };
   return { ok: true, value: parsed.data.tasks };
 }
 
@@ -71,9 +63,7 @@ const newTaskInputSchema = z.strictObject({
 
 export function parseNewTaskInput(raw: unknown): NewTaskInput {
   const parsed = newTaskInputSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new AppFailure('INVALID_INPUT', `タスクの内容が不正です / invalid task input: ${firstIssue(parsed.error)}`);
-  }
+  if (!parsed.success) throw invalidInput('タスクの内容が不正です / invalid task input', parsed.error);
   return parsed.data;
 }
 
@@ -86,15 +76,6 @@ const taskPatchSchema = z.strictObject({
 
 export function parseTaskPatch(raw: unknown): TaskPatch {
   const parsed = taskPatchSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new AppFailure(
-      'INVALID_INPUT',
-      `タスクの変更内容が不正です / invalid task patch: ${firstIssue(parsed.error)}`,
-    );
-  }
-  const patch: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(parsed.data)) {
-    if (value !== undefined) patch[key] = value;
-  }
-  return patch as TaskPatch;
+  if (!parsed.success) throw invalidInput('タスクの変更内容が不正です / invalid task patch', parsed.error);
+  return definedFields(parsed.data) as TaskPatch;
 }
