@@ -89,8 +89,7 @@ function deriveReleaseTwo(fromTag, toTag) {
     'USER root',
     `RUN sed -i 's/"release": "${RELEASE_ONE}"/"release": "${RELEASE_TWO}"/' /opt/cc/image-info.json && echo "release two" > /opt/cc/e2e-release-two`,
     `LABEL com.cc-container-desktop.image.release="${RELEASE_TWO}" org.opencontainers.image.version="${RELEASE_TWO}"`,
-    'USER claude',
-    'WORKDIR /home/claude/workspace',
+    'WORKDIR /root/workspace',
     'CMD ["sleep", "infinity"]',
     '',
   ].join('\n');
@@ -207,8 +206,7 @@ export function ensureTestImages() {
         `FROM ${REGISTRY_REPOSITORY}@${fromDigest}`,
         'USER root',
         `RUN echo "${marker}" > /opt/cc/e2e-custom`,
-        'USER claude',
-        'WORKDIR /home/claude/workspace',
+        'WORKDIR /root/workspace',
         'CMD ["sleep", "infinity"]',
         '',
       ].join('\n');

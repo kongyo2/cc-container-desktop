@@ -19,7 +19,7 @@ import {
 const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
 const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
 const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
-const LIVE_SKILL_SOURCE = '/home/claude/workspace/live-skill-source';
+const LIVE_SKILL_SOURCE = '/root/workspace/live-skill-source';
 
 if (API_KEY === '') {
   console.error('CC_E2E_API_KEY is required');
@@ -116,7 +116,7 @@ try {
   const toolRun = await prompt(
     page,
     task.id,
-    'Create a file at /home/claude/workspace/live-tool-check.txt whose entire content is the single line ' +
+    'Create a file at /root/workspace/live-tool-check.txt whose entire content is the single line ' +
       'TOOL-WRITE-OK. Use your file tools. Reply with DONE when the file exists.',
   );
   check('tool-use prompt exited 0', toolRun.exitCode === 0, `${toolRun.stderr}`.slice(0, 300));
@@ -128,16 +128,11 @@ try {
   );
 
   const readBackMarker = `READ-${Date.now().toString(36).toUpperCase()}`;
-  await writeContainerFile(
-    page,
-    task.id,
-    '/home/claude/workspace/live-read-check.txt',
-    `secret token: ${readBackMarker}\n`,
-  );
+  await writeContainerFile(page, task.id, '/root/workspace/live-read-check.txt', `secret token: ${readBackMarker}\n`);
   const readRun = await prompt(
     page,
     task.id,
-    'Read /home/claude/workspace/live-read-check.txt and reply with only the token it contains.',
+    'Read /root/workspace/live-read-check.txt and reply with only the token it contains.',
   );
   check(
     'Claude Code read a file from the workspace',
@@ -147,8 +142,8 @@ try {
 
   const bashRun = await prompt(page, task.id, 'Run the shell command `id -un` and reply with only its output.');
   check(
-    'Claude Code can run shell commands in the container',
-    `${bashRun.stdout}`.includes('claude'),
+    'Claude Code can run shell commands in the container, as root',
+    `${bashRun.stdout}`.includes('root'),
     `${bashRun.stdout}`.slice(0, 200),
   );
 
@@ -239,9 +234,7 @@ try {
   );
   check(
     'the skill file is where the CLI put it',
-    (await readContainerFile(page, task.id, '/home/claude/.claude/skills/live-probe/SKILL.md')).includes(
-      'LIVE-SKILL-4417',
-    ),
+    (await readContainerFile(page, task.id, '/root/.claude/skills/live-probe/SKILL.md')).includes('LIVE-SKILL-4417'),
   );
 
   console.log('\n[6] interactive TUI, then reattach with the conversation intact');
@@ -316,10 +309,7 @@ try {
   console.log('\n[7] the task survives the app itself');
   await page.evaluate(() => document.querySelector('.term-tabs .tab .x')?.click());
   await page.waitForTimeout(1500);
-  const stillRunning = await call(page, 'taskExec', [
-    task.id,
-    { command: ['tmux', 'has-session', '-t', 'cc'], asRoot: false },
-  ]);
+  const stillRunning = await call(page, 'taskExec', [task.id, { command: ['tmux', 'has-session', '-t', 'cc'] }]);
   check(
     'the tmux session is still there for the next attach',
     stillRunning.ok === true && stillRunning.value.exitCode === 0,

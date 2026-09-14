@@ -48,7 +48,7 @@ const ja = {
   taskGitRef: 'ブランチ / タグ',
   taskGitRefHint: '空なら既定ブランチ',
   taskCreateHint:
-    'タスクごとにコンテナとホームボリューム (/home/claude) を 1 つずつ作ります。コンテナは選んだ環境の登録済みイメージから作られ、環境変数が設定され、clone のあとにセットアップスクリプトが 1 回実行されます。',
+    'タスクごとにコンテナとホームボリューム (/root) を 1 つずつ作ります。コンテナは選んだ環境の登録済みイメージから作られ、環境変数が設定され、clone のあとにセットアップスクリプトが root で 1 回実行されます。タスク同士は完全に分かれた使い捨てのコンテナなので、中の実行はすべて root です。',
   taskImageUnavailable: '選んだ環境のイメージが今は使えません。',
   taskOpenImages: 'イメージを開く',
   taskCreateEnvironment: '環境を作成',
@@ -152,7 +152,7 @@ const ja = {
   imageUnregisterDone: '登録を解除しました',
   imagesCustomTitle: 'カスタムイメージ',
   imagesCustomHint:
-    'docker pull に渡せる参照ならどれでも登録できます: Docker Hub や GHCR など他の人が公開したイメージ、digest 指定、ローカルでビルドしたタグ。取得は docker pull と同じ動きで、内容の検査はしません。@sha256: 指定はその digest に固定し、タグ指定はタグの中身を追いかけます。タスクとして動かすには、claude ユーザー (uid 1000)、/home/claude/workspace、PATH 上の node・claude・tmux・bash・git が必要です。',
+    'docker pull に渡せる参照ならどれでも登録できます: Docker Hub や GHCR など他の人が公開したイメージ、digest 指定、ローカルでビルドしたタグ。取得は docker pull と同じ動きで、内容の検査はしません。@sha256: 指定はその digest に固定し、タグ指定はタグの中身を追いかけます。タスクとして動かすには、root で動く Linux イメージで、/root をホームとして使えること、PATH 上に node・claude・tmux・bash・git があることが必要です。',
   imagesCustomReference: 'イメージ参照',
   imagesCustomReferenceHint: '例: ghcr.io/owner/image:tag、owner/image@sha256:…、my-image:dev',
   imagesCustomName: '表示名 (任意)',
@@ -256,7 +256,8 @@ const ja = {
   envDialogVarsNoteLink: '.env形式',
   envDialogVarsNoteAfter: 'で記述します。',
   envDialogSetup: 'セットアップスクリプト',
-  envDialogSetupNote: 'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。',
+  envDialogSetupNote:
+    'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。root で実行するので sudo は要りません (このアプリの Ubuntu イメージなら apt-get も npm -g もそのまま書けます)。',
   envDialogArchive: 'アーカイブ',
   envDialogSave: '変更を保存',
   envDialogCreate: '作成',
@@ -427,7 +428,7 @@ const en: Record<MessageKey, string> = {
   taskGitRef: 'Branch / tag',
   taskGitRefHint: 'empty for the default branch',
   taskCreateHint:
-    "Every task gets its own container and home volume (/home/claude). The container is created from the chosen environment's registered image with its variables set, and its setup script runs once after the clone.",
+    "Every task gets its own container and home volume (/root). The container is created from the chosen environment's registered image with its variables set, and its setup script runs once, as root, after the clone. Tasks never share a container, so everything inside one runs as root.",
   taskImageUnavailable: "The chosen environment's image is not usable right now.",
   taskOpenImages: 'Open Images',
   taskCreateEnvironment: 'Create an environment',
@@ -533,7 +534,7 @@ const en: Record<MessageKey, string> = {
   imageUnregisterDone: 'Unregistered',
   imagesCustomTitle: 'Custom image',
   imagesCustomHint:
-    'Anything docker pull accepts can be registered: an image someone else published on Docker Hub or GHCR, a digest, or a tag you built locally. It is fetched exactly as docker pull would, with no inspection of its contents. An @sha256: reference is pinned to that digest; a tag follows whatever the tag points at. To run as a task an image needs the claude user (uid 1000), /home/claude/workspace, and node, claude, tmux, bash and git on the PATH.',
+    'Anything docker pull accepts can be registered: an image someone else published on Docker Hub or GHCR, a digest, or a tag you built locally. It is fetched exactly as docker pull would, with no inspection of its contents. An @sha256: reference is pinned to that digest; a tag follows whatever the tag points at. To run as a task an image has to be a Linux image that runs as root with /root as its home, and carry node, claude, tmux, bash and git on the PATH.',
   imagesCustomReference: 'Image reference',
   imagesCustomReferenceHint: 'e.g. ghcr.io/owner/image:tag, owner/image@sha256:…, my-image:dev',
   imagesCustomName: 'Display name (optional)',
@@ -638,7 +639,7 @@ const en: Record<MessageKey, string> = {
   envDialogVarsNoteAfter: '.',
   envDialogSetup: 'Setup script',
   envDialogSetupNote:
-    'A Bash script that runs once right after a new container is created, before Claude Code launches.',
+    'A Bash script that runs once right after a new container is created, before Claude Code launches. It runs as root, so nothing needs sudo — on the Ubuntu images this app ships, apt-get and npm -g work as written.',
   envDialogArchive: 'Archive',
   envDialogSave: 'Save changes',
   envDialogCreate: 'Create',

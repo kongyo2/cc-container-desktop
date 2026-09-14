@@ -13,8 +13,8 @@ test "$(go version | awk '{print $3}')" = "go$(cc_lock '.go.version')"
 
 cc_profile_append cc-go.sh \
   '# cc-container-desktop: go toolchain' \
-  'export GOPATH="${GOPATH:-/home/claude/go}"' \
+  'export GOPATH="${GOPATH:-/root/go}"' \
   'export PATH="${PATH}:/usr/local/go/bin:${GOPATH}/bin"'
 
-mkdir -p /home/claude/go/bin && chown -R 1000:1000 /home/claude/go
+mkdir -p /root/go/bin
 rm -rf /root/.cache /tmp/*

@@ -51,7 +51,7 @@ async function setupDone(task: Task): Promise<boolean> {
 }
 
 async function markSetupDone(task: Task): Promise<void> {
-  await execChecked(refOf(task), ['touch', CONTAINER_SETUP_MARKER], { workdir: '/', asRoot: true });
+  await execChecked(refOf(task), ['touch', CONTAINER_SETUP_MARKER], { workdir: '/' });
 }
 
 export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
@@ -68,14 +68,17 @@ export async function runSetupIfPending(task: Task): Promise<SetupOutcome> {
   const label = environment?.name ?? '';
   const secrets = sensitiveValues(environmentEnvEntries(environment));
   await writeFileText(ref, CONTAINER_SETUP_SCRIPT, `${script}\n`, 0o755);
-  logInfo('setup', `[${task.name}] セットアップスクリプトを実行します / running the setup script of "${label}"`);
+  logInfo(
+    'setup',
+    `[${task.name}] セットアップスクリプトを root で実行します / running the setup script of "${label}" as root`,
+  );
 
   const result = await execCapture(
     ref,
     ['timeout', '-k', '10', String(SETUP_TIMEOUT_SECONDS), 'bash', '-l', CONTAINER_SETUP_SCRIPT],
     {
       workdir: CONTAINER_WORKSPACE,
-      env: [`HOME=${CONTAINER_HOME}`, `USER=${CONTAINER_USER}`],
+      env: [`HOME=${CONTAINER_HOME}`, `USER=${CONTAINER_USER}`, `LOGNAME=${CONTAINER_USER}`],
       onLine: (line, stream) => {
         const text = redactSecrets(maskValues(line.replaceAll(ANSI, ''), secrets)).trimEnd();
         if (text === '') return;

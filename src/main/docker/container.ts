@@ -25,6 +25,8 @@ const MAX_CAPTURE_BYTES = 8 * 1024 * 1024;
 
 const BASE_ENV: readonly string[] = ['TERM=xterm-256color', 'LANG=C.UTF-8'];
 
+const ENFORCED_ENV: readonly string[] = ['IS_SANDBOX=1'];
+
 export interface ContainerRef {
   readonly taskId: string;
   readonly containerName: string;
@@ -218,7 +220,7 @@ async function createContainer(ref: ContainerRef, spec: ContainerSpec): Promise<
       WorkingDir: CONTAINER_WORKSPACE,
       Tty: false,
       OpenStdin: false,
-      Env: [...BASE_ENV, ...spec.env],
+      Env: [...BASE_ENV, ...spec.env, ...ENFORCED_ENV],
       Labels: containerLabels(ref, spec),
       Cmd: ['sleep', 'infinity'],
       HostConfig: {
@@ -276,7 +278,6 @@ export async function removeContainer(ref: ContainerRef, removeVolume: boolean):
 }
 
 export interface ExecOptions {
-  readonly asRoot?: boolean;
   readonly workdir?: string;
   readonly env?: readonly string[];
   readonly container?: Container;
@@ -320,7 +321,7 @@ export async function execCapture(
     AttachStderr: true,
     AttachStdin: false,
     Tty: false,
-    User: options.asRoot === true ? 'root' : CONTAINER_USER,
+    User: CONTAINER_USER,
     WorkingDir: options.workdir ?? CONTAINER_WORKSPACE,
     Env: options.env === undefined ? [] : [...options.env],
   });

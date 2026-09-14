@@ -58,24 +58,21 @@ yq --version
 
 touch /var/mail/ubuntu
 userdel -r ubuntu 2>/dev/null || true
-groupadd -g 1000 claude
-useradd -m -u 1000 -g 1000 -s /bin/bash claude
-printf 'claude ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/claude
-chmod 0440 /etc/sudoers.d/claude
+
 git config --system init.defaultBranch main
 git config --system --add safe.directory '*'
 git lfs install --system --skip-repo
 
 mkdir -p /opt/cc && chmod 0755 /opt/cc
-mkdir -p /home/claude/workspace /home/claude/.local/bin
-chown -R 1000:1000 /home/claude
+mkdir -p /root/workspace /root/.local/bin
 
 cc_profile_append cc-container-desktop.sh \
   '# cc-container-desktop: paths of the tools this image ships' \
-  'export PATH="/home/claude/.local/bin:/usr/local/bin:/opt/node/bin:${PATH}"' \
+  'export PATH="/root/.local/bin:/usr/local/bin:/opt/node/bin:${PATH}"' \
   'export NPM_CONFIG_PREFIX=/usr/local' \
   'export NPM_CONFIG_UPDATE_NOTIFIER=false' \
   'export DISABLE_AUTOUPDATER=1' \
+  'export IS_SANDBOX=1' \
   'export LANG="${LANG:-C.UTF-8}"'
 
 printf '%s\n' '' '# --- cc-container-desktop ---' "alias ll='ls -alF'" "alias cc='claude'" '# --- /cc-container-desktop ---' \

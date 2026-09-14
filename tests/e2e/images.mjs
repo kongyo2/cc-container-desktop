@@ -304,15 +304,12 @@ try {
   const info = JSON.parse(await readContainerFile(page, task.id, '/opt/cc/image-info.json'));
   check('the container runs the registered release', info.release === '2026.09.1' && info.variant === 'base');
   check('the environment variable is set', (await sh(page, task.id, 'printf %s "$CC_E2E"')).stdout === '1');
-  check(
-    'the setup script ran',
-    (await readContainerFile(page, task.id, '/home/claude/workspace/setup.txt')) === 'setup\n',
-  );
+  check('the setup script ran', (await readContainerFile(page, task.id, '/root/workspace/setup.txt')) === 'setup\n');
   const claude = await sh(page, task.id, 'claude --version');
   check('Claude Code answers inside the task', claude.exitCode === 0, claude.stdout.trim().slice(0, 60));
   const inUseByTask = await call(page, 'imageUnregister', [{ imageId: done.registeredImageId }]);
   check('an image a task was applied from cannot be unregistered', errorCode(inUseByTask) === 'IMAGE_IN_USE');
-  await writeContainerFile(page, task.id, '/home/claude/workspace/keep-me.txt', 'kept\n');
+  await writeContainerFile(page, task.id, '/root/workspace/keep-me.txt', 'kept\n');
   await shoot(page, 'images-03-task');
 
   console.log('\n[F] a second release: registered, switched, applied by recreate');
@@ -370,7 +367,7 @@ try {
   );
   check(
     'the home volume survived',
-    (await readContainerFile(page, task.id, '/home/claude/workspace/keep-me.txt')) === 'kept\n',
+    (await readContainerFile(page, task.id, '/root/workspace/keep-me.txt')) === 'kept\n',
   );
   check(
     'the task remembers the new applied runtime',

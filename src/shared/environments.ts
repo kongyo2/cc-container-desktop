@@ -30,7 +30,7 @@ export function environmentNameProblem(name: string, language: Language): string
   return null;
 }
 
-const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG'];
+const RESERVED_ENV_NAMES: readonly string[] = ['HOME', 'USER', 'TERM', 'COLORTERM', 'LANG', 'IS_SANDBOX'];
 
 export function environmentEnvProblems(envText: string): readonly string[] {
   const parsed = parseEnvText(envText);

@@ -105,9 +105,9 @@ export const ENDPOINT_PRESETS: readonly EndpointPreset[] = [
   },
 ];
 
-export const CONTAINER_HOME = '/home/claude';
+export const CONTAINER_HOME = '/root';
 
-export const CONTAINER_WORKSPACE = '/home/claude/workspace';
+export const CONTAINER_WORKSPACE = '/root/workspace';
 
 export const CONTAINER_SCRIPT_DIR = '/opt/cc';
 
@@ -117,10 +117,10 @@ export const CONTAINER_SETUP_MARKER: string = `${CONTAINER_SCRIPT_DIR}/.setup-do
 
 export const CONTAINER_TERMINAL_RUNTIME = '/tmp/cc-terminals';
 
-export const CONTAINER_USER = 'claude';
+export const CONTAINER_USER = 'root';
 
-export const CONTAINER_UID = 1000;
-export const CONTAINER_GID = 1000;
+export const CONTAINER_UID = 0;
+export const CONTAINER_GID = 0;
 
 export const CLAUDE_TMUX_SESSION = 'cc';
 

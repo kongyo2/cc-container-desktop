@@ -102,8 +102,8 @@ export async function waitFor(page, probe, predicate, timeoutMs) {
   return value;
 }
 
-export async function sh(page, taskId, line, { asRoot = false } = {}) {
-  return ok(page, 'taskExec', [taskId, { command: ['bash', '-lc', line], asRoot }]);
+export async function sh(page, taskId, line) {
+  return ok(page, 'taskExec', [taskId, { command: ['bash', '-lc', line] }]);
 }
 
 export async function readContainerFile(page, taskId, path) {

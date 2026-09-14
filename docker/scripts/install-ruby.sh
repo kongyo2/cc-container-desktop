@@ -22,13 +22,12 @@ rm -rf /tmp/ruby-src /tmp/ruby.tar.xz
 
 /opt/ruby/bin/gem install bundler --no-document
 cc_link_bins /opt/ruby/bin ruby gem bundle bundler irb rake erb rdoc ri
-chown -R 1000:1000 /opt/ruby
 
 test "$(ruby -e 'print RUBY_VERSION')" = "$ruby_version"
 bundle --version
 
 cc_profile_append cc-ruby.sh \
   '# cc-container-desktop: ruby' \
-  'export PATH="${PATH}:/opt/ruby/bin:/home/claude/.local/share/gem/bin"'
+  'export PATH="${PATH}:/opt/ruby/bin:/root/.local/share/gem/bin"'
 
 rm -rf /root/.cache /root/.gem /tmp/*

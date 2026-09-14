@@ -368,7 +368,7 @@ export function registerIpc(version: string): void {
     if (command.length === 0 || !command.every((part) => typeof part === 'string')) {
       throw new AppFailure('INVALID_INPUT', 'コマンドがありません / the command is empty');
     }
-    return execInTask(requireTaskId(id), { command: [...command], asRoot: request.asRoot === true });
+    return execInTask(requireTaskId(id), { command: [...command] });
   });
   handle<[unknown], readonly McpServerStatus[]>(CHANNELS.taskMcpStatus, (id) => mcpStatusOfTask(requireTaskId(id)));
 
