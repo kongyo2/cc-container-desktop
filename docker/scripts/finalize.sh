@@ -39,7 +39,7 @@ versions="$(
   probe eslint 'eslint --version'
   probe prettier 'prettier --version'
   probe python3 'python3 --version'
-  probe pip '/opt/pytools/bin/pip --version'
+  probe pip 'pip --version'
   probe venv 'python3 -c "import venv, sys; print(sys.version.split()[0])"'
   probe uv 'uv --version'
   probe poetry 'poetry --version'

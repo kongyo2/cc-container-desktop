@@ -56,6 +56,7 @@ docker run --rm -it --init -v my-home:/home/claude kongyo2/cc-workbench:web-2026
 - The container runs as `claude` (uid/gid 1000) with `HOME=/home/claude` and the workspace at `/home/claude/workspace`. Mount a volume at `/home/claude` to keep work between runs.
 - The default command is `sleep infinity`; the app execs into the container. Pass `--init` (the app sets `HostConfig.Init`) so a proper PID 1 reaps children.
 - Tool binaries live outside the home directory (`/opt/node`, `/opt/pytools`, `/usr/local/go`, `/opt/rustup`, `/opt/ruby`, …), so a mounted home volume never hides them.
+- In `python` and `full`, `python3`, `pip` and the Python tools on PATH are the venv at `/opt/pytools`, which `claude` owns: `pip install` works without `sudo` and installs there, while the OS interpreter at `/usr/bin/python3` is left alone. `~/.local/bin` (where `uv tool install` puts commands) still comes first.
 - `/opt/cc/image-info.json` records the variant, release, source revision and the versions of every installed tool; `/opt/cc/apt-packages.txt` lists the apt packages.
 - `full` includes the Docker CLI but no daemon. Point `DOCKER_HOST` at a daemon you control if you need it.
 - PostgreSQL and Redis in `full` are installed but not running: `sudo service postgresql start` / `sudo service redis-server start`.
