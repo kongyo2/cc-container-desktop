@@ -233,7 +233,7 @@ try {
     contextTokens: 1048576,
     disableNonEssentialTraffic: true,
     disableTelemetry: true,
-    extraEnv: { CC_DEEP_MARKER: 'bearer', ANTHROPIC_MODEL: 'stealth/ox-alpha' },
+    extraEnv: { CC_DEEP_MARKER: 'bearer', ANTHROPIC_MODEL: 'stealth/ox-alpha', IS_SANDBOX: '0' },
     note: 'deep test',
   };
   const keyed = {
@@ -291,6 +291,7 @@ try {
     alphaEnv.ANTHROPIC_AUTH_TOKEN === API_KEY && alphaEnv.ANTHROPIC_API_KEY === '',
   );
   check('extra env applied per task', alphaEnv.CC_DEEP_MARKER === 'bearer' && betaEnv.CC_DEEP_MARKER === 'keyed');
+  check('a profile cannot turn IS_SANDBOX off under root', alphaEnv.IS_SANDBOX === '1', alphaEnv.IS_SANDBOX);
   check('the fable alias is pinned for the gateway', alphaEnv.ANTHROPIC_DEFAULT_FABLE_MODEL === 'stealth/ox-alpha');
   check('API_TIMEOUT_MS applied', alphaEnv.API_TIMEOUT_MS === '123456', alphaEnv.API_TIMEOUT_MS);
   check('context tokens applied', alphaEnv.CLAUDE_CODE_MAX_CONTEXT_TOKENS === '1048576');

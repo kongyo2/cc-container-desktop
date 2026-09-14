@@ -55,6 +55,8 @@ function buildEnvBlock(profile: Profile, secret: string): Record<string, string>
     env[key.trim()] = value;
   }
 
+  env['IS_SANDBOX'] = '1';
+
   return env;
 }
 

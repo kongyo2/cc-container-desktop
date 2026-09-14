@@ -193,11 +193,11 @@ try {
   check('file import lands at the workspace root', listing.stdout.includes('./hello.txt'), listing.stdout.trim());
   const owner = await sh(page, task.id, 'stat -c %U ~/workspace/inbox/nested/deep.txt ~/workspace/hello.txt');
   check(
-    'imported files belong to claude',
+    'imported files belong to root',
     owner.stdout
       .split('\n')
       .filter(Boolean)
-      .every((line) => line === 'claude'),
+      .every((line) => line === 'root'),
     owner.stdout.trim(),
   );
 

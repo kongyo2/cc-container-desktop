@@ -257,7 +257,7 @@ const ja = {
   envDialogVarsNoteAfter: 'で記述します。',
   envDialogSetup: 'セットアップスクリプト',
   envDialogSetupNote:
-    'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。Ubuntu 上で root として実行するので、apt-get も npm -g も sudo なしでそのまま書けます。',
+    'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。root で実行するので sudo は要りません (このアプリの Ubuntu イメージなら apt-get も npm -g もそのまま書けます)。',
   envDialogArchive: 'アーカイブ',
   envDialogSave: '変更を保存',
   envDialogCreate: '作成',
@@ -639,7 +639,7 @@ const en: Record<MessageKey, string> = {
   envDialogVarsNoteAfter: '.',
   envDialogSetup: 'Setup script',
   envDialogSetupNote:
-    'A Bash script that runs once right after a new container is created, before Claude Code launches. It runs as root on Ubuntu, so apt-get and npm -g work as written, without sudo.',
+    'A Bash script that runs once right after a new container is created, before Claude Code launches. It runs as root, so nothing needs sudo — on the Ubuntu images this app ships, apt-get and npm -g work as written.',
   envDialogArchive: 'Archive',
   envDialogSave: 'Save changes',
   envDialogCreate: 'Create',

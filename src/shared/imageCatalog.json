@@ -320,8 +320,8 @@
         "en": "Python applications, scripts and data work"
       },
       "description": {
-        "ja": "Base に Python 3 の開発環境 (venv、pip、uv、Poetry、pytest、Ruff、mypy、Black) を加えた構成です。python3・pip とツールは /opt/pytools の専用 venv (claude ユーザー所有) から PATH に載るので、pip install は sudo なしでそこに入り、OS の Python は汚しません。",
-        "en": "Base plus a Python 3 development setup: venv, pip, uv, Poetry, pytest, Ruff, mypy and Black. python3, pip and the tools on PATH come from a dedicated venv under /opt/pytools that the claude user owns, so pip install works without sudo, lands there, and leaves the OS Python alone."
+        "ja": "Base に Python 3 の開発環境 (venv、pip、uv、Poetry、pytest、Ruff、mypy、Black) を加えた構成です。python3・pip とツールは /opt/pytools の専用 venv (root 所有) から PATH に載るので、pip install はそのままそこに入り、OS の Python は汚しません。",
+        "en": "Base plus a Python 3 development setup: venv, pip, uv, Poetry, pytest, Ruff, mypy and Black. python3, pip and the tools on PATH come from a root-owned venv under /opt/pytools, so pip install lands there and leaves the OS Python alone."
       },
       "recommended": false,
       "inherits": "base",
