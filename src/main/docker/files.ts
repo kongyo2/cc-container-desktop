@@ -69,7 +69,22 @@ async function currentMode(ref: ContainerRef, path: string): Promise<number | nu
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export async function writeFileText(ref: ContainerRef, path: string, content: string, mode?: number): Promise<void> {
+export interface FileOwner {
+  readonly uid: number;
+  readonly gid: number;
+}
+
+const USER_OWNER: FileOwner = { uid: CONTAINER_UID, gid: CONTAINER_GID };
+
+export const ROOT_OWNER: FileOwner = { uid: 0, gid: 0 };
+
+export async function writeFileText(
+  ref: ContainerRef,
+  path: string,
+  content: string,
+  mode?: number,
+  owner: FileOwner = USER_OWNER,
+): Promise<void> {
   const slash = path.lastIndexOf('/');
   const dir = slash <= 0 ? '/' : path.slice(0, slash);
   const name = path.slice(slash + 1);
@@ -78,7 +93,7 @@ export async function writeFileText(ref: ContainerRef, path: string, content: st
   const effectiveMode = mode ?? (await currentMode(ref, path)) ?? 0o644;
 
   const pack = tarStream.pack();
-  pack.entry({ name, mode: effectiveMode, uid: CONTAINER_UID, gid: CONTAINER_GID, mtime: new Date() }, content);
+  pack.entry({ name, mode: effectiveMode, uid: owner.uid, gid: owner.gid, mtime: new Date() }, content);
   pack.finalize();
 
   await containerHandle(ref).putArchive(pack, { path: dir });

@@ -755,7 +755,10 @@ try {
     'echo "setup ran with $CC_E2E_MARKER"',
     'echo "$CC_E2E_MARKER" >> ~/workspace/setup-ran.txt',
     'test "$(pwd)" = /home/claude/workspace',
-    'test "$(id -un)" = claude',
+    'test "$(id -u)" = 0',
+    'test "$HOME" = /home/claude',
+    'touch /etc/cc-e2e-root',
+    'mkdir -p ~/workspace/root-made && touch ~/workspace/root-made/file.txt',
     'node --version > ~/workspace/setup-node.txt',
     '',
   ].join('\n');
@@ -791,6 +794,24 @@ try {
   check(
     'the setup script runs with the image tools on PATH',
     (await readContainerFile(page, gamma.id, '/home/claude/workspace/setup-node.txt')).startsWith('v'),
+  );
+  check(
+    'it ran as root, so it could write where only root can',
+    (await sh(page, gamma.id, 'test -e /etc/cc-e2e-root && echo yes || echo no')).stdout.trim() === 'yes',
+  );
+  const setupOwners = await sh(
+    page,
+    gamma.id,
+    'stat -c %U:%G ~/workspace/setup-ran.txt ~/workspace/root-made ~/workspace/root-made/file.txt',
+  );
+  check(
+    'what root created under the home is handed back to the container user',
+    setupOwners.stdout.trim().split('\n').join(' ') === 'claude:claude claude:claude claude:claude',
+    JSON.stringify(setupOwners.stdout),
+  );
+  check(
+    'so the container user can write into it',
+    (await sh(page, gamma.id, 'echo more >> ~/workspace/root-made/file.txt')).exitCode === 0,
   );
   check(
     'the done-marker was written',

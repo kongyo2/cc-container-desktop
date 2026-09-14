@@ -11,6 +11,7 @@ CONFIG="key1=val1
 key2=val2"`;
 
 export const SETUP_SCRIPT_PLACEHOLDER = `#!/bin/bash
+apt-get update && apt-get install -y --no-install-recommends postgresql-client
 npm install`;
 
 export const ENV_FORMAT_URL = 'https://github.com/motdotla/dotenv#what-rules-does-the-parsing-engine-follow';

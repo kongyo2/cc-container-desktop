@@ -48,7 +48,7 @@ const ja = {
   taskGitRef: 'ブランチ / タグ',
   taskGitRefHint: '空なら既定ブランチ',
   taskCreateHint:
-    'タスクごとにコンテナとホームボリューム (/home/claude) を 1 つずつ作ります。コンテナは選んだ環境の登録済みイメージから作られ、環境変数が設定され、clone のあとにセットアップスクリプトが 1 回実行されます。',
+    'タスクごとにコンテナとホームボリューム (/home/claude) を 1 つずつ作ります。コンテナは選んだ環境の登録済みイメージから作られ、環境変数が設定され、clone のあとにセットアップスクリプトが root で 1 回実行されます。',
   taskImageUnavailable: '選んだ環境のイメージが今は使えません。',
   taskOpenImages: 'イメージを開く',
   taskCreateEnvironment: '環境を作成',
@@ -256,7 +256,8 @@ const ja = {
   envDialogVarsNoteLink: '.env形式',
   envDialogVarsNoteAfter: 'で記述します。',
   envDialogSetup: 'セットアップスクリプト',
-  envDialogSetupNote: 'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。',
+  envDialogSetupNote:
+    'Claude Code の起動前に、新しいコンテナの作成直後に 1 回実行される Bash スクリプト。root で、Ubuntu のワークスペース (~/workspace) で実行されるので、apt-get などは sudo なしで書けます。作られたファイルは実行後に claude ユーザーの持ち物に戻します。',
   envDialogArchive: 'アーカイブ',
   envDialogSave: '変更を保存',
   envDialogCreate: '作成',
@@ -427,7 +428,7 @@ const en: Record<MessageKey, string> = {
   taskGitRef: 'Branch / tag',
   taskGitRefHint: 'empty for the default branch',
   taskCreateHint:
-    "Every task gets its own container and home volume (/home/claude). The container is created from the chosen environment's registered image with its variables set, and its setup script runs once after the clone.",
+    "Every task gets its own container and home volume (/home/claude). The container is created from the chosen environment's registered image with its variables set, and its setup script runs once as root after the clone.",
   taskImageUnavailable: "The chosen environment's image is not usable right now.",
   taskOpenImages: 'Open Images',
   taskCreateEnvironment: 'Create an environment',
@@ -638,7 +639,7 @@ const en: Record<MessageKey, string> = {
   envDialogVarsNoteAfter: '.',
   envDialogSetup: 'Setup script',
   envDialogSetupNote:
-    'A Bash script that runs once right after a new container is created, before Claude Code launches.',
+    'A Bash script that runs once right after a new container is created, before Claude Code launches. It runs as root in the Ubuntu workspace (~/workspace), so apt-get and friends need no sudo; the files it creates are handed back to the claude user when it finishes.',
   envDialogArchive: 'Archive',
   envDialogSave: 'Save changes',
   envDialogCreate: 'Create',

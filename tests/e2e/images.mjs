@@ -308,6 +308,10 @@ try {
     'the setup script ran',
     (await readContainerFile(page, task.id, '/home/claude/workspace/setup.txt')) === 'setup\n',
   );
+  check(
+    'and what it wrote as root belongs to the container user',
+    (await sh(page, task.id, 'stat -c %U:%G ~/workspace/setup.txt')).stdout.trim() === 'claude:claude',
+  );
   const claude = await sh(page, task.id, 'claude --version');
   check('Claude Code answers inside the task', claude.exitCode === 0, claude.stdout.trim().slice(0, 60));
   const inUseByTask = await call(page, 'imageUnregister', [{ imageId: done.registeredImageId }]);
