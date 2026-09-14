@@ -131,6 +131,22 @@ try {
   await page.evaluate(() => {
     window.__ccOps = [];
     window.cc.onImageOperation((operation) => window.__ccOps.push(operation));
+    window.__ccBadges = [];
+    const BADGE = '[data-testid="images-nav-badge"]';
+    const badgeOf = (node) =>
+      node instanceof Element
+        ? node.matches(BADGE)
+          ? node
+          : node.querySelector(BADGE)
+        : (node.parentElement?.closest(BADGE) ?? null);
+    new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of [...mutation.addedNodes, mutation.target]) {
+          const badge = badgeOf(node);
+          if (badge !== null) window.__ccBadges.push(badge.textContent ?? '');
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
   });
   const first = await ok(page, 'imageDownloadStart', [{ catalogEntryId: fixture.releaseOne.id }]);
   const second = await ok(page, 'imageDownloadStart', [{ catalogEntryId: fixture.releaseOne.id }]);
@@ -140,15 +156,17 @@ try {
     `${first.id} / ${second.id}`,
   );
   check('the operation starts queued with a sequence of 0', first.phase === 'queued' && first.sequence === 0);
-  const badge = await waitFor(
-    page,
-    () => page.evaluate(() => document.querySelector('[data-testid="images-nav-badge"]')?.textContent ?? ''),
-    (text) => text === '1',
-    10_000,
-  );
-  check('the sidebar shows one active download', badge === '1', badge);
   const done = await waitForOperation(page, first.id);
   check('the download succeeded', done.phase === 'succeeded', done.error?.message ?? done.phase);
+  const badges = await page.evaluate(() => window.__ccBadges);
+  check('the sidebar showed one active download while it ran', badges.includes('1'), JSON.stringify(badges));
+  const badgeAfter = await waitFor(
+    page,
+    () => page.evaluate(() => document.querySelector('[data-testid="images-nav-badge"]')?.textContent ?? ''),
+    (text) => text === '',
+    5_000,
+  );
+  check('and the badge is gone once nothing is active', badgeAfter === '', badgeAfter);
   check(
     'the operation pinned the digest and platform it resolved',
     done.target.pinnedDigest === fixture.releaseOne.digest && done.target.platform === fixture.platform,

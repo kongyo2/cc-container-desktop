@@ -74,6 +74,7 @@ COPY --chmod=0755 scripts/install-python.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/install-python.sh
 COPY --chmod=0755 scripts/finalize.sh /opt/cc-build/scripts/
 RUN /opt/cc-build/scripts/finalize.sh python
+ENV PATH="/home/claude/.local/bin:/opt/pytools/bin:${PATH}"
 LABEL org.opencontainers.image.title="CC Workbench (python)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: Python 3 development tooling" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \
@@ -208,7 +209,7 @@ RUN /opt/cc-build/scripts/finalize.sh full
 ENV GOPATH=/home/claude/go
 ENV RUSTUP_HOME=/opt/rustup
 ENV JAVA_HOME=/opt/java
-ENV PATH="${PATH}:/usr/local/go/bin:/home/claude/go/bin:/home/claude/.cargo/bin:/opt/ruby/bin:/home/claude/.local/share/gem/bin"
+ENV PATH="/home/claude/.local/bin:/opt/pytools/bin:${PATH}:/usr/local/go/bin:/home/claude/go/bin:/home/claude/.cargo/bin:/opt/ruby/bin:/home/claude/.local/share/gem/bin"
 LABEL org.opencontainers.image.title="CC Workbench (full)" \
       org.opencontainers.image.description="Claude Code runtime for CC Container Desktop: every toolchain" \
       org.opencontainers.image.source="https://github.com/kongyo2/cc-container-desktop" \

@@ -10,7 +10,7 @@ const BASE_REF_LINE = /^ARG UBUNTU_REF=(\S+)$/mu;
 
 const NODE_LINE = 24;
 const RUBY_LINE = '4.0';
-const PYTHON_PACKAGES = ['uv', 'poetry', 'pytest', 'ruff', 'mypy', 'black', 'conan'];
+const PYTHON_PACKAGES = ['pip', 'uv', 'poetry', 'pytest', 'ruff', 'mypy', 'black', 'conan'];
 const NPM_GLOBALS = ['pnpm', 'yarn', 'typescript', 'eslint', 'prettier'];
 const PLATFORMS = ['linux/amd64', 'linux/arm64'];
 

@@ -10,6 +10,7 @@ cc_apt_install \
 
 /opt/pytools/bin/pip install --no-cache-dir "conan==$(cc_lock '.python.packages.conan')"
 cc_link_bins /opt/pytools/bin conan
+chown -R 1000:1000 /opt/pytools
 conan --version
 
 install -m 0755 -d /etc/apt/keyrings
