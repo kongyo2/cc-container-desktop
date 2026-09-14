@@ -1,6 +1,5 @@
-import { X } from 'lucide-react';
-import type { JSX, MouseEvent } from 'react';
-import { useEffect, useState } from 'react';
+import type { JSX } from 'react';
+import { useState } from 'react';
 
 import {
   ENV_FORMAT_URL,
@@ -14,6 +13,7 @@ import type { EnvironmentDraft } from '../../../shared/types.ts';
 import { availabilityKey } from '../images.ts';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
+import { ModalShell } from './ui.tsx';
 
 export interface EnvironmentDialogProps {
   readonly mode: 'create' | 'edit';
@@ -48,14 +48,6 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
       ? tasks.filter((view) => view.task.environmentId === initial.id).length
       : 0;
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const save = (): void => {
     void (async () => {
       const saved = await run('environment', () =>
@@ -76,159 +68,145 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
     })();
   };
 
-  const onBackdrop = (event: MouseEvent<HTMLDivElement>): void => {
-    if (event.target === event.currentTarget) onClose();
-  };
+  const footer = (
+    <>
+      {mode === 'edit' ? (
+        <button
+          className="modal-archive"
+          type="button"
+          disabled={working}
+          onClick={archive}
+          data-testid="environment-archive"
+        >
+          {t('envDialogArchive')}
+        </button>
+      ) : null}
+      <span className="spacer" />
+      <button className="modal-btn" type="button" onClick={onClose}>
+        {t('commonCancel')}
+      </button>
+      <button
+        className="modal-btn primary"
+        type="button"
+        disabled={!canSave}
+        onClick={save}
+        data-testid="environment-save"
+      >
+        {mode === 'edit' ? t('envDialogSave') : t('envDialogCreate')}
+      </button>
+    </>
+  );
 
   return (
-    <div className="modal-backdrop" onMouseDown={onBackdrop}>
-      <div
-        className="modal env-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="env-modal-title"
-        data-testid="environment-dialog"
-      >
-        <header className="modal-head">
-          <h1 id="env-modal-title">{mode === 'edit' ? t('envDialogEditTitle') : t('envDialogCreateTitle')}</h1>
-          <button className="modal-x" type="button" onClick={onClose} aria-label={t('commonClose')}>
-            <X size={20} />
-          </button>
-        </header>
+    <ModalShell
+      variant="env-modal"
+      titleId="env-modal-title"
+      testId="environment-dialog"
+      title={mode === 'edit' ? t('envDialogEditTitle') : t('envDialogCreateTitle')}
+      footer={footer}
+      onClose={onClose}
+    >
+      <p className="modal-lead">{t('envDialogLead')}</p>
 
-        <div className="modal-body">
-          <p className="modal-lead">{t('envDialogLead')}</p>
+      <label className="modal-label" htmlFor="env-dialog-name">
+        {t('envDialogName')}
+      </label>
+      <input
+        id="env-dialog-name"
+        className="modal-input"
+        value={name}
+        spellCheck={false}
+        autoFocus={mode === 'create'}
+        onChange={(event) => setName(event.target.value)}
+      />
+      {nameProblem === null || name === '' ? null : <p className="modal-problem">{nameProblem}</p>}
 
-          <label className="modal-label" htmlFor="env-dialog-name">
-            {t('envDialogName')}
-          </label>
-          <input
-            id="env-dialog-name"
-            className="modal-input"
-            value={name}
-            spellCheck={false}
-            autoFocus={mode === 'create'}
-            onChange={(event) => setName(event.target.value)}
-          />
-          {nameProblem === null || name === '' ? null : <p className="modal-problem">{nameProblem}</p>}
-
-          <label className="modal-label" htmlFor="env-dialog-image">
-            {t('envDialogImage')}
-          </label>
-          {images.length === 0 ? (
-            <div className="row" style={{ marginBottom: 20 }}>
-              <span className="modal-problem" style={{ margin: 0 }}>
-                {t('envNoImages')}
-              </span>
-              <button
-                className="modal-btn"
-                type="button"
-                onClick={() => {
-                  onClose();
-                  setView('images');
-                }}
-              >
-                {t('envOpenImages')}
-              </button>
-            </div>
-          ) : (
-            <select
-              id="env-dialog-image"
-              className="modal-input"
-              value={imageId}
-              onChange={(event) => setImageId(event.target.value)}
-              data-testid="environment-image"
-            >
-              {imageId === '' ? (
-                <option value="">{pick(language, 'イメージを選択…', 'Choose an image…')}</option>
-              ) : null}
-              {selectable.map((view) => (
-                <option key={view.image.id} value={view.image.id}>
-                  {imageDisplayName(view.image, language)} · {view.image.platform}
-                  {view.availability.kind === 'ready' ? '' : ` — ${t(availabilityKey(view.availability))}`}
-                </option>
-              ))}
-            </select>
-          )}
-          <p className="modal-note">
-            {t('envDialogImageNote')}
-            {current !== null && current.availability.kind !== 'ready'
-              ? ` ${t('envImageUnavailable')}: ${t(availabilityKey(current.availability))}`
-              : ''}
-          </p>
-          {affected > 0 ? (
-            <p className="modal-problem">
-              {affected} {t('envImageChanged')}
-            </p>
-          ) : null}
-
-          <label className="modal-label" htmlFor="env-dialog-vars">
-            {t('envDialogVars')}
-          </label>
-          <textarea
-            id="env-dialog-vars"
-            className="modal-textarea"
-            rows={6}
-            spellCheck={false}
-            placeholder={ENV_TEXT_PLACEHOLDER}
-            value={envText}
-            onChange={(event) => setEnvText(event.target.value)}
-          />
-          <p className="modal-note">
-            {t('envDialogVarsNoteBefore')}
-            <button className="modal-link" type="button" onClick={() => void window.cc.openExternal(ENV_FORMAT_URL)}>
-              {t('envDialogVarsNoteLink')}
-            </button>
-            {t('envDialogVarsNoteAfter')}
-          </p>
-          {envProblems.map((problem) => (
-            <p className="modal-problem" key={problem}>
-              {problem}
-            </p>
-          ))}
-
-          <label className="modal-label" htmlFor="env-dialog-setup">
-            {t('envDialogSetup')}
-          </label>
-          <textarea
-            id="env-dialog-setup"
-            className="modal-textarea"
-            rows={7}
-            spellCheck={false}
-            placeholder={SETUP_SCRIPT_PLACEHOLDER}
-            value={setupScript}
-            onChange={(event) => setSetupScript(event.target.value)}
-          />
-          <p className="modal-note">{t('envDialogSetupNote')}</p>
-        </div>
-
-        <footer className="modal-foot">
-          {mode === 'edit' ? (
-            <button
-              className="modal-archive"
-              type="button"
-              disabled={working}
-              onClick={archive}
-              data-testid="environment-archive"
-            >
-              {t('envDialogArchive')}
-            </button>
-          ) : null}
-          <span className="spacer" />
-          <button className="modal-btn" type="button" onClick={onClose}>
-            {t('commonCancel')}
-          </button>
+      <label className="modal-label" htmlFor="env-dialog-image">
+        {t('envDialogImage')}
+      </label>
+      {images.length === 0 ? (
+        <div className="row" style={{ marginBottom: 20 }}>
+          <span className="modal-problem" style={{ margin: 0 }}>
+            {t('envNoImages')}
+          </span>
           <button
-            className="modal-btn primary"
+            className="modal-btn"
             type="button"
-            disabled={!canSave}
-            onClick={save}
-            data-testid="environment-save"
+            onClick={() => {
+              onClose();
+              setView('images');
+            }}
           >
-            {mode === 'edit' ? t('envDialogSave') : t('envDialogCreate')}
+            {t('envOpenImages')}
           </button>
-        </footer>
-      </div>
-    </div>
+        </div>
+      ) : (
+        <select
+          id="env-dialog-image"
+          className="modal-input"
+          value={imageId}
+          onChange={(event) => setImageId(event.target.value)}
+          data-testid="environment-image"
+        >
+          {imageId === '' ? <option value="">{pick(language, 'イメージを選択…', 'Choose an image…')}</option> : null}
+          {selectable.map((view) => (
+            <option key={view.image.id} value={view.image.id}>
+              {imageDisplayName(view.image, language)} · {view.image.platform}
+              {view.availability.kind === 'ready' ? '' : ` — ${t(availabilityKey(view.availability))}`}
+            </option>
+          ))}
+        </select>
+      )}
+      <p className="modal-note">
+        {t('envDialogImageNote')}
+        {current !== null && current.availability.kind !== 'ready'
+          ? ` ${t('envImageUnavailable')}: ${t(availabilityKey(current.availability))}`
+          : ''}
+      </p>
+      {affected > 0 ? (
+        <p className="modal-problem">
+          {affected} {t('envImageChanged')}
+        </p>
+      ) : null}
+
+      <label className="modal-label" htmlFor="env-dialog-vars">
+        {t('envDialogVars')}
+      </label>
+      <textarea
+        id="env-dialog-vars"
+        className="modal-textarea"
+        rows={6}
+        spellCheck={false}
+        placeholder={ENV_TEXT_PLACEHOLDER}
+        value={envText}
+        onChange={(event) => setEnvText(event.target.value)}
+      />
+      <p className="modal-note">
+        {t('envDialogVarsNoteBefore')}
+        <button className="modal-link" type="button" onClick={() => void window.cc.openExternal(ENV_FORMAT_URL)}>
+          {t('envDialogVarsNoteLink')}
+        </button>
+        {t('envDialogVarsNoteAfter')}
+      </p>
+      {envProblems.map((problem) => (
+        <p className="modal-problem" key={problem}>
+          {problem}
+        </p>
+      ))}
+
+      <label className="modal-label" htmlFor="env-dialog-setup">
+        {t('envDialogSetup')}
+      </label>
+      <textarea
+        id="env-dialog-setup"
+        className="modal-textarea"
+        rows={7}
+        spellCheck={false}
+        placeholder={SETUP_SCRIPT_PLACEHOLDER}
+        value={setupScript}
+        onChange={(event) => setSetupScript(event.target.value)}
+      />
+      <p className="modal-note">{t('envDialogSetupNote')}</p>
+    </ModalShell>
   );
 }

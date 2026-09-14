@@ -7,10 +7,10 @@ import {
   LedgerConflictError,
   registeredImageIdFor,
   registrationKey,
-  removeRegistration,
   upsertRegistration,
 } from '../../src/main/images/ledger.ts';
 import { parseImagesFile } from '../../src/main/images/schema.ts';
+import { withoutId } from '../../src/shared/collections.ts';
 import { REGISTERED_IMAGE_ID_PATTERN } from '../../src/shared/images.ts';
 import type { RegisteredImage } from '../../src/shared/images.ts';
 
@@ -128,8 +128,8 @@ test('removal and lookup', () => {
   const id = ledger[0]!.id;
   assert.equal(findRegistration(ledger, id)?.pinnedDigest, DIGEST_A);
   assert.equal(findRegistration(ledger, null), null);
-  assert.equal(removeRegistration(ledger, id).length, 0);
-  assert.equal(removeRegistration(ledger, 'img_nope').length, 1);
+  assert.equal(withoutId(ledger, id).length, 0);
+  assert.equal(withoutId(ledger, 'img_nope').length, 1);
 });
 
 test('the ledger file is read in its current shape and a ledger from an earlier version still reads', () => {

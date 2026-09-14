@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { StoreApi, UseBoundStore } from 'zustand';
 import { create } from 'zustand';
 
-import { isTerminalPhase } from '../../shared/images.ts';
+import { isTerminalPhase, sortOperationsForDisplay } from '../../shared/images.ts';
 import type { ImageOperation } from '../../shared/images.ts';
 import type { LogLine, Result, Snapshot, TaskView, TerminalKind } from '../../shared/types.ts';
 
@@ -216,13 +216,9 @@ export function selectedTaskView(state: UiState): TaskView | null {
   return state.snapshot.tasks.find((view) => view.task.id === state.selectedTaskId) ?? null;
 }
 
-function operationList(operations: Readonly<Record<string, ImageOperation>>): readonly ImageOperation[] {
-  return Object.values(operations).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-}
-
 export function useOperationList(): readonly ImageOperation[] {
   const operations = useApp((state) => state.operations);
-  return useMemo(() => operationList(operations), [operations]);
+  return useMemo(() => sortOperationsForDisplay(Object.values(operations)), [operations]);
 }
 
 export function useActiveOperationList(): readonly ImageOperation[] {

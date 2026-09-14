@@ -317,6 +317,10 @@ export function imageDisplayName(
   return image.release === null ? image.title[language] : `${image.title[language]} / ${image.release}`;
 }
 
+export function sortOperationsForDisplay(operations: readonly ImageOperation[]): readonly ImageOperation[] {
+  return [...operations].sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+}
+
 export function operationProgress(operation: ImageOperation): number | null {
   if (operation.phase === 'succeeded') return 1;
   if (operation.phase !== 'pulling') return null;

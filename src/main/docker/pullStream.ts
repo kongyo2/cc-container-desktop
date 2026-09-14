@@ -117,6 +117,15 @@ export function createPullAggregate(): PullAggregate {
 
 const DONE_STATUSES: readonly string[] = ['Pull complete', 'Already exists'];
 
+function fillDownloaded(layer: LayerState): void {
+  if (layer.total !== null) layer.downloaded = Math.max(layer.downloaded, layer.total);
+}
+
+function markLayerDone(layer: LayerState): void {
+  layer.done = true;
+  fillDownloaded(layer);
+}
+
 function isImageLevel(status: string): boolean {
   return status.startsWith('Pulling from ') || status.startsWith('Digest:') || status.startsWith('Status:');
 }
@@ -149,20 +158,16 @@ export function applyPullEvent(aggregate: PullAggregate, event: PullEvent): void
     if (event.total !== null && event.total > 0) layer.total = Math.max(layer.total ?? 0, event.total);
     if (event.current !== null) layer.downloaded = Math.max(layer.downloaded, event.current);
   } else if (status === 'Download complete' || status === 'Verifying Checksum') {
-    if (layer.total !== null) layer.downloaded = Math.max(layer.downloaded, layer.total);
+    fillDownloaded(layer);
   } else if (DONE_STATUSES.includes(status)) {
-    layer.done = true;
+    markLayerDone(layer);
     if (status === 'Already exists') layer.reused = true;
-    if (layer.total !== null) layer.downloaded = Math.max(layer.downloaded, layer.total);
   }
   aggregate.layers.set(event.id, layer);
 }
 
 export function completePullAggregate(aggregate: PullAggregate): void {
-  for (const layer of aggregate.layers.values()) {
-    layer.done = true;
-    if (layer.total !== null) layer.downloaded = Math.max(layer.downloaded, layer.total);
-  }
+  for (const layer of aggregate.layers.values()) markLayerDone(layer);
 }
 
 export interface PullProgressSnapshot {

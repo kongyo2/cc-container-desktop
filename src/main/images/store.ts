@@ -1,9 +1,10 @@
+import { withoutId } from '../../shared/collections.ts';
 import type { ImageOperation, RegisteredImage } from '../../shared/images.ts';
 import { AppFailure, describeError } from '../errors.ts';
 import { logInfo } from '../logger.ts';
 import { statePath } from '../paths.ts';
 import { StateFile } from '../state/file.ts';
-import { findRegistration, LedgerConflictError, removeRegistration, upsertRegistration } from './ledger.ts';
+import { findRegistration, LedgerConflictError, upsertRegistration } from './ledger.ts';
 import { parseImagesFile, parseOperationsFile } from './schema.ts';
 
 const imagesFile = new StateFile<readonly RegisteredImage[]>({
@@ -73,7 +74,7 @@ export function commitRegistration(image: RegisteredImage): RegisteredImage {
 export function dropRegistration(id: string): void {
   const current = imagesFile.get();
   if (findRegistration(current, id) === null) return;
-  imagesFile.set(removeRegistration(current, id));
+  imagesFile.set(withoutId(current, id));
   logInfo('image', `登録を解除しました / unregistered ${id}`);
 }
 

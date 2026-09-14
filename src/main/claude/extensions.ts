@@ -1,3 +1,4 @@
+import { isPlainObject } from '../../shared/json.ts';
 import { CONTAINER_HOME } from '../../shared/presets.ts';
 import { validateMcpServer } from '../../shared/mcp.ts';
 import type { Extensions, ManagedNames, McpServerConfig, McpServerStatus } from '../../shared/types.ts';
@@ -100,7 +101,7 @@ function preserveInvalid(
 
 function recordAt(source: Record<string, unknown>, key: string): Record<string, unknown> {
   const value = source[key];
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  return isPlainObject(value) ? value : {};
 }
 
 function assignMerged(
