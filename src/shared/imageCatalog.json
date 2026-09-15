@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-14T03:59:16.582Z",
+  "generatedAt": "2026-09-15T02:13:09.944Z",
   "repository": "docker.io/kongyokongyo/cc-workbench",
   "entries": [
     {
-      "id": "base@2026.09.15",
+      "id": "base@2026.09.16",
       "variant": "base",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Base",
         "en": "Base"
@@ -22,22 +22,22 @@
       "recommended": false,
       "inherits": null,
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "base-2026.09.15",
-      "indexDigest": "sha256:52ef47ac279eebf5fff25c4221873b5e3d09d3642c0342d84f6db2e6f9e5a6aa",
+      "tag": "base-2026.09.16",
+      "indexDigest": "sha256:82d878be49419f79a913a522653440d9a174cf395337f4891a7f9246584ca511",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:6ef1273fc386c1f390a229bfb02462737bd72329fe772b3a7f2405c94983a376",
-          "compressedLayerBytes": 376579195
+          "manifestDigest": "sha256:e6f3d5224f4baefe2a0bcf4ed24c9aefcc073089a7bba83d1f438b2f313f0362",
+          "compressedLayerBytes": 376579197
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:8136c79eb0327f51df9e0b3ca68afd329dfd0e43aeda3be9b2f79e567f55096a",
-          "compressedLayerBytes": 367676245
+          "manifestDigest": "sha256:746db0665fad8235e6aefe4a2ab2462736647c2b331c582282e3e650eaa04101",
+          "compressedLayerBytes": 367676248
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -138,9 +138,9 @@
       ]
     },
     {
-      "id": "web@2026.09.15",
+      "id": "web@2026.09.16",
       "variant": "web",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Web 開発",
         "en": "Web"
@@ -156,22 +156,22 @@
       "recommended": true,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "web-2026.09.15",
-      "indexDigest": "sha256:87b6dcb0d5d6a320c747183e8e5eb662a0f10099410c093dbd3941b3f8b88f2a",
+      "tag": "web-2026.09.16",
+      "indexDigest": "sha256:01704b8ae38205acd5c693f9d000aa005065a61911ddbc470ca3e7bd9c644798",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:f6f234a93cf6ca1f88692b16ad5cc5fc321d593342b284aedbc701584645760e",
+          "manifestDigest": "sha256:8dd09d32fa3a995c4e05bfce7a09d422759abfb3e3111b5fd2eadf793fb5adda",
           "compressedLayerBytes": 451023105
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:abbf012f711d6fac477882a4028aa607ba868e7d75b6719a85daa917e9d62f3b",
-          "compressedLayerBytes": 440535933
+          "manifestDigest": "sha256:a431693b0a125e2c09ff47b5c044a646265a305ab499ee56892087f8f478f121",
+          "compressedLayerBytes": 440535935
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -308,9 +308,9 @@
       ]
     },
     {
-      "id": "python@2026.09.15",
+      "id": "python@2026.09.16",
       "variant": "python",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Python 開発",
         "en": "Python"
@@ -326,22 +326,22 @@
       "recommended": false,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "python-2026.09.15",
-      "indexDigest": "sha256:a370501e738b88c806f25c7d78b6d768484a4faac4b2110b5672fb95657c35b3",
+      "tag": "python-2026.09.16",
+      "indexDigest": "sha256:6c63a3f733cade99c756c22b2aab454f921c3e49d0115862eea9e5f24faf7e74",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:0de62b6625834d9db193eefc7dc9fe3bd8449be802d610ee580a37b58452fa8a",
-          "compressedLayerBytes": 473922429
+          "manifestDigest": "sha256:ef16dcc3eab09cb75b87f8039d02dfc3adf78ca70e8e2d596801dc3b490e0270",
+          "compressedLayerBytes": 473950056
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:0bc30162425599692b18577278943b896c137e28f3e1b0defd84db25fc64f351",
-          "compressedLayerBytes": 459964912
+          "manifestDigest": "sha256:e08e0c19fe30e17d22b45e929c0c3ee4fcd4821fbc060cc58303ed6d9ee0115e",
+          "compressedLayerBytes": 460044717
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -496,9 +496,9 @@
       ]
     },
     {
-      "id": "go@2026.09.15",
+      "id": "go@2026.09.16",
       "variant": "go",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Go 開発",
         "en": "Go"
@@ -514,22 +514,22 @@
       "recommended": false,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "go-2026.09.15",
-      "indexDigest": "sha256:1e717b458c76a156d831b7fb69fe852305d14d3c390ca5be75067b557efcad33",
+      "tag": "go-2026.09.16",
+      "indexDigest": "sha256:6b13281f82dc2eb363cb41172957575500eaa8f5b3fda94c6a38d92a16fe89c7",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:4e4318fabb1355c4ae65209d8ac43ebc2cdfc17c9c9416fcfccc562a1699457d",
-          "compressedLayerBytes": 447659659
+          "manifestDigest": "sha256:afa3f2baf16990797c00c765421c2ff536f7700ea0220e945da462bbaf27575a",
+          "compressedLayerBytes": 447659610
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:9186b429a9c10d5b88f9ca42a2ad10809003360641444955d162fa553ad8f6a9",
-          "compressedLayerBytes": 435334781
+          "manifestDigest": "sha256:91701baa37e3236bb2a89a57920c65449cb153a1f62f852dd4fd02355e0822cf",
+          "compressedLayerBytes": 435334845
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -636,9 +636,9 @@
       ]
     },
     {
-      "id": "rust@2026.09.15",
+      "id": "rust@2026.09.16",
       "variant": "rust",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Rust 開発",
         "en": "Rust"
@@ -654,22 +654,22 @@
       "recommended": false,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "rust-2026.09.15",
-      "indexDigest": "sha256:8700f8cbefe0f443c406b28dfce26494b15be89e3e9ebe8ef48d6995ee470174",
+      "tag": "rust-2026.09.16",
+      "indexDigest": "sha256:3e47c2b888f63ca39de19d38e9c658aaa9721df26bddfb9bad45273fc141b1b8",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:2ade4e05f94025d805e9efff769bfbf6a29ca305ccd4b5504ab024178fcc761e",
-          "compressedLayerBytes": 604378929
+          "manifestDigest": "sha256:d37fe45943f6e51975e27013e2790c4461e6eff5718dc22e05ebbdfacb620a77",
+          "compressedLayerBytes": 604378959
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:a1ab3d174ee768057738ad3b9760adeeb067fd4c5b05a4c2914668cc8257acac",
-          "compressedLayerBytes": 562457923
+          "manifestDigest": "sha256:65a0aec8a77d8b2ff4c6eb7ec12b6b6b060f329986e2f8db83afc1a047723936",
+          "compressedLayerBytes": 562457996
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -788,9 +788,9 @@
       ]
     },
     {
-      "id": "jvm@2026.09.15",
+      "id": "jvm@2026.09.16",
       "variant": "jvm",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "JVM 開発",
         "en": "JVM"
@@ -806,22 +806,22 @@
       "recommended": false,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "jvm-2026.09.15",
-      "indexDigest": "sha256:2940818094b484eaa24adae64c9c3d4b7a3f9605918f885a8b6b277ff5752e3e",
+      "tag": "jvm-2026.09.16",
+      "indexDigest": "sha256:81e0748e145909255711c25d90ceb1e4146bfa24ddcaf6cfd3a070d6cd10f3e9",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:159da5cc369e4f3109fe1c1e23ec521a866a9b944f0fd7bd6d4356583a62fa47",
-          "compressedLayerBytes": 694910412
+          "manifestDigest": "sha256:2654cc3f3767d7a30e8a45c43772094328a13eeeed1484c100e3850c204a48eb",
+          "compressedLayerBytes": 694910697
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:9f996ae4616b6903d2a992a7b95767420ad67ffb1c2fdc960c35541d2ac32286",
-          "compressedLayerBytes": 684400168
+          "manifestDigest": "sha256:84793d72f5250284dfc537de744aa8ddc5ccba28639d7e3c4b550ceb6a520f3b",
+          "compressedLayerBytes": 684400542
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -940,9 +940,9 @@
       ]
     },
     {
-      "id": "ruby@2026.09.15",
+      "id": "ruby@2026.09.16",
       "variant": "ruby",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Ruby 開発",
         "en": "Ruby"
@@ -958,22 +958,22 @@
       "recommended": false,
       "inherits": "base",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "ruby-2026.09.15",
-      "indexDigest": "sha256:17cfd6fb558b9974c70e80e62b694ff8b4aef3dcaa5cc492fbbbe919d54cc671",
+      "tag": "ruby-2026.09.16",
+      "indexDigest": "sha256:aa22248f339ab3dda1c65662916cb56dd7a323989b6a46fbf7f45a1f93b005ce",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:20a56990237d95e890812452f089edae2bf7abd1583a2405c788262351e744ab",
-          "compressedLayerBytes": 427503285
+          "manifestDigest": "sha256:371bfb0cf3cab6fe15352bbfd9e28ecd3d3c65c9dbd977e4a2e44ec87ea3e728",
+          "compressedLayerBytes": 427503563
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:628c6e159b5cf1a0fc9991776597a288f4480ed8a5f7f625657b8ddaf4795360",
-          "compressedLayerBytes": 418418926
+          "manifestDigest": "sha256:d8901014299063c60c1a1e1d9de1704ff7772be9bbc858644a422dc3211a0735",
+          "compressedLayerBytes": 418419020
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
@@ -1086,9 +1086,9 @@
       ]
     },
     {
-      "id": "full@2026.09.15",
+      "id": "full@2026.09.16",
       "variant": "full",
-      "release": "2026.09.15",
+      "release": "2026.09.16",
       "title": {
         "ja": "Full",
         "en": "Full"
@@ -1104,22 +1104,22 @@
       "recommended": false,
       "inherits": "web",
       "repository": "docker.io/kongyokongyo/cc-workbench",
-      "tag": "full-2026.09.15",
-      "indexDigest": "sha256:48a3e3a405df65eb2ce2e4889dd40dfb6418f90b788b937ef1abc47861236396",
+      "tag": "full-2026.09.16",
+      "indexDigest": "sha256:4ffaf9f8862b71bcf179512211b18b43b180559362fea44662dfe52fd0288c4c",
       "platforms": [
         {
           "platform": "linux/amd64",
-          "manifestDigest": "sha256:d5ca42b3fad56630bef583ea200fc7444176c81bd6bec7964e86cbab83f6cd83",
-          "compressedLayerBytes": 1490837211
+          "manifestDigest": "sha256:e9604f9fc86a400d93120feafee0b2f4f731325df784c97ca79cdadbe0e5af4c",
+          "compressedLayerBytes": 1490864061
         },
         {
           "platform": "linux/arm64",
-          "manifestDigest": "sha256:cf8d2980a7f027837133a3dd48ee5ca6a2eb0682570ed3cf566689d5afe2a28a",
-          "compressedLayerBytes": 1430390703
+          "manifestDigest": "sha256:66434e780b0d58995d831ac5248c94a5e35dabfff300afb64247568b8a3476e2",
+          "compressedLayerBytes": 1430470215
         }
       ],
-      "sourceRevision": "1ae1955c21bf5ffa0528f25ba5ccf11b2f8d5d6f",
-      "publishedAt": "2026-09-14T03:59:16Z",
+      "sourceRevision": "a9a1c935269688250f1530e430f5cb5568078390",
+      "publishedAt": "2026-09-15T02:13:09Z",
       "tools": [
         {
           "id": "ubuntu",
