@@ -31,8 +31,9 @@ function runWithOrigin<T>(origin: CommandOrigin, work: () => T): T {
 export interface RemoteRouter {
   readonly engaged: boolean;
   readonly online: boolean;
+  readonly routeGeneration: number;
   requireOnline(): void;
-  call(channel: string, args: readonly unknown[]): Promise<unknown>;
+  call(channel: string, args: readonly unknown[], timeoutMs?: number | null): Promise<unknown>;
 }
 
 export type CommandRun = (...args: readonly unknown[]) => Promise<unknown> | unknown;
@@ -42,6 +43,8 @@ export interface CommandOptions {
   readonly denyRemote?: boolean;
   readonly adapt?: (value: unknown) => unknown;
   readonly remote?: (router: RemoteRouter, ...args: readonly unknown[]) => Promise<unknown>;
+  readonly reroute?: boolean;
+  readonly timeoutMs?: number | null;
 }
 
 interface CommandEntry extends CommandOptions {
@@ -56,6 +59,10 @@ export function setRemoteRouter(next: RemoteRouter | null): void {
   router = next;
 }
 
+export function routeGeneration(): number {
+  return router?.routeGeneration ?? 0;
+}
+
 export function registerCommand(channel: string, run: CommandRun, options: CommandOptions = {}): void {
   registry.set(channel, { ...options, run });
 }
@@ -68,16 +75,27 @@ function entryOf(channel: string): CommandEntry {
   return entry;
 }
 
-export async function invokeRouted(channel: string, args: readonly unknown[]): Promise<unknown> {
-  const entry = entryOf(channel);
+async function dispatch(entry: CommandEntry, channel: string, args: readonly unknown[]): Promise<unknown> {
   const active = router;
   if (entry.local === true || active === null || !active.engaged) {
     return entry.run(...args);
   }
   active.requireOnline();
   if (entry.remote !== undefined) return entry.remote(active, ...args);
-  const value = await active.call(channel, args);
+  const value = await active.call(channel, args, entry.timeoutMs);
   return entry.adapt === undefined ? value : entry.adapt(value);
+}
+
+const REROUTE_LIMIT = 2;
+
+export async function invokeRouted(channel: string, args: readonly unknown[], attempt: number = 0): Promise<unknown> {
+  const entry = entryOf(channel);
+  const generation = routeGeneration();
+  const value = await dispatch(entry, channel, args);
+  if (entry.reroute === true && attempt < REROUTE_LIMIT && routeGeneration() !== generation) {
+    return invokeRouted(channel, args, attempt + 1);
+  }
+  return value;
 }
 
 export function invokeFromRemote(channel: string, args: readonly unknown[], origin: CommandOrigin): Promise<unknown> {

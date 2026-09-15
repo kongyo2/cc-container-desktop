@@ -101,6 +101,10 @@ import { tasksStoreProblem } from './tasks/store.ts';
 
 const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
 
+const LONG_CALL_MS = 60 * 60_000;
+
+const READ: CommandOptions = { adapt: adaptSnapshot, reroute: true };
+
 let appVersion = '0.0.0';
 
 function command<A extends readonly unknown[], T>(
@@ -152,7 +156,7 @@ function commandTaskAction<A extends readonly unknown[]>(channel: string, fn: (.
       }
       return snapshot();
     },
-    { adapt: adaptSnapshot },
+    { adapt: adaptSnapshot, timeoutMs: LONG_CALL_MS },
   );
 }
 
@@ -294,7 +298,7 @@ function requirePaths(paths: unknown): readonly string[] {
 export function registerIpc(version: string): void {
   appVersion = version;
 
-  command<[], Snapshot>(CHANNELS.snapshot, snapshot, { adapt: adaptSnapshot });
+  command<[], Snapshot>(CHANNELS.snapshot, snapshot, READ);
   commandConfigEdit<[Language]>(CHANNELS.setLanguage, (language) =>
     patchConfig({ language: language === 'en' ? 'en' : 'ja' }),
   );
@@ -313,17 +317,21 @@ export function registerIpc(version: string): void {
     },
     { local: true, denyRemote: true },
   );
-  commandVoid<[string]>(CHANNELS.revealPath, (path) => {
-    const root = resolve(appDataDir());
-    const target = resolve(requireString(path, 'path'));
-    if (!isInside(root, target)) {
-      throw new AppFailure(
-        'INVALID_INPUT',
-        `このフォルダは開けません / that folder is outside the app's own data: ${String(path)}`,
-      );
-    }
-    shell.openPath(target).catch(() => undefined);
-  });
+  commandVoid<[string]>(
+    CHANNELS.revealPath,
+    (path) => {
+      const root = resolve(appDataDir());
+      const target = resolve(requireString(path, 'path'));
+      if (!isInside(root, target)) {
+        throw new AppFailure(
+          'INVALID_INPUT',
+          `このフォルダは開けません / that folder is outside the app's own data: ${String(path)}`,
+        );
+      }
+      shell.openPath(target).catch(() => undefined);
+    },
+    { local: true, denyRemote: true },
+  );
   commandVoid<[string]>(
     CHANNELS.clipboardWrite,
     (text) => {
@@ -345,12 +353,16 @@ export function registerIpc(version: string): void {
     }
     return next;
   });
-  command<[unknown], readonly string[]>(CHANNELS.profileApply, async (id) => {
-    const profileId = requireProfileId(id);
-    const lines = await provisionRunningTasks((task) => task.profileId === profileId);
-    notifyStateChanged();
-    return lines;
-  });
+  command<[unknown], readonly string[]>(
+    CHANNELS.profileApply,
+    async (id) => {
+      const profileId = requireProfileId(id);
+      const lines = await provisionRunningTasks((task) => task.profileId === profileId);
+      notifyStateChanged();
+      return lines;
+    },
+    { timeoutMs: LONG_CALL_MS },
+  );
   command<[unknown], string>(CHANNELS.secretGet, (profileId) => getSecret(requireProfileId(profileId)));
   commandVoid<[unknown, unknown]>(CHANNELS.secretSet, (profileId, secret) =>
     setSecret(requireProfileId(profileId), requireString(secret, 'secret')),
@@ -362,7 +374,7 @@ export function registerIpc(version: string): void {
   );
   commandConfigEdit<[unknown]>(CHANNELS.environmentDelete, (id) => deleteEnvironment(requireEnvironmentId(id)));
 
-  command<[], Snapshot>(CHANNELS.dockerProbe, snapshot, { adapt: adaptSnapshot });
+  command<[], Snapshot>(CHANNELS.dockerProbe, snapshot, READ);
 
   command<[unknown], ImageOperation>(CHANNELS.imageDownloadStart, (request) => {
     const operation = startDownload(parseDownloadRequest(request).catalogEntryId);
@@ -385,24 +397,32 @@ export function registerIpc(version: string): void {
   commandTaskAction<[unknown]>(CHANNELS.imageUnregister, (request) =>
     unregisterImage(parseUnregisterRequest(request).imageId),
   );
-  command<[], Snapshot>(CHANNELS.imageRefresh, snapshot, { adapt: adaptSnapshot });
+  command<[], Snapshot>(CHANNELS.imageRefresh, snapshot, READ);
 
   commandConfigEdit<[unknown]>(CHANNELS.extensionsSave, (extensions) =>
     patchConfig({ extensions: parseExtensions(extensions) }),
   );
-  command<[], readonly string[]>(CHANNELS.extensionsApply, async () => {
-    const lines = await provisionRunningTasks();
-    notifyStateChanged();
-    return lines;
-  });
-
-  command<[unknown], CreateTaskResult>(CHANNELS.taskCreate, async (input) => {
-    try {
-      return await createTask(parseNewTaskInput(input));
-    } finally {
+  command<[], readonly string[]>(
+    CHANNELS.extensionsApply,
+    async () => {
+      const lines = await provisionRunningTasks();
       notifyStateChanged();
-    }
-  });
+      return lines;
+    },
+    { timeoutMs: LONG_CALL_MS },
+  );
+
+  command<[unknown], CreateTaskResult>(
+    CHANNELS.taskCreate,
+    async (input) => {
+      try {
+        return await createTask(parseNewTaskInput(input));
+      } finally {
+        notifyStateChanged();
+      }
+    },
+    { timeoutMs: LONG_CALL_MS },
+  );
   command<[unknown, unknown], Task>(CHANNELS.taskUpdate, async (id, patch) => {
     try {
       return await updateTaskDetails(requireTaskId(id), parseTaskPatch(patch));
@@ -426,6 +446,7 @@ export function registerIpc(version: string): void {
       }
     },
     {
+      timeoutMs: LONG_CALL_MS,
       remote: async (router, id, request) => {
         const taskId = requireTaskId(id);
         if (!wantsExport(request)) return router.call(CHANNELS.taskDelete, [taskId, { exportFirst: false }]);
@@ -448,11 +469,15 @@ export function registerIpc(version: string): void {
       },
     },
   );
-  command<[unknown], string>(CHANNELS.taskProvision, async (id) => {
-    const summary = await provisionTask(requireTaskId(id));
-    notifyStateChanged();
-    return summary;
-  });
+  command<[unknown], string>(
+    CHANNELS.taskProvision,
+    async (id) => {
+      const summary = await provisionTask(requireTaskId(id));
+      notifyStateChanged();
+      return summary;
+    },
+    { timeoutMs: LONG_CALL_MS },
+  );
   command<[unknown], ExportSummary | null>(
     CHANNELS.taskExport,
     async (id) => {

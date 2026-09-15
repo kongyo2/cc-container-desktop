@@ -44,7 +44,7 @@ export async function pullWorkspace(router: RemoteRouter, taskId: string, destin
   const transferId = channel.newTransferId();
   const incoming = channel.receiveStream(transferId);
   let finished = false;
-  const call = router.call(CHANNELS.taskExportStream, [taskId, transferId]).then(
+  const call = router.call(CHANNELS.taskExportStream, [taskId, transferId], null).then(
     (value: unknown) => {
       finished = true;
       return value;
@@ -72,6 +72,7 @@ export async function pullWorkspace(router: RemoteRouter, taskId: string, destin
     return summary;
   } catch (error) {
     if (!finished) channel.abortStream(transferId, describeError(error));
+    channel.cancelIncoming(transferId, describeError(error));
     await call.catch(() => undefined);
     throw error;
   }
@@ -93,7 +94,7 @@ export async function pushImports(
     const transferId = channel.newTransferId();
     const sending = channel.sendStream(transferId, { name: source.name }, packed.archive);
     try {
-      await router.call(CHANNELS.taskImportStream, [taskId, transferId]);
+      await router.call(CHANNELS.taskImportStream, [taskId, transferId], null);
     } catch (error) {
       channel.cancelOutgoing(transferId, describeError(error));
       destroy(packed.archive);

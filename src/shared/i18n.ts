@@ -357,6 +357,7 @@ const ja = {
   settingsDataDir: 'データの保存先',
   settingsDataDirHint: '設定・環境・タスク一覧・登録イメージの台帳・取得履歴・API キーはこのフォルダの中にあります。',
   settingsOpenDataDir: 'フォルダを開く',
+  settingsDataDirRemote: 'これはリモート側の PC のフォルダです。開くときはその PC の画面から操作してください。',
   settingsSecretsEncrypted: 'API キーは OS の暗号化ストアに保存されています。',
   settingsSecretsPlain: '警告: OS の暗号化が使えないため、API キーは平文で保存されます。',
   settingsAppVersion: 'アプリのバージョン',
@@ -800,6 +801,7 @@ const en: Record<MessageKey, string> = {
   settingsDataDirHint:
     'Config, environments, the task list, the image ledger, the download history and API keys live in this folder.',
   settingsOpenDataDir: 'Open folder',
+  settingsDataDirRemote: 'This folder is on the machine you are driving. Open it from that machine instead.',
   settingsSecretsEncrypted: 'API keys are stored in the OS encrypted store.',
   settingsSecretsPlain: 'Warning: OS encryption is unavailable, so API keys are stored in plain text.',
   settingsAppVersion: 'App version',

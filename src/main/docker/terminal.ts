@@ -7,8 +7,9 @@ import { CLAUDE_TMUX_SESSION, CONTAINER_TERMINAL_RUNTIME, CONTAINER_WORKSPACE } 
 import { EVENTS } from '../../shared/ipc.ts';
 import type { OpenTerminalRequest, OpenTerminalResult, TerminalsReset } from '../../shared/types.ts';
 import { claudeLaunchCommand } from '../claude/provision.ts';
-import { currentOrigin } from '../commands.ts';
+import { currentOrigin, routeGeneration } from '../commands.ts';
 import type { CommandOrigin } from '../commands.ts';
+import { AppFailure } from '../errors.ts';
 import { emitEvent, emitToOrigin } from '../events.ts';
 import { describeError, logWarn } from '../logger.ts';
 import { containerHandle, execCapture } from './container.ts';
@@ -21,6 +22,7 @@ interface Session {
   readonly exec: Exec;
   readonly container: Container;
   readonly origin: CommandOrigin;
+  readonly route: number;
   cols: number;
   rows: number;
 }
@@ -112,6 +114,7 @@ export async function openTerminal(ref: ContainerRef, request: OpenTerminalReque
   const command = commandFor(request.kind);
 
   const origin = currentOrigin();
+  const route = routeGeneration();
   const container = containerHandle(ref);
   const exec = await container.exec({
     Cmd: [...wrapCommand(id, command)],
@@ -125,8 +128,17 @@ export async function openTerminal(ref: ContainerRef, request: OpenTerminalReque
   });
 
   const stream = await exec.start({ hijack: true, stdin: true, Tty: true });
-  const session: Session = { id, ref, stream, exec, container, origin, cols: 0, rows: 0 };
+  const session: Session = { id, ref, stream, exec, container, origin, route, cols: 0, rows: 0 };
   sessions.set(id, session);
+
+  if (routeGeneration() !== route) {
+    await releaseTerminal(id);
+    throw new AppFailure(
+      'REMOTE_ERROR',
+      '操作先が切り替わったのでターミナルを閉じました / the machine being operated changed while this terminal was opening, so it was closed',
+      { retryable: true },
+    );
+  }
 
   const decoder = new StringDecoder('utf8');
   stream.on('data', (chunk: Buffer) => {
@@ -228,6 +240,11 @@ export async function closeTaskTerminals(taskId: string): Promise<void> {
 
 export async function closeOriginTerminals(origin: CommandOrigin): Promise<void> {
   await closeMatching((session) => sameOrigin(session.origin, origin));
+}
+
+export async function closeStaleLocalTerminals(): Promise<void> {
+  const route = routeGeneration();
+  await closeMatching((session) => session.origin.kind === 'local' && session.route !== route);
 }
 
 export async function closeAllTerminals(): Promise<void> {

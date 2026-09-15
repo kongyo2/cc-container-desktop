@@ -13,6 +13,7 @@ export function SettingsPanel(): JSX.Element {
 
   if (snapshot === null) return <p className="hint">{t('commonRunning')}</p>;
   const { config } = snapshot;
+  const driving = snapshot.remote.link.state !== 'offline';
 
   const save = (patch: ConfigPatch): void => {
     void run('config', () => window.cc.configSave(patch));
@@ -47,10 +48,16 @@ export function SettingsPanel(): JSX.Element {
           onChange={(skipPermissions) => save({ skipPermissions })}
         />
 
-        <Field label={t('settingsDataDir')} hint={t('settingsDataDirHint')}>
+        <Field label={t('settingsDataDir')} hint={driving ? t('settingsDataDirRemote') : t('settingsDataDirHint')}>
           <div className="inline-input">
             <input type="text" value={snapshot.dataDir} readOnly spellCheck={false} />
-            <button className="btn sm" type="button" onClick={() => void window.cc.revealPath(snapshot.dataDir)}>
+            <button
+              className="btn sm"
+              type="button"
+              disabled={driving}
+              title={driving ? t('settingsDataDirRemote') : ''}
+              onClick={() => void window.cc.revealPath(snapshot.dataDir)}
+            >
               <FolderOpen size={13} /> {t('settingsOpenDataDir')}
             </button>
           </div>

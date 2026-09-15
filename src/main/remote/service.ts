@@ -20,6 +20,7 @@ import type {
   RemoteTicket,
 } from '../../shared/remote.ts';
 import { remoteOriginOrNull, setRemoteRouter } from '../commands.ts';
+import { closeStaleLocalTerminals } from '../docker/terminal.ts';
 import { setRemoteEventSink } from '../events.ts';
 import { AppFailure, describeError } from '../errors.ts';
 import { logInfo, logWarn, notifyStateChanged } from '../logger.ts';
@@ -354,6 +355,7 @@ export async function pairWithPeer(request: RemotePairRequest): Promise<void> {
         },
         connected,
       );
+      releaseStaleTerminals();
       logInfo('app', `ペアリングしました / paired with ${connected.peerName} (${connected.address})`);
       return;
     } catch (error) {
@@ -394,10 +396,16 @@ export function connectToPeer(request: RemoteConnectRequest): void {
     );
   }
   link.engage(target);
+  releaseStaleTerminals();
+}
+
+function releaseStaleTerminals(): void {
+  void closeStaleLocalTerminals().catch(() => undefined);
 }
 
 export function disconnectPeer(): void {
   link.disengage();
+  releaseStaleTerminals();
 }
 
 export function forgetPeerRecord(peerId: string): void {

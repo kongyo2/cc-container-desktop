@@ -280,7 +280,7 @@ export async function startHosting(port: number, appVersion: string, onChange: (
   const next = createServer(
     { key: material.key, cert: material.cert, minVersion: 'TLSv1.3', requestCert: false },
     (socket) => {
-      if (sessions.size >= MAX_SESSIONS || handshaking >= MAX_SESSIONS) {
+      if (sessions.size + handshaking >= MAX_SESSIONS) {
         socket.destroy();
         return;
       }

@@ -39,6 +39,7 @@ class IncomingStream extends Readable {
   constructor(ack: (seq: number) => void) {
     super({ highWaterMark: CHUNK_BYTES * WINDOW_CHUNKS });
     this.ack = ack;
+    this.on('error', () => undefined);
   }
 
   override _read(): void {
@@ -70,7 +71,7 @@ interface Incoming {
 interface Pending {
   readonly resolve: (result: Result<unknown>) => void;
   readonly reject: (error: Error) => void;
-  readonly timer: NodeJS.Timeout;
+  readonly timer: NodeJS.Timeout | null;
 }
 
 export class RemoteChannel {
@@ -122,7 +123,11 @@ export class RemoteChannel {
     this.send({ t: 'event', channel, payload });
   }
 
-  async call(channel: string, args: readonly unknown[], timeoutMs: number = DEFAULT_CALL_TIMEOUT_MS): Promise<unknown> {
+  async call(
+    channel: string,
+    args: readonly unknown[],
+    timeoutMs: number | null = DEFAULT_CALL_TIMEOUT_MS,
+  ): Promise<unknown> {
     const result = await this.callResult(channel, args, timeoutMs);
     if (result.ok) return result.value;
     throw new RelayedFailure(result.error);
@@ -131,22 +136,25 @@ export class RemoteChannel {
   callResult(
     channel: string,
     args: readonly unknown[],
-    timeoutMs: number = DEFAULT_CALL_TIMEOUT_MS,
+    timeoutMs: number | null = DEFAULT_CALL_TIMEOUT_MS,
   ): Promise<Result<unknown>> {
     if (this.closed) return Promise.reject(linkFailure(this.closedReason ?? 'closed'));
     const id = randomUUID();
     return new Promise<Result<unknown>>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          new AppFailure(
-            'REMOTE_ERROR',
-            `リモートの応答がありません / the remote instance did not answer: ${channel}`,
-            { retryable: true },
-          ),
-        );
-      }, timeoutMs);
-      timer.unref();
+      const timer =
+        timeoutMs === null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(
+                new AppFailure(
+                  'REMOTE_ERROR',
+                  `リモートの応答がありません / the remote instance did not answer: ${channel}`,
+                  { retryable: true },
+                ),
+              );
+            }, timeoutMs);
+      timer?.unref();
       this.pending.set(id, { resolve, reject, timer });
       this.send({ t: 'call', id, channel, args: [...args] });
     });
@@ -194,6 +202,14 @@ export class RemoteChannel {
 
   abortStream(id: string, message: string): void {
     this.send({ t: 'streamAbort', id, message });
+  }
+
+  cancelIncoming(id: string, message: string): void {
+    const entry = this.incoming.get(id);
+    if (entry === undefined) return;
+    this.incoming.delete(id);
+    entry.settleMeta(null);
+    entry.stream.finish(message);
   }
 
   cancelOutgoing(id: string, message: string): void {
@@ -275,7 +291,12 @@ export class RemoteChannel {
         this.close(error instanceof ProtocolError ? error.message : describeError(error));
         return;
       }
-      this.dispatch(message);
+      try {
+        this.dispatch(message);
+      } catch (error) {
+        this.close(describeError(error));
+        return;
+      }
     }
   }
 
@@ -290,7 +311,7 @@ export class RemoteChannel {
         const pending = this.pending.get(message.id);
         if (pending === undefined) return;
         this.pending.delete(message.id);
-        clearTimeout(pending.timer);
+        if (pending.timer !== null) clearTimeout(pending.timer);
         pending.resolve(message.result);
         return;
       }
@@ -341,7 +362,7 @@ export class RemoteChannel {
       this.keepalive = null;
     }
     for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer);
+      if (pending.timer !== null) clearTimeout(pending.timer);
       pending.reject(linkFailure(reason));
     }
     this.pending.clear();

@@ -51,7 +51,7 @@ export interface UiState {
   markTabOpened: (key: string, id: string) => void;
   markTabExited: (key: string) => void;
   dropTaskTabs: (taskId: string) => void;
-  dropAllTabs: () => void;
+  resetForRoute: () => void;
   applyOperation: (operation: ImageOperation) => void;
   refresh: () => Promise<void>;
   run: <T>(label: string, call: () => Promise<Result<T>>) => Promise<T | null>;
@@ -162,7 +162,7 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
       return { tabs: state.tabs.filter((tab) => tab.taskId !== taskId), activeTab };
     }),
 
-  dropAllTabs: () => set({ tabs: [], activeTab: {} }),
+  resetForRoute: () => set({ tabs: [], activeTab: {}, operations: {}, selectedTaskId: null, error: null, toast: null }),
 
   applyOperation: (operation) => set((state) => ({ operations: mergeOperations(state.operations, [operation]) })),
 

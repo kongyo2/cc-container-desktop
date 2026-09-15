@@ -125,6 +125,16 @@ function parseBeacon(raw: Buffer, host: string): SeenPeer | 'query' | null {
   return { id, name, port, fingerprint, appVersion, host, seenAt: Date.now() };
 }
 
+function changed(known: SeenPeer, next: SeenPeer): boolean {
+  return (
+    known.name !== next.name ||
+    known.host !== next.host ||
+    known.port !== next.port ||
+    known.fingerprint !== next.fingerprint ||
+    known.appVersion !== next.appVersion
+  );
+}
+
 function sendTo(payload: Buffer, host: string, port: number): void {
   socket?.send(payload, port, host, () => undefined);
 }
@@ -156,8 +166,9 @@ function bind(): void {
       return;
     }
     if (mine !== null && beacon.id === mine.id) return;
+    const known = seen.get(beacon.id);
     seen.set(beacon.id, beacon);
-    notify?.();
+    if (known === undefined || changed(known, beacon)) notify?.();
   });
 
   next.bind(REMOTE_DISCOVERY_PORT, () => {

@@ -133,6 +133,36 @@ test('a multi-megabyte transfer arrives byte for byte, with its metadata', async
   }
 });
 
+test('a handler that throws closes the link instead of taking the process down', async () => {
+  const pair = await connectedPair(() => {
+    throw new Error('the state directory is read-only');
+  });
+  const pending = pair.client.call('task:start', ['t1']);
+  await assert.rejects(pending, /the remote link dropped/u);
+  assert.equal(pair.host.closed, true);
+  await pair.close();
+});
+
+test('a transfer nobody will send is dropped instead of lingering on the channel', async () => {
+  const pair = await connectedPair(() => undefined);
+  try {
+    const incoming = pair.client.receiveStream('t1');
+    pair.client.cancelIncoming('t1', 'the host refused');
+
+    assert.equal(await incoming.meta, null);
+    await assert.rejects(
+      (async () => {
+        for await (const chunk of incoming.stream) void chunk;
+      })(),
+      /the host refused/u,
+    );
+    assert.notEqual(pair.client.receiveStream('t1').stream, incoming.stream, 'the entry is gone, not reused');
+    pair.client.cancelIncoming('t1', 'again');
+  } finally {
+    await pair.close();
+  }
+});
+
 test('a dropped link fails the calls that were still in flight', async () => {
   const pair = await connectedPair(() => undefined);
   const pending = pair.client.call('app:snapshot', []);

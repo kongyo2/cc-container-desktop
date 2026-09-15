@@ -112,7 +112,7 @@ export function App(): JSX.Element {
   const refresh = useApp((state) => state.refresh);
   const appendLog = useApp((state) => state.appendLog);
   const dropTaskTabs = useApp((state) => state.dropTaskTabs);
-  const dropAllTabs = useApp((state) => state.dropAllTabs);
+  const resetForRoute = useApp((state) => state.resetForRoute);
   const applyOperation = useApp((state) => state.applyOperation);
   const link = snapshot?.remote.link ?? null;
   const epoch = link?.epoch ?? 0;
@@ -121,8 +121,8 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (lastEpoch.current === epoch) return;
     lastEpoch.current = epoch;
-    dropAllTabs();
-  }, [epoch, dropAllTabs]);
+    resetForRoute();
+  }, [epoch, resetForRoute]);
 
   useEffect(() => {
     startTerminalBus();
@@ -177,9 +177,9 @@ export function App(): JSX.Element {
         <Notice kind="error" text={error} flush={flush} onDismiss={() => setError(null)} />
         <Notice kind="info" text={toast} flush={flush} onDismiss={() => setToast(null)} />
         <div className="panel-host" style={{ display: flush ? 'flex' : 'none' }}>
-          <TaskWorkspace />
+          <TaskWorkspace key={`w${epoch}`} />
         </div>
-        {flush ? null : <Panel view={view} />}
+        {flush ? null : <Panel key={`p${epoch}`} view={view} />}
       </main>
     </div>
   );

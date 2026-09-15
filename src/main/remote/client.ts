@@ -240,6 +240,10 @@ export class RemoteLink implements RemoteRouter {
     return this.channel !== null && !this.channel.closed;
   }
 
+  get routeGeneration(): number {
+    return this.generation;
+  }
+
   get liveChannel(): RemoteChannel | null {
     return this.online ? this.channel : null;
   }
@@ -258,13 +262,13 @@ export class RemoteLink implements RemoteRouter {
     );
   }
 
-  call(channel: string, args: readonly unknown[]): Promise<unknown> {
+  call(channel: string, args: readonly unknown[], timeoutMs?: number | null): Promise<unknown> {
     const live = this.liveChannel;
     if (live === null) {
       this.requireOnline();
       throw new AppFailure('REMOTE_OFFLINE', 'not connected');
     }
-    return live.call(channel, args);
+    return timeoutMs === undefined ? live.call(channel, args) : live.call(channel, args, timeoutMs);
   }
 
   view(): RemoteLinkView {
