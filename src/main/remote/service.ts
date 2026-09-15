@@ -26,7 +26,7 @@ import { AppFailure, describeError } from '../errors.ts';
 import { logInfo, logWarn, notifyStateChanged } from '../logger.ts';
 import type { RemoteChannel } from './channel.ts';
 import { RemoteLink, handshake } from './client.ts';
-import type { LinkTarget } from './client.ts';
+import type { Connected, LinkTarget } from './client.ts';
 import {
   discoveredPeers,
   isScanning,
@@ -325,8 +325,9 @@ export async function pairWithPeer(request: RemotePairRequest): Promise<void> {
   let failure: string | null = null;
   /* oxlint-disable no-await-in-loop -- try the addresses one at a time, first reachable wins */
   for (const address of candidates) {
+    let connected: Connected | null = null;
     try {
-      const connected = await handshake({
+      connected = await handshake({
         address,
         expectFingerprint: ticket?.fingerprint ?? null,
         credentials: { kind: 'pair', code },
@@ -334,7 +335,8 @@ export async function pairWithPeer(request: RemotePairRequest): Promise<void> {
       });
       const credentials = connected.credentials;
       if (credentials === null) throw new AppFailure('REMOTE_ERROR', 'pairing returned no credentials');
-      const addresses = [connected.address, ...(ticket?.addresses ?? [])];
+      const reached = connected.address;
+      const addresses = [reached, ...(ticket?.addresses ?? [])];
       const peer = rememberPeer({
         id: connected.peerId,
         name: connected.peerName,
@@ -350,7 +352,7 @@ export async function pairWithPeer(request: RemotePairRequest): Promise<void> {
           fingerprint: peer.fingerprint,
           clientId: credentials.clientId,
           token: credentials.token,
-          addresses: [connected.address, ...peer.addresses.filter((known) => known !== connected.address)],
+          addresses: [reached, ...peer.addresses.filter((known) => known !== reached)],
           defaultPort: DEFAULT_REMOTE_PORT,
         },
         connected,
@@ -360,6 +362,7 @@ export async function pairWithPeer(request: RemotePairRequest): Promise<void> {
       return;
     } catch (error) {
       failure = describeError(error);
+      connected?.channel.close(failure);
     }
   }
   /* oxlint-enable no-await-in-loop */

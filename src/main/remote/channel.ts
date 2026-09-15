@@ -340,6 +340,7 @@ export class RemoteChannel {
         return;
       }
       case 'streamAck': {
+        if (!this.acks.has(message.id)) return;
         this.acks.set(message.id, message.seq);
         const waiter = this.waiters.get(message.id);
         if (waiter !== undefined) {
@@ -349,7 +350,7 @@ export class RemoteChannel {
         return;
       }
       case 'streamAbort':
-        this.cancelOutgoing(message.id, message.message);
+        if (this.acks.has(message.id)) this.cancelOutgoing(message.id, message.message);
         return;
       default:
         this.handlers.onControl?.(message);

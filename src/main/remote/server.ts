@@ -101,19 +101,15 @@ function originOf(session: HostSession): CommandOrigin {
   };
 }
 
-let handshaking = 0;
+const handshaking = new Set<RemoteChannel>();
 
 function serve(socket: TLSSocket, fingerprint: string, appVersion: string, onChange: () => void): void {
   const address = addressOf(socket);
   const nonce = randomUUID();
   let session: HostSession | null = null;
 
-  handshaking += 1;
-  let counted = true;
   const settle = (): void => {
-    if (!counted) return;
-    counted = false;
-    handshaking -= 1;
+    handshaking.delete(channel);
   };
 
   const deny = (reason: DenyReason, message: string): void => {
@@ -256,6 +252,8 @@ function serve(socket: TLSSocket, fingerprint: string, appVersion: string, onCha
     },
   });
 
+  handshaking.add(channel);
+
   channel.send({
     t: 'hello',
     protocol: REMOTE_PROTOCOL_VERSION,
@@ -299,7 +297,7 @@ async function openListener(port: number, appVersion: string, onChange: () => vo
   const next = createServer(
     { key: material.key, cert: material.cert, minVersion: 'TLSv1.3', requestCert: false },
     (socket) => {
-      if (sessions.size + handshaking >= MAX_SESSIONS) {
+      if (sessions.size + handshaking.size >= MAX_SESSIONS) {
         socket.destroy();
         return;
       }
@@ -342,6 +340,8 @@ async function closeListener(): Promise<void> {
   invite = null;
   for (const session of sessions.values()) session.channel.close('hosting stopped');
   sessions.clear();
+  for (const channel of handshaking) channel.close('hosting stopped');
+  handshaking.clear();
   if (running === null) return;
   await new Promise<void>((resolve) => {
     running.close(() => resolve());

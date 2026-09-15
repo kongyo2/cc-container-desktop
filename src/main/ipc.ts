@@ -61,7 +61,7 @@ import {
   unregisterImage,
 } from './images/service.ts';
 import { imagesStoreProblem, operationsStoreProblem } from './images/store.ts';
-import { notifyStateChanged } from './logger.ts';
+import { logInfo, notifyStateChanged } from './logger.ts';
 import { isInside, stateDir } from './paths.ts';
 import { remoteStoreProblem } from './remote/identity.ts';
 import { parseConnectRequest, parseHostingPatch, parsePairRequest } from './remote/schema.ts';
@@ -103,7 +103,7 @@ const MAX_CLIPBOARD_CHARS = 4 * 1024 * 1024;
 
 const LONG_CALL_MS = 60 * 60_000;
 
-const READ: CommandOptions = { adapt: adaptSnapshot, reroute: true };
+const READ: CommandOptions = { adapt: adaptSnapshot, reroute: true, offlineFallback: true };
 
 let appVersion = '0.0.0';
 
@@ -450,7 +450,11 @@ export function registerIpc(version: string): void {
       remote: async (router, id, request) => {
         const taskId = requireTaskId(id);
         if (!wantsExport(request)) return router.call(CHANNELS.taskDelete, [taskId, { exportFirst: false }]);
-        const exported = await exportFromRemote(router, taskId);
+        const exported = await exportFromRemote(router, taskId).catch((error: unknown) => {
+          if (toAppError(error).code !== 'NOTHING_TO_EXPORT') throw error;
+          logInfo('app', '取り出すものがないので削除だけ行います / nothing to export; deleting the record');
+          return { path: '', files: 0, skipped: [] } satisfies ExportSummary;
+        });
         if (exported === null) {
           throw new AppFailure(
             'INVALID_INPUT',
@@ -465,7 +469,10 @@ export function registerIpc(version: string): void {
           );
         }
         await router.call(CHANNELS.taskDelete, [taskId, { exportFirst: false }]);
-        return { exportedTo: exported.path, exportedFiles: exported.files } satisfies DeleteTaskSummary;
+        return {
+          exportedTo: exported.path === '' ? null : exported.path,
+          exportedFiles: exported.files,
+        } satisfies DeleteTaskSummary;
       },
     },
   );

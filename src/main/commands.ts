@@ -44,6 +44,7 @@ export interface CommandOptions {
   readonly adapt?: (value: unknown) => unknown;
   readonly remote?: (router: RemoteRouter, ...args: readonly unknown[]) => Promise<unknown>;
   readonly reroute?: boolean;
+  readonly offlineFallback?: boolean;
   readonly timeoutMs?: number | null;
 }
 
@@ -84,6 +85,7 @@ async function dispatch(entry: CommandEntry, channel: string, args: readonly unk
   if (entry.local === true || active === null || !active.engaged) {
     return entry.run(...args);
   }
+  if (!active.online && entry.offlineFallback === true) return entry.run(...args);
   active.requireOnline();
   if (entry.remote !== undefined) return entry.remote(active, ...args);
   const value = await active.call(channel, args, entry.timeoutMs);
@@ -102,7 +104,11 @@ export async function invokeRouted(channel: string, args: readonly unknown[], at
   return value;
 }
 
-export function invokeFromRemote(channel: string, args: readonly unknown[], origin: CommandOrigin): Promise<unknown> {
+export async function invokeFromRemote(
+  channel: string,
+  args: readonly unknown[],
+  origin: CommandOrigin,
+): Promise<unknown> {
   const entry = entryOf(channel);
   if (entry.denyRemote === true) {
     throw new AppFailure(
@@ -110,5 +116,5 @@ export function invokeFromRemote(channel: string, args: readonly unknown[], orig
       `この操作はつないでいる側の PC で行ってください / this request has to run on the controlling machine, not here: ${channel}`,
     );
   }
-  return Promise.resolve(runWithOrigin(origin, () => entry.run(...args)));
+  return runWithOrigin(origin, () => entry.run(...args));
 }

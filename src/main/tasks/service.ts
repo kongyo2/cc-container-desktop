@@ -404,7 +404,7 @@ export function exportTask(id: string, destination: string): Promise<ExportSumma
     const task = getTask(id);
     if (!(await hasWorkspace(refOf(task)))) {
       throw new AppFailure(
-        'INVALID_INPUT',
+        'NOTHING_TO_EXPORT',
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
@@ -470,7 +470,7 @@ export function streamTaskWorkspace(
     const task = getTask(id);
     if (!(await hasWorkspace(refOf(task)))) {
       throw new AppFailure(
-        'INVALID_INPUT',
+        'NOTHING_TO_EXPORT',
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
