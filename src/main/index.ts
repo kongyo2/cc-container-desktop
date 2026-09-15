@@ -3,12 +3,13 @@ import { join, resolve } from 'node:path';
 
 import { isHttpUrl, parseUrl } from '../shared/url.ts';
 import { getConfig } from './config/store.ts';
-import { closeAllTerminals, setTerminalTarget } from './docker/terminal.ts';
+import { closeAllTerminals } from './docker/terminal.ts';
 import { cancelAllOperations, recoverOperationsOnStartup } from './images/operations.ts';
 import { activeCatalog } from './images/service.ts';
 import { listRegisteredImages } from './images/store.ts';
 import { registerIpc } from './ipc.ts';
 import { describeError, logError, logInfo, setLogTarget } from './logger.ts';
+import { initRemote, shutdownRemote } from './remote/service.ts';
 import { listTasks } from './tasks/store.ts';
 import { setMainWindow } from './window.ts';
 
@@ -96,12 +97,10 @@ function createWindow(): BrowserWindow {
     void window.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
-  setLogTarget(window);
-  setTerminalTarget(window);
   setMainWindow(window);
+  setLogTarget(window);
   window.on('closed', () => {
     setLogTarget(null);
-    setTerminalTarget(null);
     setMainWindow(null);
   });
 
@@ -137,6 +136,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc(app.getVersion());
     createWindow();
     initializeState();
+    await initRemote(app.getVersion());
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -154,7 +154,7 @@ if (!app.requestSingleInstanceLock()) {
     const deadline = new Promise<void>((settle) => {
       setTimeout(settle, QUIT_CLEANUP_MS);
     });
-    void Promise.race([Promise.all([closeAllTerminals(), cancelAllOperations()]), deadline])
+    void Promise.race([Promise.all([closeAllTerminals(), cancelAllOperations(), shutdownRemote()]), deadline])
       .catch(() => undefined)
       .finally(() => {
         released = true;

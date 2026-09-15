@@ -41,7 +41,7 @@ import {
   withRunningContainer,
 } from '../docker/container.ts';
 import type { ContainerRef } from '../docker/container.ts';
-import { exportWorkspace, importIntoWorkspace } from '../docker/files.ts';
+import { exportWorkspace, importIntoWorkspace, uploadIntoWorkspace, workspaceArchive } from '../docker/files.ts';
 import { cloneIntoWorkspace } from '../docker/git.ts';
 import { closeTaskTerminals, openTerminal } from '../docker/terminal.ts';
 import { AppFailure, describeError } from '../errors.ts';
@@ -404,7 +404,7 @@ export function exportTask(id: string, destination: string): Promise<ExportSumma
     const task = getTask(id);
     if (!(await hasWorkspace(refOf(task)))) {
       throw new AppFailure(
-        'INVALID_INPUT',
+        'NOTHING_TO_EXPORT',
         '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
       );
     }
@@ -459,6 +459,31 @@ export function importIntoTask(id: string, paths: readonly string[]): Promise<Im
     const task = getTask(id);
     await ensureTaskContainer(task);
     return importIntoWorkspace(refOf(task), paths);
+  });
+}
+
+export function streamTaskWorkspace(
+  id: string,
+  consume: (archive: NodeJS.ReadableStream, taskName: string) => Promise<void>,
+): Promise<void> {
+  return withTaskLock(id, async () => {
+    const task = getTask(id);
+    if (!(await hasWorkspace(refOf(task)))) {
+      throw new AppFailure(
+        'NOTHING_TO_EXPORT',
+        '取り出すものがありません (コンテナもボリュームもありません) / nothing to export: no container and no volume',
+      );
+    }
+    await ensureTaskContainer(task);
+    await consume(await workspaceArchive(refOf(task)), task.name);
+  });
+}
+
+export function importTaskArchive(id: string, archive: NodeJS.ReadableStream): Promise<void> {
+  return withTaskLock(id, async () => {
+    const task = getTask(id);
+    await ensureTaskContainer(task);
+    await uploadIntoWorkspace(refOf(task), archive);
   });
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "cc-container-desktop",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "description": "Claude Code container workbench — pre-built runtime images from Docker Hub, one Docker container per task, with per-task environments (image + variables + setup script), endpoints, models and API keys.",
   "author": "kongyo2",
@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "dockerode": "^5.0.1",
+    "selfsigned": "^5.5.0",
     "tar-fs": "^3.1.3",
     "tar-stream": "^3.2.0",
     "zod": "^4.4.3"

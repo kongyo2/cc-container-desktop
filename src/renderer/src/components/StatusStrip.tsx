@@ -40,7 +40,7 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
     );
   }
 
-  const { docker, images, tasks, config } = snapshot;
+  const { docker, images, tasks, config, remote } = snapshot;
   const running = tasks.filter((view) => view.container.running).length;
   const ready = images.filter((view) => view.availability.kind === 'ready').length;
   const mcpCount = config.extensions.mcpServers.filter((server) => server.enabled).length;
@@ -54,6 +54,23 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
     images.length === 0
       ? t('panelNone')
       : `${ready} ${t('panelReady')} / ${images.length} ${t('panelRegistered')}${activeOperations.length === 0 ? '' : ` · ↓${activeOperations.length}`}`;
+
+  const remoteLamp: Lamp =
+    remote.link.state === 'online'
+      ? 'live'
+      : remote.link.state === 'error'
+        ? 'fault'
+        : remote.link.state === 'connecting'
+          ? 'hold'
+          : remote.hosting.listening
+            ? 'live'
+            : 'off';
+  const remoteValue =
+    remote.link.state === 'offline'
+      ? remote.hosting.listening
+        ? `:${remote.hosting.boundPort ?? remote.hosting.port} · ${remote.hosting.clients.filter((client) => client.online).length}`
+        : t('panelNone')
+      : `${remote.link.peerName ?? ''}${remote.link.state === 'online' ? '' : ' …'}`;
 
   return (
     <div className="panel-strip">
@@ -79,6 +96,7 @@ export function StatusStrip({ snapshot }: { snapshot: Snapshot | null }): JSX.El
         lamp={mcpCount + pluginCount + skillCount > 0 ? 'live' : 'off'}
         value={`mcp ${mcpCount} · plg ${pluginCount} · skl ${skillCount}`}
       />
+      <Cell legend={t('panelRemote')} lamp={remoteLamp} value={remoteValue} testId="strip-remote" />
     </div>
   );
 }

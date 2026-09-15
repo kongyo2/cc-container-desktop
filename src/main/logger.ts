@@ -2,17 +2,14 @@ import type { BrowserWindow } from 'electron';
 
 import { EVENTS } from '../shared/ipc.ts';
 import type { LogLine } from '../shared/types.ts';
-import { sendToWindow } from './window.ts';
+import { emitEvent } from './events.ts';
 
 export { describeError } from './errors.ts';
-
-let target: BrowserWindow | null = null;
 
 const backlog: LogLine[] = [];
 const BACKLOG_LIMIT = 500;
 
 export function setLogTarget(window: BrowserWindow | null): void {
-  target = window;
   if (window === null) return;
   for (const line of backlog) {
     window.webContents.send(EVENTS.log, line);
@@ -29,7 +26,7 @@ function log(stream: LogLine['stream'], level: LogLine['level'], text: string): 
   else if (level === 'warn') console.warn(prefix, text);
   else console.log(prefix, text);
 
-  sendToWindow(target, EVENTS.log, line);
+  emitEvent(EVENTS.log, line);
 }
 
 export function logInfo(stream: LogLine['stream'], text: string): void {
@@ -45,7 +42,7 @@ export function logError(stream: LogLine['stream'], text: string): void {
 }
 
 export function notifyStateChanged(): void {
-  sendToWindow(target, EVENTS.stateChanged);
+  emitEvent(EVENTS.stateChanged);
 }
 
 const USERINFO = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/\s@]+@/gu;

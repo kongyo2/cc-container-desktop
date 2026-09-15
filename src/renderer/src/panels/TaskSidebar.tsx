@@ -1,4 +1,14 @@
-import { Boxes, HardDriveDownload, Layers, ListTodo, Plus, Puzzle, ScrollText, Settings } from 'lucide-react';
+import {
+  Boxes,
+  HardDriveDownload,
+  Layers,
+  ListTodo,
+  MonitorSmartphone,
+  Plus,
+  Puzzle,
+  ScrollText,
+  Settings,
+} from 'lucide-react';
 import type { JSX } from 'react';
 
 import { environmentById } from '../../../shared/environments.ts';
@@ -14,6 +24,7 @@ const NAV: ReadonlyArray<{ id: View; icon: JSX.Element; key: MessageKey }> = [
   { id: 'environments', icon: <Layers size={15} />, key: 'navEnvironments' },
   { id: 'profiles', icon: <Boxes size={15} />, key: 'navProfiles' },
   { id: 'extensions', icon: <Puzzle size={15} />, key: 'navExtensions' },
+  { id: 'remote', icon: <MonitorSmartphone size={15} />, key: 'navRemote' },
   { id: 'log', icon: <ScrollText size={15} />, key: 'navLog' },
   { id: 'settings', icon: <Settings size={15} />, key: 'navSettings' },
 ];

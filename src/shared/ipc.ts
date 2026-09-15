@@ -1,4 +1,5 @@
 import type { ImageOperation } from './images.ts';
+import type { RemoteConnectRequest, RemoteHostingPatch, RemotePairRequest } from './remote.ts';
 import type {
   AppConfig,
   ConfigPatch,
@@ -69,6 +70,18 @@ export const CHANNELS = {
   taskPickImport: 'task:pickImport',
   taskExec: 'task:exec',
   taskMcpStatus: 'task:mcpStatus',
+  taskExportStream: 'task:exportStream',
+  taskImportStream: 'task:importStream',
+
+  remoteHostingSave: 'remote:hostingSave',
+  remoteInviteCreate: 'remote:inviteCreate',
+  remoteInviteCancel: 'remote:inviteCancel',
+  remoteClientRevoke: 'remote:clientRevoke',
+  remotePair: 'remote:pair',
+  remoteConnect: 'remote:connect',
+  remoteDisconnect: 'remote:disconnect',
+  remotePeerForget: 'remote:peerForget',
+  remoteScan: 'remote:scan',
 
   termOpen: 'term:open',
   termWrite: 'term:write',
@@ -153,6 +166,16 @@ export interface Api {
   taskPickImport(id: string, pick: ImportPick): Promise<Result<ImportSummary | null>>;
   taskExec(id: string, request: ExecRequest): Promise<Result<ExecResult>>;
   taskMcpStatus(id: string): Promise<Result<readonly McpServerStatus[]>>;
+
+  remoteHostingSave(patch: RemoteHostingPatch): Promise<Result<Snapshot>>;
+  remoteInviteCreate(): Promise<Result<Snapshot>>;
+  remoteInviteCancel(): Promise<Result<Snapshot>>;
+  remoteClientRevoke(clientId: string): Promise<Result<Snapshot>>;
+  remotePair(request: RemotePairRequest): Promise<Result<Snapshot>>;
+  remoteConnect(request: RemoteConnectRequest): Promise<Result<Snapshot>>;
+  remoteDisconnect(): Promise<Result<Snapshot>>;
+  remotePeerForget(peerId: string): Promise<Result<Snapshot>>;
+  remoteScan(): Promise<Result<Snapshot>>;
 
   termOpen(request: OpenTerminalRequest): Promise<Result<OpenTerminalResult>>;
   termWrite(id: string, data: string): Promise<Result<null>>;

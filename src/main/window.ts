@@ -6,7 +6,7 @@ export function setMainWindow(window: BrowserWindow | null): void {
   mainWindow = window;
 }
 
-export function sendToWindow(window: BrowserWindow | null, channel: string, ...args: readonly unknown[]): void {
+function sendToWindow(window: BrowserWindow | null, channel: string, ...args: readonly unknown[]): void {
   if (window === null || window.isDestroyed()) return;
   window.webContents.send(channel, ...args);
 }
