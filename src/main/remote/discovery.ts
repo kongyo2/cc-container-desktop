@@ -2,7 +2,15 @@ import { createSocket } from 'node:dgram';
 import type { Socket } from 'node:dgram';
 import { networkInterfaces } from 'node:os';
 
-import { REMOTE_DISCOVERY_GROUP, REMOTE_DISCOVERY_PORT, REMOTE_PROTOCOL_VERSION } from '../../shared/remote.ts';
+import {
+  MAX_REMOTE_NAME,
+  REMOTE_DISCOVERY_GROUP,
+  REMOTE_DISCOVERY_PORT,
+  REMOTE_FINGERPRINT_PATTERN,
+  REMOTE_INSTANCE_ID_PATTERN,
+  REMOTE_PROTOCOL_VERSION,
+  normalizeRemoteName,
+} from '../../shared/remote.ts';
 import { describeError } from '../errors.ts';
 import { logWarn } from '../logger.ts';
 
@@ -11,6 +19,12 @@ const ANNOUNCE_INTERVAL_MS = 4_000;
 const STALE_MS = 30_000;
 
 const SCAN_MS = 25_000;
+
+const MAX_PEERS = 64;
+
+const NOTIFY_INTERVAL_MS = 1_000;
+
+const MAX_VERSION_CHARS = 32;
 
 export interface AnnounceInfo {
   readonly id: string;
@@ -111,18 +125,53 @@ function parseBeacon(raw: Buffer, host: string): SeenPeer | 'query' | null {
   const appVersion = message['a'];
   if (
     typeof id !== 'string' ||
-    id === '' ||
+    !REMOTE_INSTANCE_ID_PATTERN.test(id) ||
     typeof name !== 'string' ||
     typeof port !== 'number' ||
     !Number.isInteger(port) ||
     port < 1 ||
     port > 65535 ||
     typeof fingerprint !== 'string' ||
-    typeof appVersion !== 'string'
+    !REMOTE_FINGERPRINT_PATTERN.test(fingerprint) ||
+    typeof appVersion !== 'string' ||
+    appVersion.length > MAX_VERSION_CHARS
   ) {
     return null;
   }
-  return { id, name, port, fingerprint, appVersion, host, seenAt: Date.now() };
+  return {
+    id,
+    name: normalizeRemoteName(name).slice(0, MAX_REMOTE_NAME),
+    port,
+    fingerprint,
+    appVersion,
+    host,
+    seenAt: Date.now(),
+  };
+}
+
+function room(): boolean {
+  if (seen.size < MAX_PEERS) return true;
+  prune();
+  return seen.size < MAX_PEERS;
+}
+
+let notifyAt = 0;
+let notifyTimer: NodeJS.Timeout | null = null;
+
+function report(): void {
+  const wait = notifyAt + NOTIFY_INTERVAL_MS - Date.now();
+  if (wait <= 0) {
+    notifyAt = Date.now();
+    notify?.();
+    return;
+  }
+  if (notifyTimer !== null) return;
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null;
+    notifyAt = Date.now();
+    notify?.();
+  }, wait);
+  notifyTimer.unref();
 }
 
 function changed(known: SeenPeer, next: SeenPeer): boolean {
@@ -167,8 +216,9 @@ function bind(): void {
     }
     if (mine !== null && beacon.id === mine.id) return;
     const known = seen.get(beacon.id);
+    if (known === undefined && !room()) return;
     seen.set(beacon.id, beacon);
-    if (known === undefined || changed(known, beacon)) notify?.();
+    if (known === undefined || changed(known, beacon)) report();
   });
 
   next.bind(REMOTE_DISCOVERY_PORT, () => {
@@ -230,11 +280,15 @@ export function isScanning(): boolean {
   return Date.now() < scanUntil;
 }
 
-export function discoveredPeers(): readonly SeenPeer[] {
+function prune(): void {
   const cutoff = Date.now() - STALE_MS;
   for (const [id, peer] of seen) {
     if (peer.seenAt < cutoff) seen.delete(id);
   }
+}
+
+export function discoveredPeers(): readonly SeenPeer[] {
+  prune();
   return [...seen.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 

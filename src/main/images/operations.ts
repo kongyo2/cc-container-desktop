@@ -58,7 +58,7 @@ function emit(entry: LiveOperation, immediate: boolean): void {
       entry.emitTimer = null;
     }
     entry.emitPending = false;
-    emitEvent(EVENTS.imageOperation, entry.operation);
+    emitEvent(EVENTS.imageOperation, entry.operation, { machineScoped: true });
     return;
   }
   entry.emitPending = true;
@@ -67,7 +67,7 @@ function emit(entry: LiveOperation, immediate: boolean): void {
     entry.emitTimer = null;
     if (!entry.emitPending) return;
     entry.emitPending = false;
-    emitEvent(EVENTS.imageOperation, entry.operation);
+    emitEvent(EVENTS.imageOperation, entry.operation, { machineScoped: true });
   }, EMIT_INTERVAL_MS);
 }
 

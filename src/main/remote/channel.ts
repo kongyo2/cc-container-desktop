@@ -321,9 +321,11 @@ export class RemoteChannel {
       case 'event':
         this.handlers.onEvent?.(message);
         return;
-      case 'stream':
-        this.ensureIncoming(message.id).settleMeta(message.meta);
+      case 'stream': {
+        const entry = this.incoming.get(message.id);
+        entry?.settleMeta(message.meta);
         return;
+      }
       case 'chunk': {
         const entry = this.incoming.get(message.id);
         if (entry === undefined) return;

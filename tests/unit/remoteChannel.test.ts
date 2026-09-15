@@ -163,6 +163,25 @@ test('a transfer nobody will send is dropped instead of lingering on the channel
   }
 });
 
+test('a transfer this side never asked for is dropped, not buffered', async () => {
+  const pair = await connectedPair(() => undefined);
+  try {
+    pair.client.send({ t: 'stream', id: 'uninvited', meta: { folderBase: 'x' } });
+    pair.client.send({ t: 'chunk', id: 'uninvited', seq: 1, data: Buffer.from('before').toString('base64') });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const late = pair.host.receiveStream('uninvited');
+    pair.client.send({ t: 'chunk', id: 'uninvited', seq: 2, data: Buffer.from('after').toString('base64') });
+    pair.client.send({ t: 'streamEnd', id: 'uninvited', error: null });
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of late.stream) chunks.push(chunk as Buffer);
+    assert.equal(Buffer.concat(chunks).toString('utf8'), 'after', 'what arrived before the registration is gone');
+  } finally {
+    await pair.close();
+  }
+});
+
 test('a dropped link fails the calls that were still in flight', async () => {
   const pair = await connectedPair(() => undefined);
   const pending = pair.client.call('app:snapshot', []);

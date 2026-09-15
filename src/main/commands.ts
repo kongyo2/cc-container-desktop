@@ -63,6 +63,10 @@ export function routeGeneration(): number {
   return router?.routeGeneration ?? 0;
 }
 
+export function drivingRemote(): boolean {
+  return router?.engaged === true;
+}
+
 export function registerCommand(channel: string, run: CommandRun, options: CommandOptions = {}): void {
   registry.set(channel, { ...options, run });
 }

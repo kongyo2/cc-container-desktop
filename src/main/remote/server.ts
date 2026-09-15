@@ -272,8 +272,27 @@ function serve(socket: TLSSocket, fingerprint: string, appVersion: string, onCha
   }, HANDSHAKE_TIMEOUT_MS).unref();
 }
 
-export async function startHosting(port: number, appVersion: string, onChange: () => void): Promise<void> {
-  await stopHosting();
+let transitions: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(work: () => Promise<T>): Promise<T> {
+  const next = transitions.then(work, work);
+  transitions = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+export function startHosting(port: number, appVersion: string, onChange: () => void): Promise<void> {
+  return serialize(() => openListener(port, appVersion, onChange));
+}
+
+export function stopHosting(): Promise<void> {
+  return serialize(closeListener);
+}
+
+async function openListener(port: number, appVersion: string, onChange: () => void): Promise<void> {
+  await closeListener();
   const material = await ensureTlsMaterial();
   problem = null;
 
@@ -316,7 +335,7 @@ export async function startHosting(port: number, appVersion: string, onChange: (
   logInfo('app', `リモート接続を受け付けます / hosting on port ${boundPort} (${material.fingerprint.slice(0, 16)}…)`);
 }
 
-export async function stopHosting(): Promise<void> {
+async function closeListener(): Promise<void> {
   const running = server;
   server = null;
   boundPort = null;

@@ -357,10 +357,14 @@ export class RemoteLink implements RemoteRouter {
     this.peerVersion = connected.appVersion;
     this.peerPlatform = connected.platform;
     this.epochCount += 1;
-    this.onConnected(connected.peerId, connected.address);
-    logInfo('app', `リモートを操作しています / driving ${connected.peerName} at ${connected.address}`);
     connected.channel.socket.once('close', () => this.dropped(connected.channel, generation));
+    logInfo('app', `リモートを操作しています / driving ${connected.peerName} at ${connected.address}`);
     this.onChange();
+    try {
+      this.onConnected(connected.peerId, connected.address);
+    } catch (error) {
+      logWarn('app', `接続先の記録を更新できませんでした / could not record this connection: ${describeError(error)}`);
+    }
     if (connected.channel.closed) this.dropped(connected.channel, generation);
   }
 
@@ -377,6 +381,16 @@ export class RemoteLink implements RemoteRouter {
   }
 
   private async run(generation: number): Promise<void> {
+    try {
+      await this.dial(generation);
+    } catch (error) {
+      this.status = 'error';
+      this.failure = describeError(error);
+      this.onChange();
+    }
+  }
+
+  private async dial(generation: number): Promise<void> {
     /* oxlint-disable no-await-in-loop -- dialling one address at a time is the whole point here */
     while (this.generation === generation && this.target !== null && this.channel === null) {
       const target = this.target;
