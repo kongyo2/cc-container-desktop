@@ -1,13 +1,12 @@
-import { safeStorage } from 'electron';
-
 import { environmentById } from '../../shared/environments.ts';
 import { profileById } from '../../shared/profiles.ts';
 import type { AppConfig, ConfigPatch, Environment, EnvironmentDraft, Profile } from '../../shared/types.ts';
-import { AppFailure, describeError } from '../errors.ts';
+import { AppFailure } from '../errors.ts';
 import { registeredImageFor } from '../images/store.ts';
-import { logWarn } from '../logger.ts';
 import { statePath, userDataDir } from '../paths.ts';
 import { StateFile } from '../state/file.ts';
+import { encryptionAvailable, openSecret, sealSecret } from '../state/secret.ts';
+import type { SealedSecret } from '../state/secret.ts';
 import { defaultConfig, normalizeConfig, readConfig, readSecretsFile } from './schema.ts';
 import type { SecretEntries } from './schema.ts';
 
@@ -137,37 +136,17 @@ export function environmentsUsingImage(imageId: string): readonly Environment[] 
 }
 
 export function secretsAreEncrypted(): boolean {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
-  }
+  return encryptionAvailable();
 }
 
 export function getSecret(profileId: string): string {
-  const stored = secretsFile.get()[profileId];
-  if (stored === undefined || stored.value === '') return '';
-  if (stored.enc === 'plain') return stored.value;
-  try {
-    return safeStorage.decryptString(Buffer.from(stored.value, 'base64'));
-  } catch (error) {
-    logWarn(
-      'app',
-      `API キーを復号できませんでした。保存はされているので、OS のキーリングが戻れば読めます / could not decrypt the stored API key; it is still on disk and becomes readable again once the OS keyring is back: ${describeError(error)}`,
-    );
-    return '';
-  }
+  return openSecret(secretsFile.get()[profileId] ?? null, 'API キー / the stored API key');
 }
 
 export function setSecret(profileId: string, secret: string): void {
-  const entries: Record<string, { enc: 'safeStorage' | 'plain'; value: string }> = { ...secretsFile.get() };
-  if (secret === '') {
-    delete entries[profileId];
-  } else if (secretsAreEncrypted()) {
-    entries[profileId] = { enc: 'safeStorage', value: safeStorage.encryptString(secret).toString('base64') };
-  } else {
-    entries[profileId] = { enc: 'plain', value: secret };
-  }
+  const entries: Record<string, SealedSecret> = { ...secretsFile.get() };
+  if (secret === '') delete entries[profileId];
+  else entries[profileId] = sealSecret(secret);
   secretsFile.set(entries);
 }
 

@@ -6,6 +6,7 @@ import type {
   ImagePlatform,
   RegisteredImageView,
 } from './images.ts';
+import type { RemoteStatus } from './remote.ts';
 
 export type Language = 'ja' | 'en';
 
@@ -169,6 +170,7 @@ export interface Snapshot {
   readonly appVersion: string;
   readonly platform: string;
   readonly dataDir: string;
+  readonly remote: RemoteStatus;
 }
 
 export interface LogLine {

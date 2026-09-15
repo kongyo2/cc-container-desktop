@@ -4,8 +4,8 @@ import { isTerminalPhase, sortOperationsForDisplay } from '../../shared/images.t
 import type { AppError, ImageOperation } from '../../shared/images.ts';
 import { EVENTS } from '../../shared/ipc.ts';
 import { AppFailure, toAppError } from '../errors.ts';
+import { emitEvent } from '../events.ts';
 import { logInfo, logWarn, notifyStateChanged } from '../logger.ts';
-import { broadcast } from '../window.ts';
 import { createOperation, finishOperation, patchOperation, pruneHistory, recoverOperation } from './operationState.ts';
 import type { NewOperationInput, OperationPatch } from './operationState.ts';
 import { listRegisteredImages, readOperationHistory, writeOperationHistory } from './store.ts';
@@ -58,7 +58,7 @@ function emit(entry: LiveOperation, immediate: boolean): void {
       entry.emitTimer = null;
     }
     entry.emitPending = false;
-    broadcast(EVENTS.imageOperation, entry.operation);
+    emitEvent(EVENTS.imageOperation, entry.operation);
     return;
   }
   entry.emitPending = true;
@@ -67,7 +67,7 @@ function emit(entry: LiveOperation, immediate: boolean): void {
     entry.emitTimer = null;
     if (!entry.emitPending) return;
     entry.emitPending = false;
-    broadcast(EVENTS.imageOperation, entry.operation);
+    emitEvent(EVENTS.imageOperation, entry.operation);
   }, EMIT_INTERVAL_MS);
 }
 

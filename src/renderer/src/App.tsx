@@ -1,7 +1,8 @@
-import { Container } from 'lucide-react';
+import { Container, MonitorSmartphone, Unplug } from 'lucide-react';
 import type { JSX } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
+import type { RemoteLinkView } from '../../shared/remote.ts';
 import { Banner } from './components/ui.tsx';
 import { StatusStrip } from './components/StatusStrip.tsx';
 import { useT } from './i18n.ts';
@@ -11,6 +12,7 @@ import { ImagesPanel } from './panels/ImagesPanel.tsx';
 import { LogPanel } from './panels/LogPanel.tsx';
 import { NewTaskPanel } from './panels/NewTaskPanel.tsx';
 import { ProfilesPanel } from './panels/ProfilesPanel.tsx';
+import { RemotePanel } from './panels/RemotePanel.tsx';
 import { SettingsPanel } from './panels/SettingsPanel.tsx';
 import { TaskSidebar } from './panels/TaskSidebar.tsx';
 import { TaskWorkspace } from './panels/TaskPanel.tsx';
@@ -68,11 +70,34 @@ function Panel({ view }: { view: Exclude<View, 'tasks'> }): JSX.Element {
       return <ExtensionsPanel />;
     case 'environments':
       return <EnvironmentsPanel />;
+    case 'remote':
+      return <RemotePanel />;
     case 'log':
       return <LogPanel />;
     case 'settings':
       return <SettingsPanel />;
   }
+}
+
+function LinkGate({ link }: { link: RemoteLinkView }): JSX.Element {
+  const t = useT();
+  const run = useApp((state) => state.run);
+  return (
+    <div className="link-gate" data-testid="link-gate">
+      <MonitorSmartphone size={28} />
+      <h1>{t('remoteGateTitle')}</h1>
+      <p>
+        {link.peerName ?? ''}
+        {link.address === null ? '' : ` · ${link.address}`}
+        {link.attempt > 1 ? ` · ${t('remoteAttempt')} ${link.attempt}` : ''}
+      </p>
+      {link.error === null ? null : <p className="hint err">{link.error}</p>}
+      <p className="hint">{t('remoteGateHint')}</p>
+      <button className="btn" type="button" onClick={() => void run('remote', () => window.cc.remoteDisconnect())}>
+        <Unplug size={14} /> {t('remoteBackToLocal')}
+      </button>
+    </div>
+  );
 }
 
 export function App(): JSX.Element {
@@ -87,7 +112,17 @@ export function App(): JSX.Element {
   const refresh = useApp((state) => state.refresh);
   const appendLog = useApp((state) => state.appendLog);
   const dropTaskTabs = useApp((state) => state.dropTaskTabs);
+  const dropAllTabs = useApp((state) => state.dropAllTabs);
   const applyOperation = useApp((state) => state.applyOperation);
+  const link = snapshot?.remote.link ?? null;
+  const epoch = link?.epoch ?? 0;
+  const lastEpoch = useRef(epoch);
+
+  useEffect(() => {
+    if (lastEpoch.current === epoch) return;
+    lastEpoch.current = epoch;
+    dropAllTabs();
+  }, [epoch, dropAllTabs]);
 
   useEffect(() => {
     startTerminalBus();
@@ -111,23 +146,32 @@ export function App(): JSX.Element {
   }, [toast, setToast]);
 
   const flush = view === 'tasks';
+  const driving = link !== null && link.state === 'online';
+  const pending = link !== null && (link.state === 'connecting' || link.state === 'error');
 
   return (
     <div className="app">
-      <header className="titlebar">
+      <header className={driving ? 'titlebar driving' : 'titlebar'}>
         <span className="brand">
           <Container size={16} />
           {t('appTitle')}
         </span>
+        {driving ? (
+          <span className="driving-badge" data-testid="driving-badge">
+            <MonitorSmartphone size={13} />
+            {t('remoteDriving')}: {link?.peerName ?? ''}
+          </span>
+        ) : null}
         <span className="spacer" />
         <span className="legend">{snapshot === null ? '' : `v${snapshot.appVersion}`}</span>
       </header>
 
       <StatusStrip snapshot={snapshot} />
 
-      <TaskSidebar />
+      {pending ? <LinkGate link={link} /> : null}
+      {pending ? null : <TaskSidebar />}
 
-      <main className={flush ? 'content flush' : 'content'}>
+      <main className={flush ? 'content flush' : 'content'} style={pending ? { display: 'none' } : undefined}>
         {busy === null ? null : <div className="busybar" />}
         <StoreProblems problems={snapshot?.storeProblems ?? []} flush={flush} />
         <Notice kind="error" text={error} flush={flush} onDismiss={() => setError(null)} />

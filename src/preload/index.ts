@@ -55,6 +55,16 @@ const api: Api = {
   taskExec: (id, request) => ipcRenderer.invoke(CHANNELS.taskExec, id, request),
   taskMcpStatus: (id) => ipcRenderer.invoke(CHANNELS.taskMcpStatus, id),
 
+  remoteHostingSave: (patch) => ipcRenderer.invoke(CHANNELS.remoteHostingSave, patch),
+  remoteInviteCreate: () => ipcRenderer.invoke(CHANNELS.remoteInviteCreate),
+  remoteInviteCancel: () => ipcRenderer.invoke(CHANNELS.remoteInviteCancel),
+  remoteClientRevoke: (clientId) => ipcRenderer.invoke(CHANNELS.remoteClientRevoke, clientId),
+  remotePair: (request) => ipcRenderer.invoke(CHANNELS.remotePair, request),
+  remoteConnect: (request) => ipcRenderer.invoke(CHANNELS.remoteConnect, request),
+  remoteDisconnect: () => ipcRenderer.invoke(CHANNELS.remoteDisconnect),
+  remotePeerForget: (peerId) => ipcRenderer.invoke(CHANNELS.remotePeerForget, peerId),
+  remoteScan: () => ipcRenderer.invoke(CHANNELS.remoteScan),
+
   termOpen: (request) => ipcRenderer.invoke(CHANNELS.termOpen, request),
   termWrite: (id, data) => ipcRenderer.invoke(CHANNELS.termWrite, id, data),
   termResize: (id, cols, rows) => ipcRenderer.invoke(CHANNELS.termResize, id, cols, rows),

@@ -26,7 +26,11 @@ export type AppErrorCode =
   | 'ENVIRONMENT_MISSING'
   | 'ENVIRONMENT_ARCHIVED'
   | 'TASK_NOT_RUNNING'
-  | 'FOREIGN_RESOURCE';
+  | 'FOREIGN_RESOURCE'
+  | 'REMOTE_ERROR'
+  | 'REMOTE_OFFLINE'
+  | 'REMOTE_DENIED'
+  | 'REMOTE_REJECTED';
 
 export class AppFailure extends Error {
   readonly code: AppErrorCode;
@@ -37,6 +41,16 @@ export class AppFailure extends Error {
     this.name = 'AppFailure';
     this.code = code;
     this.retryable = options.retryable === true;
+  }
+}
+
+export class RelayedFailure extends Error {
+  readonly error: AppError;
+
+  constructor(error: AppError) {
+    super(error.message);
+    this.name = 'RelayedFailure';
+    this.error = error;
   }
 }
 
@@ -57,6 +71,7 @@ export function describeError(error: unknown): string {
 }
 
 export function toAppError(error: unknown): AppError {
+  if (error instanceof RelayedFailure) return error.error;
   if (error instanceof AppFailure) {
     return { code: error.code, message: describeError(error), retryable: error.retryable };
   }

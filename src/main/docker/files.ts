@@ -116,8 +116,12 @@ function escapes(root: string, name: string, header: { type?: string; linkname?:
   return !isInside(root, target);
 }
 
-export async function exportWorkspace(
-  ref: ContainerRef,
+export function workspaceArchive(ref: ContainerRef): Promise<NodeJS.ReadableStream> {
+  return containerHandle(ref).getArchive({ path: CONTAINER_WORKSPACE });
+}
+
+export async function extractWorkspaceArchive(
+  archive: NodeJS.ReadableStream,
   destinationRoot: string,
   folderBase: string,
 ): Promise<ExportSummary> {
@@ -135,7 +139,6 @@ export async function exportWorkspace(
   const skipped: string[] = [];
   let files = 0;
 
-  const archive = await containerHandle(ref).getArchive({ path: CONTAINER_WORKSPACE });
   try {
     await pipeline(
       archive,
@@ -186,6 +189,14 @@ export async function exportWorkspace(
   return { path: finalDir, files, skipped };
 }
 
+export async function exportWorkspace(
+  ref: ContainerRef,
+  destinationRoot: string,
+  folderBase: string,
+): Promise<ExportSummary> {
+  return extractWorkspaceArchive(await workspaceArchive(ref), destinationRoot, folderBase);
+}
+
 function importName(source: string): string {
   const name = basename(source);
   if (name === '' || name === '.' || name === '..' || name.includes('/')) {
@@ -194,34 +205,84 @@ function importName(source: string): string {
   return name;
 }
 
-async function importDirectory(ref: ContainerRef, source: string, name: string): Promise<number> {
-  let entries = 0;
-  const pack = tarFs.pack(source, {
-    map: (header) => {
-      entries += 1;
-      header.name = header.name === '.' ? name : `${name}/${header.name}`;
-      header.uid = CONTAINER_UID;
-      header.gid = CONTAINER_GID;
-      return header;
-    },
-  });
-  await containerHandle(ref).putArchive(pack, { path: CONTAINER_WORKSPACE });
-  return entries;
+export interface ImportSource {
+  readonly origin: string;
+  readonly path: string;
+  readonly name: string;
+  readonly directory: boolean;
+  readonly size: number;
+  readonly mode: number;
 }
 
-async function importFile(ref: ContainerRef, source: string, name: string, size: number, mode: number): Promise<void> {
-  const pack = tarStream.pack();
-  const upload = containerHandle(ref).putArchive(pack, { path: CONTAINER_WORKSPACE });
-  try {
-    const entry = pack.entry({ name, size, mode, uid: CONTAINER_UID, gid: CONTAINER_GID, mtime: new Date() });
-    await pipeline(createReadStream(source), entry);
-    pack.finalize();
-  } catch (error) {
-    pack.destroy(error instanceof Error ? error : new Error(String(error)));
-    upload.catch(() => undefined);
-    throw error;
+export function resolveImportSource(raw: string): ImportSource {
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new Error(`取り込むパスが不正です / not a usable path: ${JSON.stringify(raw)}`);
   }
-  await upload;
+  const origin = resolve(raw);
+  const name = importName(origin);
+  let path = origin;
+  let stats;
+  try {
+    stats = lstatSync(origin);
+    if (stats.isSymbolicLink()) {
+      path = realpathSync(origin);
+      stats = statSync(path);
+      logInfo('app', `リンク先を取り込みます / following the link ${origin} → ${path}`);
+    }
+  } catch {
+    throw new Error(`見つかりません / not found: ${origin}`);
+  }
+  if (!stats.isDirectory() && !stats.isFile()) {
+    throw new Error(`ファイルかフォルダだけ取り込めます / only files and folders can be imported: ${origin}`);
+  }
+  return {
+    origin,
+    path,
+    name,
+    directory: stats.isDirectory(),
+    size: stats.size,
+    mode: stats.mode & 0o777,
+  };
+}
+
+export interface PackedImport {
+  readonly archive: NodeJS.ReadableStream;
+  entries(): number;
+}
+
+export function packImportSource(source: ImportSource): PackedImport {
+  if (source.directory) {
+    let entries = 0;
+    const pack = tarFs.pack(source.path, {
+      map: (header) => {
+        entries += 1;
+        header.name = header.name === '.' ? source.name : `${source.name}/${header.name}`;
+        header.uid = CONTAINER_UID;
+        header.gid = CONTAINER_GID;
+        return header;
+      },
+    });
+    return { archive: pack, entries: () => entries };
+  }
+
+  const pack = tarStream.pack();
+  const entry = pack.entry({
+    name: source.name,
+    size: source.size,
+    mode: source.mode,
+    uid: CONTAINER_UID,
+    gid: CONTAINER_GID,
+    mtime: new Date(),
+  });
+  void pipeline(createReadStream(source.path), entry).then(
+    () => pack.finalize(),
+    (error: unknown) => pack.destroy(error instanceof Error ? error : new Error(String(error))),
+  );
+  return { archive: pack, entries: () => 1 };
+}
+
+export async function uploadIntoWorkspace(ref: ContainerRef, archive: NodeJS.ReadableStream): Promise<void> {
+  await containerHandle(ref).putArchive(archive, { path: CONTAINER_WORKSPACE });
 }
 
 export async function importIntoWorkspace(ref: ContainerRef, paths: readonly string[]): Promise<ImportSummary> {
@@ -230,33 +291,12 @@ export async function importIntoWorkspace(ref: ContainerRef, paths: readonly str
 
   /* oxlint-disable no-await-in-loop -- one archive at a time keeps the memory bounded */
   for (const raw of paths) {
-    if (typeof raw !== 'string' || raw.trim() === '') {
-      throw new Error(`取り込むパスが不正です / not a usable path: ${JSON.stringify(raw)}`);
-    }
-    const source = resolve(raw);
-    const name = importName(source);
-    let target = source;
-    let stats;
-    try {
-      stats = lstatSync(source);
-      if (stats.isSymbolicLink()) {
-        target = realpathSync(source);
-        stats = statSync(target);
-        logInfo('app', `リンク先を取り込みます / following the link ${source} → ${target}`);
-      }
-    } catch {
-      throw new Error(`見つかりません / not found: ${source}`);
-    }
-    if (stats.isDirectory()) {
-      entries += await importDirectory(ref, target, name);
-    } else if (stats.isFile()) {
-      await importFile(ref, target, name, stats.size, stats.mode & 0o777);
-      entries += 1;
-    } else {
-      throw new Error(`ファイルかフォルダだけ取り込めます / only files and folders can be imported: ${source}`);
-    }
-    sources.push(source);
-    logInfo('app', `取り込みました / imported into the workspace: ${source}`);
+    const source = resolveImportSource(raw);
+    const packed = packImportSource(source);
+    await uploadIntoWorkspace(ref, packed.archive);
+    entries += packed.entries();
+    sources.push(source.origin);
+    logInfo('app', `取り込みました / imported into the workspace: ${source.origin}`);
   }
   /* oxlint-enable no-await-in-loop */
 
