@@ -74,6 +74,57 @@ export function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+export const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
+
+export const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
+
+export function requireApiKey() {
+  const key = process.env['CC_E2E_API_KEY'] ?? '';
+  if (key === '') {
+    console.error('CC_E2E_API_KEY is required');
+    process.exit(2);
+  }
+  return key;
+}
+
+export function endpointProfile(base, overrides) {
+  return {
+    ...base,
+    baseUrl: BASE_URL,
+    authMode: 'authToken',
+    model: MODEL,
+    sonnetModel: MODEL,
+    opusModel: MODEL,
+    haikuModel: MODEL,
+    apiTimeoutMs: null,
+    contextTokens: 1048576,
+    disableNonEssentialTraffic: true,
+    disableTelemetry: true,
+    extraEnv: {},
+    ...overrides,
+  };
+}
+
+export function countOf(page, selector) {
+  return page.evaluate((query) => document.querySelectorAll(query).length, selector);
+}
+
+export function textOf(page, selector) {
+  return page.evaluate((query) => document.querySelector(query)?.textContent ?? '', selector);
+}
+
+export function activeView(page) {
+  return page.evaluate(() => document.querySelector('.sidebar-nav button.active')?.dataset.view ?? '');
+}
+
+export async function firstReadyPage(app, settleMs) {
+  const page = await app.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
+  await page.waitForTimeout(settleMs);
+  return page;
+}
+
 export async function shoot(page, name) {
   if (SHOT_DIR === '') return;
   mkdirSync(SHOT_DIR, { recursive: true });
@@ -104,6 +155,10 @@ export async function waitFor(page, probe, predicate, timeoutMs) {
 
 export async function sh(page, taskId, line) {
   return ok(page, 'taskExec', [taskId, { command: ['bash', '-lc', line] }]);
+}
+
+export function tmuxSessions(page, taskId) {
+  return sh(page, taskId, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
 }
 
 export async function readContainerFile(page, taskId, path) {
@@ -162,10 +217,7 @@ export async function launchIsolated({ extraEnv = {}, withImages = true, userDat
     ...(fixture === null ? {} : { CC_IMAGE_CATALOG_FILE: fixture.catalogFile }),
   };
   const app = await electron.launch({ args: ['.', '--no-sandbox', '--disable-gpu'], env });
-  const page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
-  await page.waitForTimeout(800);
+  const page = await firstReadyPage(app, 800);
 
   const created = new Map();
 

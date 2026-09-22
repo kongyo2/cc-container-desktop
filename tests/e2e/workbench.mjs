@@ -3,31 +3,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  BASE_URL,
   call,
   check,
+  endpointProfile,
   finish,
   goView,
   harnessFailure,
   isTransient,
   launchIsolated,
+  MODEL,
   ok,
   readContainerJson,
+  requireApiKey,
   selectTask,
   sh,
   shoot,
   taskById,
   TASK_PREFIX,
+  tmuxSessions,
   writeContainerFile,
 } from './helpers.mjs';
 
-const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
-const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
-const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
-
-if (API_KEY === '') {
-  console.error('CC_E2E_API_KEY is required');
-  process.exit(2);
-}
+const API_KEY = requireApiKey();
 
 const scratch = mkdtempSync(join(tmpdir(), 'cc-workbench-'));
 const session = await launchIsolated();
@@ -64,22 +62,10 @@ try {
   );
 
   console.log('\n[3] profile + credential');
-  const profile = {
-    ...snapshot.config.profiles[0],
+  const profile = endpointProfile(snapshot.config.profiles[0], {
     name: 'E2E OpenRouter',
-    baseUrl: BASE_URL,
-    authMode: 'authToken',
-    model: MODEL,
-    sonnetModel: MODEL,
-    opusModel: MODEL,
-    haikuModel: MODEL,
-    apiTimeoutMs: null,
-    contextTokens: 1048576,
-    disableNonEssentialTraffic: true,
-    disableTelemetry: true,
-    extraEnv: {},
     note: 'created by tests/e2e/workbench.mjs',
-  };
+  });
   await ok(page, 'profileUpsert', [profile]);
   await ok(page, 'configSave', [{ defaultProfileId: profile.id }]);
   await ok(page, 'secretSet', [profile.id, API_KEY]);
@@ -152,12 +138,12 @@ try {
   const term = await ok(page, 'termOpen', [{ taskId: task.id, kind: 'claude', cols: 100, rows: 30 }]);
   check('terminal opened', typeof term.id === 'string' && term.id.length > 0, term.id);
   await page.waitForTimeout(6000);
-  let sessions = await sh(page, task.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  let sessions = await tmuxSessions(page, task.id);
   check('tmux session cc listed', /^cc /mu.test(sessions.stdout), sessions.stdout.trim());
 
   await ok(page, 'termClose', [term.id]);
   await page.waitForTimeout(2500);
-  sessions = await sh(page, task.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  sessions = await tmuxSessions(page, task.id);
   check('session still alive after closing the tab', /^cc /mu.test(sessions.stdout), sessions.stdout.trim());
   check(
     'and its client was detached rather than left attached',
@@ -167,7 +153,7 @@ try {
 
   const reattach = await ok(page, 'termOpen', [{ taskId: task.id, kind: 'claude', cols: 100, rows: 30 }]);
   await page.waitForTimeout(2500);
-  sessions = await sh(page, task.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  sessions = await tmuxSessions(page, task.id);
   check(
     'reopening Claude Code reattaches to the same session',
     /^cc 1$/mu.test(sessions.stdout),

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron as electron } from 'playwright';
 
-import { check, finish, harnessFailure } from './helpers.mjs';
+import { activeView, check, countOf, finish, firstReadyPage, harnessFailure } from './helpers.mjs';
 
 const executablePath = process.argv[2] ?? '';
 if (executablePath === '' || !existsSync(executablePath)) {
@@ -19,10 +19,7 @@ const app = await electron.launch({
 });
 
 try {
-  const page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForFunction(() => typeof window.cc === 'object' && window.cc !== null);
-  await page.waitForTimeout(1200);
+  const page = await firstReadyPage(app, 1200);
 
   const packaged = await app.evaluate(({ app: electronApp }) => electronApp.isPackaged);
   check('running the packaged build', packaged === true, String(packaged));
@@ -60,13 +57,11 @@ try {
     catalogOverride !== '' && snapshot.ok && snapshot.value.catalog.entries.length === 8,
   );
 
-  const activeView = await page.evaluate(
-    () => document.querySelector('.sidebar-nav button.active')?.dataset.view ?? '',
-  );
-  check('a fresh install opens on the Images page', activeView === 'images', activeView);
-  const cards = await page.evaluate(() => document.querySelectorAll('[data-testid="image-card"]').length);
+  const view = await activeView(page);
+  check('a fresh install opens on the Images page', view === 'images', view);
+  const cards = await countOf(page, '[data-testid="image-card"]');
   check('the Images page shows the eight variants', cards === 8, String(cards));
-  const recommended = await page.evaluate(() => document.querySelectorAll('.image-card.recommended').length);
+  const recommended = await countOf(page, '.image-card.recommended');
   check('one card is marked as recommended', recommended === 1, String(recommended));
   const downloadButtons = await page.evaluate(
     () => [...document.querySelectorAll('[data-testid="image-download"]')].filter((button) => !button.disabled).length,
@@ -78,7 +73,7 @@ try {
   );
   await page.click('.sidebar-nav button[data-view="environments"]');
   await page.waitForTimeout(500);
-  const rows = await page.evaluate(() => document.querySelectorAll('[data-testid="env-list"] .env-row').length);
+  const rows = await countOf(page, '[data-testid="env-list"] .env-row');
   check('the environments page starts empty', rows === 0, String(rows));
 
   const painted = await page.evaluate(() => document.body.innerText.trim().length > 0);

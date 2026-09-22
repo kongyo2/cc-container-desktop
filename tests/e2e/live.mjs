@@ -1,30 +1,28 @@
 import {
   call,
   check,
+  countOf,
+  endpointProfile,
   finish,
   harnessFailure,
   isTransient,
   launchIsolated,
+  MODEL,
   ok,
   readContainerFile,
+  requireApiKey,
   selectTask,
   sh,
   shellQuote,
   shoot,
   taskById,
   TASK_PREFIX,
+  tmuxSessions,
   writeContainerFile,
 } from './helpers.mjs';
 
-const API_KEY = process.env['CC_E2E_API_KEY'] ?? '';
-const BASE_URL = process.env['CC_E2E_BASE_URL'] ?? 'https://openrouter.ai/api';
-const MODEL = process.env['CC_E2E_MODEL'] ?? 'stealth/ox-alpha';
+const API_KEY = requireApiKey();
 const LIVE_SKILL_SOURCE = '/root/workspace/live-skill-source';
-
-if (API_KEY === '') {
-  console.error('CC_E2E_API_KEY is required');
-  process.exit(2);
-}
 
 /* oxlint-disable no-await-in-loop -- retry and polling loops are sequential by nature */
 
@@ -82,23 +80,11 @@ try {
   const snapshot = await ok(page, 'snapshot');
   if (!snapshot.docker.available) throw new Error('docker is not available');
   await session.ensureEnvironment({ name: 'Live' });
-  const profile = {
-    ...snapshot.config.profiles[0],
+  const profile = endpointProfile(snapshot.config.profiles[0], {
     id: 'live-profile',
     name: 'Live',
-    baseUrl: BASE_URL,
-    authMode: 'authToken',
-    model: MODEL,
-    sonnetModel: MODEL,
-    opusModel: MODEL,
-    haikuModel: MODEL,
-    apiTimeoutMs: null,
-    contextTokens: 1048576,
-    disableNonEssentialTraffic: true,
-    disableTelemetry: true,
-    extraEnv: {},
     note: 'live suite',
-  };
+  });
   await ok(page, 'profileUpsert', [profile]);
   await ok(page, 'secretSet', [profile.id, API_KEY]);
   const created = await session.createTask({ name: `${TASK_PREFIX}live`, profileId: profile.id });
@@ -272,10 +258,10 @@ try {
 
   await page.evaluate(() => document.querySelector('.term-tabs .tab .x')?.click());
   await page.waitForTimeout(2500);
-  const afterClose = await sh(page, task.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  const afterClose = await tmuxSessions(page, task.id);
   check('tmux session outlived the closed tab', /^cc /mu.test(afterClose.stdout), afterClose.stdout.trim());
   check('closing the tab detached its tmux client', /^cc 0$/mu.test(afterClose.stdout), afterClose.stdout.trim());
-  const noTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  const noTabs = await countOf(page, '.term-tabs .tab');
   check('terminal tab is gone from the UI', noTabs === 0, String(noTabs));
 
   await page.click('[data-testid="open-claude"]');
