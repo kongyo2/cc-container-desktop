@@ -189,7 +189,6 @@ function frameId(source: Record<string, unknown>): string {
   return text(source, 'id', MAX_ID);
 }
 
-/** The four fields every machine states about itself, shared by hello, welcome and paired. */
 function peerIdentity(source: Record<string, unknown>): Omit<WelcomeMessage, 't' | 'sessionId'> {
   return {
     instanceId: text(source, 'instanceId', MAX_ID),

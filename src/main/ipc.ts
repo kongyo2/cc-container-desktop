@@ -137,7 +137,6 @@ function commandVoid<A extends readonly unknown[]>(
   );
 }
 
-/** Runs work that leaves the app in a new state, telling the UI even when the work fails. */
 async function notifyingAfter<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
@@ -173,7 +172,6 @@ function commandTaskAction<A extends readonly unknown[]>(channel: string, fn: (.
   );
 }
 
-/** Answers with a fresh snapshot once the change has landed and the UI has been told. */
 function commandSnapshotAction<A extends readonly unknown[]>(
   channel: string,
   fn: (...args: A) => Promise<void> | void,

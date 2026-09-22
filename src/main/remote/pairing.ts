@@ -11,7 +11,6 @@ export function pairingProof(code: string, role: PairingRole, fingerprint: strin
     .digest('base64url');
 }
 
-/** Compares two secrets without leaking where they first differ; unequal lengths are rejected up front. */
 export function sameSecret(left: Buffer, right: Buffer): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }

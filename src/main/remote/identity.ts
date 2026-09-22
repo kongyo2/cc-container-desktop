@@ -153,7 +153,6 @@ export function tokenMatches(token: string, hash: string): boolean {
   return sameSecret(Buffer.from(hashToken(token), 'hex'), Buffer.from(hash, 'hex'));
 }
 
-/** Rewrites the one record carrying `id`, or reports that the list does not hold it. */
 function recordReplaced<T extends { readonly id: string }>(
   records: readonly T[],
   id: string,
@@ -165,7 +164,6 @@ function recordReplaced<T extends { readonly id: string }>(
   return records.with(index, rewrite(record));
 }
 
-/** Drops the one record carrying `id`, refusing the whole edit when the list does not hold it. */
 function recordDropped<T extends { readonly id: string }>(
   records: readonly T[],
   id: string,

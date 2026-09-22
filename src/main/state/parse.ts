@@ -19,7 +19,6 @@ function invalidInput(label: string, error: z.ZodError): AppFailure {
   return new AppFailure('INVALID_INPUT', `${label}: ${firstIssue(error)}`);
 }
 
-/** Reads a value the app was handed, rejecting it as bad input rather than as a broken store. */
 export function parseInput<T>(schema: z.ZodType<T>, raw: unknown, label: string): T {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) throw invalidInput(label, parsed.error);

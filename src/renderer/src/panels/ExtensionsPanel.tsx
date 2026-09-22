@@ -64,7 +64,6 @@ interface ListEditor<T> {
   readonly patch: (index: number, entry: T, changes: Partial<T>) => void;
 }
 
-/** The three edits every extension list supports, bound once to the list and the field it lives in. */
 function listEditor<T extends { readonly id: string }>(
   entries: readonly T[],
   write: (next: readonly T[]) => void,

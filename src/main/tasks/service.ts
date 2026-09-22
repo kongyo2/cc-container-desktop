@@ -168,7 +168,6 @@ async function applyProvision(task: Task): Promise<string> {
   return outcome.summary;
 }
 
-/** Brings a freshly started container up to date: extensions first, then the environment's setup script. */
 async function applyProvisionAndSetup(task: Task): Promise<string> {
   const summary = await applyProvision(task);
   await applySetup(task);

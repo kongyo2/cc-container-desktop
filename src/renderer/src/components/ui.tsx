@@ -17,10 +17,6 @@ interface DraftInputProps {
   readonly onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
 }
 
-/**
- * Holds what the user is typing without pushing every keystroke upstream: the field commits on
- * blur or Enter, drops the draft on Escape, and snaps back whenever the upstream value changes.
- */
 export function useDraftInput(value: string, commit: (typed: string) => void): DraftInputProps {
   const [draft, setDraft] = useState<{ base: string; text: string } | null>(null);
   const shown = draft !== null && draft.base === value ? draft.text : value;

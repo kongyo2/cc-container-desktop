@@ -94,7 +94,6 @@ function mergeOperations(
   return next;
 }
 
-/** Unwraps one call, reporting a refusal and a thrown error the same way and answering null for both. */
 async function unwrap<T>(call: () => Promise<Result<T>>, report: (message: string) => void): Promise<T | null> {
   try {
     const result = await call();
