@@ -168,6 +168,13 @@ async function applyProvision(task: Task): Promise<string> {
   return outcome.summary;
 }
 
+/** Brings a freshly started container up to date: extensions first, then the environment's setup script. */
+async function applyProvisionAndSetup(task: Task): Promise<string> {
+  const summary = await applyProvision(task);
+  await applySetup(task);
+  return summary;
+}
+
 async function applySetup(task: Task): Promise<string | null> {
   try {
     if (environmentStaleFor(task, await inspectContainer(refOf(task)))) {
@@ -341,9 +348,7 @@ export function startTask(id: string): Promise<string> {
     } else {
       await startFromRuntime(task, await resolveTaskRuntime(task));
     }
-    const summary = await applyProvision(task);
-    await applySetup(task);
-    return summary;
+    return applyProvisionAndSetup(task);
   });
 }
 
@@ -367,9 +372,7 @@ export function recreateTask(id: string): Promise<string> {
     );
     await removeContainer(ref, false);
     await startFromRuntime(task, runtime);
-    const summary = await applyProvision(task);
-    await applySetup(task);
-    return summary;
+    return applyProvisionAndSetup(task);
   });
 }
 
