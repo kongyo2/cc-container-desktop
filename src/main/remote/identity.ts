@@ -5,11 +5,12 @@ import { generate } from 'selfsigned';
 import { byId, withoutId } from '../../shared/collections.ts';
 import { PAIRING_CODE_ALPHABET, PAIRING_CODE_LENGTH, normalizeRemoteName } from '../../shared/remote.ts';
 import { AppFailure, describeError } from '../errors.ts';
-import { sameSecret } from './pairing.ts';
+import { prefixedRandomId } from '../ids.ts';
 import { logWarn } from '../logger.ts';
 import { statePath } from '../paths.ts';
 import { StateFile } from '../state/file.ts';
 import { openSecret, sealSecret } from '../state/secret.ts';
+import { sameSecret } from './pairing.ts';
 import { defaultRemoteState, readRemoteState } from './schema.ts';
 import type { RemoteClientRecord, RemotePeerRecord, RemoteState } from './schema.ts';
 
@@ -141,7 +142,7 @@ export function newToken(): string {
 }
 
 export function newClientId(): string {
-  return `cli_${randomBytes(8).toString('hex')}`;
+  return prefixedRandomId('cli');
 }
 
 export function hashToken(token: string): string {

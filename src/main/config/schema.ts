@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import { z } from 'zod';
 
 import { environmentEnvProblems, normalizeEnvironmentName, normalizeScriptText } from '../../shared/environments.ts';
@@ -15,6 +13,7 @@ import type {
   Profile,
 } from '../../shared/types.ts';
 import { AppFailure } from '../errors.ts';
+import { prefixedRandomId } from '../ids.ts';
 import type { ParseOutcome } from '../state/file.ts';
 import { definedFields, duplicateIdProblem, parseFailure, parseInput } from '../state/parse.ts';
 
@@ -191,15 +190,11 @@ export function emptyManagedNames(): ManagedNames {
   return { mcpServers: [], marketplaces: [], plugins: [] };
 }
 
-function newInstanceId(): string {
-  return `inst_${randomBytes(8).toString('hex')}`;
-}
-
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
   return {
     schemaVersion: 1,
-    dataInstanceId: newInstanceId(),
+    dataInstanceId: prefixedRandomId('inst'),
     language: 'ja',
     defaultProfileId: profile.id,
     profiles: [profile],

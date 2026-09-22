@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { hostname } from 'node:os';
 
 import { z } from 'zod';
@@ -13,6 +12,7 @@ import {
   REMOTE_INSTANCE_ID_PATTERN,
 } from '../../shared/remote.ts';
 import type { RemoteConnectRequest, RemoteHostingPatch, RemotePairRequest } from '../../shared/remote.ts';
+import { prefixedRandomId } from '../ids.ts';
 import type { ParseOutcome } from '../state/file.ts';
 import type { SealedSecret } from '../state/secret.ts';
 import { definedFields, duplicateIdProblem, parseFailure, parseInput } from '../state/parse.ts';
@@ -81,10 +81,6 @@ export interface RemoteState {
   readonly peers: readonly RemotePeerRecord[];
 }
 
-function newRemoteInstanceId(): string {
-  return `rid_${randomBytes(8).toString('hex')}`;
-}
-
 function defaultName(): string {
   const name = normalizeRemoteName(hostname());
   return name === '' ? 'workbench' : name;
@@ -93,7 +89,7 @@ function defaultName(): string {
 export function defaultRemoteState(): RemoteState {
   return {
     schemaVersion: 1,
-    instanceId: newRemoteInstanceId(),
+    instanceId: prefixedRandomId('rid'),
     name: defaultName(),
     enabled: false,
     port: DEFAULT_REMOTE_PORT,
