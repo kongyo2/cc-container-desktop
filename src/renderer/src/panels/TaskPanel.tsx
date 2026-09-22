@@ -22,7 +22,7 @@ import { imageDisplayName, registeredImageById } from '../../../shared/images.ts
 import { describeSource } from '../../../shared/tasks.ts';
 import type { ImportPick, ImportSummary, TaskView } from '../../../shared/types.ts';
 import { TerminalView } from '../components/TerminalView.tsx';
-import { Check, Pill, formatTime } from '../components/ui.tsx';
+import { Check, Pill, formatTime, useDraftInput } from '../components/ui.tsx';
 import type { Tone } from '../components/ui.tsx';
 import { availabilityKey, availabilityTone } from '../images.ts';
 import { useLanguage, useT } from '../i18n.ts';
@@ -41,29 +41,19 @@ function statusOf(view: TaskView): {
 function NameEditor({ id, name }: { id: string; name: string }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const [draft, setDraft] = useState<{ base: string; text: string } | null>(null);
-  const shown = draft !== null && draft.base === name ? draft.text : name;
-
-  const commit = (): void => {
-    setDraft(null);
-    const next = shown.trim();
+  const draft = useDraftInput(name, (typed) => {
+    const next = typed.trim();
     if (next === '' || next === name) return;
     void run('task', () => window.cc.taskUpdate(id, { name: next }));
-  };
+  });
 
   return (
     <input
       className="task-name-input"
-      value={shown}
       spellCheck={false}
       title={t('taskRename')}
       aria-label={t('taskName')}
-      onChange={(event) => setDraft({ base: name, text: event.target.value })}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur();
-        if (event.key === 'Escape') setDraft(null);
-      }}
+      {...draft}
     />
   );
 }

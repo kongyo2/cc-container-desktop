@@ -215,6 +215,10 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
   },
 }));
 
+export function useBusy(): boolean {
+  return useApp((state) => state.busy) !== null;
+}
+
 export function selectedTaskView(state: UiState): TaskView | null {
   if (state.snapshot === null || state.selectedTaskId === null) return null;
   return state.snapshot.tasks.find((view) => view.task.id === state.selectedTaskId) ?? null;

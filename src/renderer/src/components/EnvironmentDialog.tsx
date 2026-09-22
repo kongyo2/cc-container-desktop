@@ -9,7 +9,7 @@ import {
   environmentNameProblem,
 } from '../../../shared/environments.ts';
 import { imageDisplayName } from '../../../shared/images.ts';
-import type { EnvironmentDraft } from '../../../shared/types.ts';
+import type { EnvironmentDraft, Result } from '../../../shared/types.ts';
 import { availabilityKey } from '../images.ts';
 import { pick, useLanguage, useT } from '../i18n.ts';
 import { useApp } from '../store.ts';
@@ -19,6 +19,39 @@ export interface EnvironmentDialogProps {
   readonly mode: 'create' | 'edit';
   readonly initial: EnvironmentDraft;
   readonly onClose: () => void;
+}
+
+function ModalTextarea({
+  id,
+  label,
+  rows,
+  placeholder,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  rows: number;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <>
+      <label className="modal-label" htmlFor={id}>
+        {label}
+      </label>
+      <textarea
+        id={id}
+        className="modal-textarea"
+        rows={rows}
+        spellCheck={false}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </>
+  );
 }
 
 export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogProps): JSX.Element {
@@ -48,24 +81,23 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
       ? tasks.filter((view) => view.task.environmentId === initial.id).length
       : 0;
 
-  const save = (): void => {
+  const commitAndClose = (work: () => Promise<Result<unknown>>, toast: string): void => {
     void (async () => {
-      const saved = await run('environment', () =>
-        window.cc.environmentUpsert({ id: initial.id, name, imageId, envText, setupScript }),
-      );
-      if (saved === null) return;
-      setToast(affected > 0 ? `${t('commonSaved')} — ${affected} ${t('envImageChanged')}` : t('commonSaved'));
+      if ((await run('environment', work)) === null) return;
+      setToast(toast);
       onClose();
     })();
   };
 
+  const save = (): void => {
+    commitAndClose(
+      () => window.cc.environmentUpsert({ id: initial.id, name, imageId, envText, setupScript }),
+      affected > 0 ? `${t('commonSaved')} — ${affected} ${t('envImageChanged')}` : t('commonSaved'),
+    );
+  };
+
   const archive = (): void => {
-    void (async () => {
-      const saved = await run('environment', () => window.cc.environmentArchive(initial.id, true));
-      if (saved === null) return;
-      setToast(t('envArchivedDone'));
-      onClose();
-    })();
+    commitAndClose(() => window.cc.environmentArchive(initial.id, true), t('envArchivedDone'));
   };
 
   const footer = (
@@ -169,17 +201,13 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
         </p>
       ) : null}
 
-      <label className="modal-label" htmlFor="env-dialog-vars">
-        {t('envDialogVars')}
-      </label>
-      <textarea
+      <ModalTextarea
         id="env-dialog-vars"
-        className="modal-textarea"
+        label={t('envDialogVars')}
         rows={6}
-        spellCheck={false}
         placeholder={ENV_TEXT_PLACEHOLDER}
         value={envText}
-        onChange={(event) => setEnvText(event.target.value)}
+        onChange={setEnvText}
       />
       <p className="modal-note">
         {t('envDialogVarsNoteBefore')}
@@ -194,17 +222,13 @@ export function EnvironmentDialog({ mode, initial, onClose }: EnvironmentDialogP
         </p>
       ))}
 
-      <label className="modal-label" htmlFor="env-dialog-setup">
-        {t('envDialogSetup')}
-      </label>
-      <textarea
+      <ModalTextarea
         id="env-dialog-setup"
-        className="modal-textarea"
+        label={t('envDialogSetup')}
         rows={7}
-        spellCheck={false}
         placeholder={SETUP_SCRIPT_PLACEHOLDER}
         value={setupScript}
-        onChange={(event) => setSetupScript(event.target.value)}
+        onChange={setSetupScript}
       />
       <p className="modal-note">{t('envDialogSetupNote')}</p>
     </ModalShell>

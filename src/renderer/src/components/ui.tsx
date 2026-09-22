@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import type { JSX, MouseEvent, ReactNode } from 'react';
+import type { ChangeEvent, JSX, KeyboardEvent as ReactKeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
 import { useT } from '../i18n.ts';
@@ -8,6 +8,35 @@ export type Tone = 'ok' | 'warn' | 'err' | 'idle';
 
 export function hintProps(hint: string | undefined): { hint?: string } {
   return hint === undefined ? {} : { hint };
+}
+
+interface DraftInputProps {
+  readonly value: string;
+  readonly onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onBlur: () => void;
+  readonly onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+}
+
+/**
+ * Holds what the user is typing without pushing every keystroke upstream: the field commits on
+ * blur or Enter, drops the draft on Escape, and snaps back whenever the upstream value changes.
+ */
+export function useDraftInput(value: string, commit: (typed: string) => void): DraftInputProps {
+  const [draft, setDraft] = useState<{ base: string; text: string } | null>(null);
+  const shown = draft !== null && draft.base === value ? draft.text : value;
+
+  return {
+    value: shown,
+    onChange: (event) => setDraft({ base: value, text: event.target.value }),
+    onBlur: () => {
+      setDraft(null);
+      commit(shown);
+    },
+    onKeyDown: (event) => {
+      if (event.key === 'Enter') event.currentTarget.blur();
+      if (event.key === 'Escape') setDraft(null);
+    },
+  };
 }
 
 export function Pill({ tone, children }: { tone: Tone; children: ReactNode }): JSX.Element {
@@ -100,29 +129,19 @@ export function DeferredTextField({
   type?: 'text' | 'password';
   mono?: boolean;
 }): JSX.Element {
-  const [draft, setDraft] = useState<{ base: string; text: string } | null>(null);
-  const shown = draft !== null && draft.base === value ? draft.text : value;
-
-  const commit = (): void => {
-    setDraft(null);
-    const next = normalize === undefined ? shown : normalize(shown);
+  const draft = useDraftInput(value, (typed) => {
+    const next = normalize === undefined ? typed : normalize(typed);
     if (next !== value) onCommit(next);
-  };
+  });
 
   return (
     <Field label={label} {...hintProps(hint)}>
       <input
         type={type}
-        value={shown}
         placeholder={placeholder ?? ''}
         spellCheck={false}
         style={mono ? undefined : { fontFamily: 'var(--sans)' }}
-        onChange={(event) => setDraft({ base: value, text: event.target.value })}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur();
-          if (event.key === 'Escape') setDraft(null);
-        }}
+        {...draft}
       />
     </Field>
   );

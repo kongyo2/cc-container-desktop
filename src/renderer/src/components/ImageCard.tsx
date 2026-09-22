@@ -119,20 +119,7 @@ export function ImageCard({
         </button>
       );
     }
-    if (failed) {
-      return (
-        <button
-          className="btn primary sm"
-          type="button"
-          disabled={blocker !== null}
-          title={blockerText()}
-          onClick={() => onDownload(entry)}
-          data-testid="image-download"
-        >
-          <RotateCcw size={13} /> {t('imageRetry')}
-        </button>
-      );
-    }
+    const FetchIcon = failed ? RotateCcw : Download;
     return (
       <button
         className="btn primary sm"
@@ -142,7 +129,7 @@ export function ImageCard({
         onClick={() => onDownload(entry)}
         data-testid="image-download"
       >
-        <Download size={13} /> {t('imageDownload')}
+        <FetchIcon size={13} /> {t(failed ? 'imageRetry' : 'imageDownload')}
       </button>
     );
   };
