@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { useEffect, useState } from 'react';
 
 import { envNameProblems, formatEnvText, parseEnvText } from '../../../shared/env.ts';
+import { ENV_TEXT_PLACEHOLDER } from '../../../shared/environments.ts';
 import { newId } from '../../../shared/id.ts';
 import { ENDPOINT_PRESETS, MESSAGES_PATH, normalizeBaseUrl } from '../../../shared/presets.ts';
 import type { AuthMode, Profile } from '../../../shared/types.ts';
@@ -31,13 +32,6 @@ function blankProfile(name: string): Profile {
     note: '',
   };
 }
-
-const ENV_PLACEHOLDER = `NODE_ENV=production
-GIT_AUTHOR_NAME=Your Name
-
-# Multiline values - wrap in quotes
-CONFIG="key1=val1
-key2=val2"`;
 
 interface Tagged<T> {
   readonly id: string;
@@ -395,7 +389,7 @@ export function ProfilesPanel(): JSX.Element {
                   value={envText}
                   spellCheck={false}
                   rows={8}
-                  placeholder={ENV_PLACEHOLDER}
+                  placeholder={ENV_TEXT_PLACEHOLDER}
                   onChange={(event) => {
                     if (effectiveId === null) return;
                     setEnvEdit({ id: effectiveId, value: event.target.value });

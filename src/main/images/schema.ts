@@ -17,7 +17,7 @@ import type {
   ImageUnregisterRequest,
 } from '../../shared/ipc.ts';
 import type { ParseOutcome } from '../state/file.ts';
-import { duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
+import { duplicateIdProblem, parseFailure, parseInput } from '../state/parse.ts';
 
 const localizedSchema = z.strictObject({ ja: z.string(), en: z.string() });
 
@@ -50,8 +50,8 @@ const imagesFileSchema = z.strictObject({
 export function parseImagesFile(raw: unknown): ParseOutcome<readonly RegisteredImage[]> {
   const parsed = imagesFileSchema.safeParse(raw);
   if (!parsed.success) return parseFailure(parsed.error);
-  const duplicate = duplicateId(parsed.data.images);
-  if (duplicate !== null) return { ok: false, problem: `duplicate registration id ${duplicate}` };
+  const duplicate = duplicateIdProblem(parsed.data.images, 'registration');
+  if (duplicate !== null) return { ok: false, problem: duplicate };
   for (const image of parsed.data.images) {
     if (image.pinnedDigest === null && image.tag === null) {
       return { ok: false, problem: `registration ${image.id} has neither a digest nor a tag` };
@@ -124,31 +124,21 @@ const cancelRequestSchema = z.strictObject({ operationId: z.string().min(1) });
 const unregisterRequestSchema = z.strictObject({ imageId: z.string().regex(REGISTERED_IMAGE_ID_PATTERN) });
 
 export function parseDownloadRequest(raw: unknown): ImageDownloadRequest {
-  const parsed = downloadRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('image:downloadStart', parsed.error);
-  return parsed.data;
+  return parseInput(downloadRequestSchema, raw, 'image:downloadStart');
 }
 
 export function parseCustomRequest(raw: unknown): ImageCustomRequest {
-  const parsed = customRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('image:customStart', parsed.error);
-  return parsed.data;
+  return parseInput(customRequestSchema, raw, 'image:customStart');
 }
 
 export function parseRepairRequest(raw: unknown): ImageRepairRequest {
-  const parsed = repairRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('image:repairStart', parsed.error);
-  return parsed.data;
+  return parseInput(repairRequestSchema, raw, 'image:repairStart');
 }
 
 export function parseCancelRequest(raw: unknown): ImageCancelRequest {
-  const parsed = cancelRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('image:cancel', parsed.error);
-  return parsed.data;
+  return parseInput(cancelRequestSchema, raw, 'image:cancel');
 }
 
 export function parseUnregisterRequest(raw: unknown): ImageUnregisterRequest {
-  const parsed = unregisterRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('image:unregister', parsed.error);
-  return parsed.data;
+  return parseInput(unregisterRequestSchema, raw, 'image:unregister');
 }

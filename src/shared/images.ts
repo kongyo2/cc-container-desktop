@@ -1,3 +1,4 @@
+import { byId } from './collections.ts';
 import type { Language } from './types.ts';
 
 export const IMAGE_VARIANTS = ['base', 'web', 'python', 'go', 'rust', 'jvm', 'ruby', 'full'] as const;
@@ -298,8 +299,7 @@ export function imageTargetKey(
 }
 
 export function entryById(catalog: ImageCatalog, id: string | null): ImageCatalogEntry | null {
-  if (id === null) return null;
-  return catalog.entries.find((entry) => entry.id === id) ?? null;
+  return byId(catalog.entries, id);
 }
 
 export function highlightTools(tools: readonly CatalogTool[]): readonly CatalogTool[] {

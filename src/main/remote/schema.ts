@@ -15,7 +15,7 @@ import {
 import type { RemoteConnectRequest, RemoteHostingPatch, RemotePairRequest } from '../../shared/remote.ts';
 import type { ParseOutcome } from '../state/file.ts';
 import type { SealedSecret } from '../state/secret.ts';
-import { definedFields, duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
+import { definedFields, duplicateIdProblem, parseFailure, parseInput } from '../state/parse.ts';
 
 const sealedSchema = z.strictObject({ enc: z.enum(['safeStorage', 'plain']), value: z.string() });
 
@@ -107,10 +107,9 @@ export function defaultRemoteState(): RemoteState {
 export function readRemoteState(raw: unknown): ParseOutcome<RemoteState> {
   const parsed = remoteStateSchema.safeParse(raw);
   if (!parsed.success) return parseFailure(parsed.error);
-  const duplicateClient = duplicateId(parsed.data.clients);
-  if (duplicateClient !== null) return { ok: false, problem: `duplicate remote client id ${duplicateClient}` };
-  const duplicatePeer = duplicateId(parsed.data.peers);
-  if (duplicatePeer !== null) return { ok: false, problem: `duplicate remote peer id ${duplicatePeer}` };
+  const duplicate =
+    duplicateIdProblem(parsed.data.clients, 'remote client') ?? duplicateIdProblem(parsed.data.peers, 'remote peer');
+  if (duplicate !== null) return { ok: false, problem: duplicate };
   return { ok: true, value: parsed.data };
 }
 
@@ -125,9 +124,8 @@ const hostingPatchSchema = z.strictObject({
 });
 
 export function parseHostingPatch(raw: unknown): RemoteHostingPatch {
-  const parsed = hostingPatchSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('リモート設定が不正です / invalid remote settings', parsed.error);
-  const fields = definedFields(parsed.data) as RemoteHostingPatch;
+  const patch = parseInput(hostingPatchSchema, raw, 'リモート設定が不正です / invalid remote settings');
+  const fields = definedFields(patch) as RemoteHostingPatch;
   return fields.name === undefined ? fields : { ...fields, name: normalizeRemoteName(fields.name) };
 }
 
@@ -138,9 +136,8 @@ const pairRequestSchema = z.strictObject({
 });
 
 export function parsePairRequest(raw: unknown): RemotePairRequest {
-  const parsed = pairRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('ペアリングの内容が不正です / invalid pairing request', parsed.error);
-  return { ...parsed.data, code: normalizePairingCode(parsed.data.code) };
+  const request = parseInput(pairRequestSchema, raw, 'ペアリングの内容が不正です / invalid pairing request');
+  return { ...request, code: normalizePairingCode(request.code) };
 }
 
 const connectRequestSchema = z.strictObject({
@@ -149,9 +146,7 @@ const connectRequestSchema = z.strictObject({
 });
 
 export function parseConnectRequest(raw: unknown): RemoteConnectRequest {
-  const parsed = connectRequestSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('接続先の指定が不正です / invalid connect request', parsed.error);
-  return parsed.data;
+  return parseInput(connectRequestSchema, raw, '接続先の指定が不正です / invalid connect request');
 }
 
 export function isPairingCode(code: string): boolean {
