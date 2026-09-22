@@ -15,8 +15,14 @@ export function parseFailure(error: z.ZodError): ParseOutcome<never> {
   return { ok: false, problem: firstIssue(error) };
 }
 
-export function invalidInput(label: string, error: z.ZodError): AppFailure {
+function invalidInput(label: string, error: z.ZodError): AppFailure {
   return new AppFailure('INVALID_INPUT', `${label}: ${firstIssue(error)}`);
+}
+
+export function parseInput<T>(schema: z.ZodType<T>, raw: unknown, label: string): T {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) throw invalidInput(label, parsed.error);
+  return parsed.data;
 }
 
 export function definedFields(data: Readonly<Record<string, unknown>>): Record<string, unknown> {
@@ -27,10 +33,10 @@ export function definedFields(data: Readonly<Record<string, unknown>>): Record<s
   return fields;
 }
 
-export function duplicateId(items: readonly { readonly id: string }[]): string | null {
+export function duplicateIdProblem(items: readonly { readonly id: string }[], label: string): string | null {
   const seen = new Set<string>();
   for (const item of items) {
-    if (seen.has(item.id)) return item.id;
+    if (seen.has(item.id)) return `duplicate ${label} id ${item.id}`;
     seen.add(item.id);
   }
   return null;

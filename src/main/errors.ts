@@ -102,13 +102,9 @@ const CONNECTION_ERRNOS: readonly string[] = ['ENOENT', 'ECONNREFUSED', 'EACCES'
 
 function isDaemonUnreachable(error: unknown): boolean {
   const errno = errnoOf(error);
-  if (errno !== null && CONNECTION_ENOS_HAS(errno)) return true;
+  if (errno !== null && CONNECTION_ERRNOS.includes(errno)) return true;
   const message = describeError(error);
   return /docker_engine|docker\.sock|connect ENOENT|connect ECONNREFUSED|EHOSTUNREACH|socket hang up/iu.test(message);
-}
-
-function CONNECTION_ENOS_HAS(errno: string): boolean {
-  return CONNECTION_ERRNOS.includes(errno);
 }
 
 export type DockerContext = 'connect' | 'pull' | 'inspect' | 'create' | 'exec';

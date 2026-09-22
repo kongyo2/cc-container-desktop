@@ -1,3 +1,4 @@
+import { normalizeDisplayName } from './text.ts';
 import type { Language, WorkspaceSource } from './types.ts';
 
 const MAX_TASK_NAME = 64;
@@ -5,11 +6,7 @@ const MAX_TASK_NAME = 64;
 export const TASK_ID_PATTERN: RegExp = /^[a-z0-9]{6,32}$/u;
 
 export function normalizeTaskName(name: string): string {
-  return name
-    .replaceAll(/[\p{Cc}\p{Cf}]/gu, '')
-    .replaceAll(/\s+/gu, ' ')
-    .trim()
-    .slice(0, MAX_TASK_NAME);
+  return normalizeDisplayName(name, MAX_TASK_NAME);
 }
 
 export function exportFolderName(taskName: string): string {

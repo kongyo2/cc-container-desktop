@@ -1,3 +1,5 @@
+import { normalizeDisplayName } from './text.ts';
+
 export const REMOTE_PROTOCOL_VERSION = 1;
 
 export const DEFAULT_REMOTE_PORT = 47713;
@@ -156,11 +158,7 @@ function base64UrlDecode(text: string): Uint8Array | null {
 }
 
 export function normalizeRemoteName(name: string): string {
-  return name
-    .replaceAll(/[\p{Cc}\p{Cf}]/gu, '')
-    .replaceAll(/\s+/gu, ' ')
-    .trim()
-    .slice(0, MAX_REMOTE_NAME);
+  return normalizeDisplayName(name, MAX_REMOTE_NAME);
 }
 
 export function normalizePairingCode(code: string): string {

@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import { z } from 'zod';
 
 import { environmentEnvProblems, normalizeEnvironmentName, normalizeScriptText } from '../../shared/environments.ts';
@@ -15,8 +13,9 @@ import type {
   Profile,
 } from '../../shared/types.ts';
 import { AppFailure } from '../errors.ts';
+import { prefixedRandomId } from '../ids.ts';
 import type { ParseOutcome } from '../state/file.ts';
-import { definedFields, duplicateId, invalidInput, parseFailure } from '../state/parse.ts';
+import { definedFields, duplicateIdProblem, parseFailure, parseInput } from '../state/parse.ts';
 
 const INSTANCE_ID_PATTERN: RegExp = /^inst_[0-9a-f]{16}$/u;
 
@@ -120,21 +119,16 @@ const configPatchSchema = z.strictObject({
 });
 
 export function parseConfigPatch(raw: unknown): ConfigPatch {
-  const parsed = configPatchSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('設定の変更内容が不正です / invalid config patch', parsed.error);
-  return definedFields(parsed.data) as ConfigPatch;
+  const patch = parseInput(configPatchSchema, raw, '設定の変更内容が不正です / invalid config patch');
+  return definedFields(patch) as ConfigPatch;
 }
 
 export function parseProfile(raw: unknown): Profile {
-  const parsed = profileSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('プロファイルの内容が不正です / invalid profile', parsed.error);
-  return parsed.data;
+  return parseInput(profileSchema, raw, 'プロファイルの内容が不正です / invalid profile');
 }
 
 export function parseExtensions(raw: unknown): Extensions {
-  const parsed = extensionsSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('拡張の内容が不正です / invalid extensions', parsed.error);
-  return parsed.data;
+  return parseInput(extensionsSchema, raw, '拡張の内容が不正です / invalid extensions');
 }
 
 const environmentDraftSchema = z.strictObject({
@@ -146,25 +140,24 @@ const environmentDraftSchema = z.strictObject({
 });
 
 export function parseEnvironmentDraft(raw: unknown): EnvironmentDraft {
-  const parsed = environmentDraftSchema.safeParse(raw);
-  if (!parsed.success) throw invalidInput('環境の内容が不正です / invalid environment', parsed.error);
-  const name = normalizeEnvironmentName(parsed.data.name);
+  const draft = parseInput(environmentDraftSchema, raw, '環境の内容が不正です / invalid environment');
+  const name = normalizeEnvironmentName(draft.name);
   if (name === '') throw new AppFailure('INVALID_INPUT', '環境の名前が空です / the environment name is empty');
-  if (!REGISTERED_IMAGE_ID_PATTERN.test(parsed.data.imageId)) {
+  if (!REGISTERED_IMAGE_ID_PATTERN.test(draft.imageId)) {
     throw new AppFailure(
       'INVALID_INPUT',
       '環境には登録済みイメージを 1 つ選んでください / an environment must name one registered image',
     );
   }
-  const envText = normalizeScriptText(parsed.data.envText);
+  const envText = normalizeScriptText(draft.envText);
   const problem = environmentEnvProblems(envText)[0];
   if (problem !== undefined) throw new AppFailure('INVALID_INPUT', `環境変数 / environment variables: ${problem}`);
   return {
-    id: parsed.data.id,
+    id: draft.id,
     name,
-    imageId: parsed.data.imageId,
+    imageId: draft.imageId,
     envText,
-    setupScript: normalizeScriptText(parsed.data.setupScript),
+    setupScript: normalizeScriptText(draft.setupScript),
   };
 }
 
@@ -197,15 +190,11 @@ export function emptyManagedNames(): ManagedNames {
   return { mcpServers: [], marketplaces: [], plugins: [] };
 }
 
-function newInstanceId(): string {
-  return `inst_${randomBytes(8).toString('hex')}`;
-}
-
 export function defaultConfig(): AppConfig {
   const profile = starterProfile();
   return {
     schemaVersion: 1,
-    dataInstanceId: newInstanceId(),
+    dataInstanceId: prefixedRandomId('inst'),
     language: 'ja',
     defaultProfileId: profile.id,
     profiles: [profile],
@@ -249,10 +238,9 @@ export function normalizeConfig(config: AppConfig): AppConfig {
 export function readConfig(raw: unknown): ParseOutcome<AppConfig> {
   const parsed = appConfigSchema.safeParse(raw);
   if (!parsed.success) return parseFailure(parsed.error);
-  const duplicateProfile = duplicateId(parsed.data.profiles);
-  if (duplicateProfile !== null) return { ok: false, problem: `duplicate profile id ${duplicateProfile}` };
-  const duplicateEnvironment = duplicateId(parsed.data.environments);
-  if (duplicateEnvironment !== null) return { ok: false, problem: `duplicate environment id ${duplicateEnvironment}` };
+  const duplicate =
+    duplicateIdProblem(parsed.data.profiles, 'profile') ?? duplicateIdProblem(parsed.data.environments, 'environment');
+  if (duplicate !== null) return { ok: false, problem: duplicate };
   return { ok: true, value: normalizeConfig(parsed.data) };
 }
 

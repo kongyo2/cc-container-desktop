@@ -1,17 +1,22 @@
-import { createHash, randomBytes, timingSafeEqual, X509Certificate } from 'node:crypto';
+import { createHash, randomBytes, X509Certificate } from 'node:crypto';
 
 import { generate } from 'selfsigned';
 
+import { byId, withoutId } from '../../shared/collections.ts';
 import { PAIRING_CODE_ALPHABET, PAIRING_CODE_LENGTH, normalizeRemoteName } from '../../shared/remote.ts';
 import { AppFailure, describeError } from '../errors.ts';
+import { prefixedRandomId } from '../ids.ts';
 import { logWarn } from '../logger.ts';
 import { statePath } from '../paths.ts';
 import { StateFile } from '../state/file.ts';
 import { openSecret, sealSecret } from '../state/secret.ts';
+import { sameSecret } from './pairing.ts';
 import { defaultRemoteState, readRemoteState } from './schema.ts';
 import type { RemoteClientRecord, RemotePeerRecord, RemoteState } from './schema.ts';
 
 const CERT_YEARS = 10;
+
+const MAX_PEER_ADDRESSES = 12;
 
 const stateFile = new StateFile<RemoteState>({
   path: () => statePath('remote.json'),
@@ -137,7 +142,7 @@ export function newToken(): string {
 }
 
 export function newClientId(): string {
-  return `cli_${randomBytes(8).toString('hex')}`;
+  return prefixedRandomId('cli');
 }
 
 export function hashToken(token: string): string {
@@ -145,9 +150,27 @@ export function hashToken(token: string): string {
 }
 
 export function tokenMatches(token: string, hash: string): boolean {
-  const offered = Buffer.from(hashToken(token), 'hex');
-  const stored = Buffer.from(hash, 'hex');
-  return offered.length === stored.length && timingSafeEqual(offered, stored);
+  return sameSecret(Buffer.from(hashToken(token), 'hex'), Buffer.from(hash, 'hex'));
+}
+
+function recordReplaced<T extends { readonly id: string }>(
+  records: readonly T[],
+  id: string,
+  rewrite: (record: T) => T,
+): readonly T[] | null {
+  const index = records.findIndex((record) => record.id === id);
+  const record = records[index];
+  if (index === -1 || record === undefined) return null;
+  return records.with(index, rewrite(record));
+}
+
+function recordDropped<T extends { readonly id: string }>(
+  records: readonly T[],
+  id: string,
+  missing: string,
+): readonly T[] {
+  if (byId(records, id) === null) throw new AppFailure('INVALID_INPUT', missing);
+  return withoutId(records, id);
 }
 
 export function listClients(): readonly RemoteClientRecord[] {
@@ -155,30 +178,25 @@ export function listClients(): readonly RemoteClientRecord[] {
 }
 
 export function findClient(clientId: string): RemoteClientRecord | null {
-  return remoteState().clients.find((client) => client.id === clientId) ?? null;
+  return byId(remoteState().clients, clientId);
 }
 
 export function rememberClient(record: RemoteClientRecord): void {
-  const clients = remoteState().clients.filter((client) => client.id !== record.id);
-  updateRemoteState({ clients: [...clients, record] });
+  updateRemoteState({ clients: [...withoutId(remoteState().clients, record.id), record] });
 }
 
 export function touchClient(clientId: string, address: string): void {
-  const state = remoteState();
-  const index = state.clients.findIndex((client) => client.id === clientId);
-  const client = state.clients[index];
-  if (index === -1 || client === undefined) return;
-  const clients = [...state.clients];
-  clients[index] = { ...client, lastSeenAt: new Date().toISOString(), lastAddress: address };
-  updateRemoteState({ clients });
+  const clients = recordReplaced(remoteState().clients, clientId, (client) => ({
+    ...client,
+    lastSeenAt: new Date().toISOString(),
+    lastAddress: address,
+  }));
+  if (clients !== null) updateRemoteState({ clients });
 }
 
 export function revokeClient(clientId: string): void {
-  const state = remoteState();
-  if (!state.clients.some((client) => client.id === clientId)) {
-    throw new AppFailure('INVALID_INPUT', `その端末は登録されていません / no such paired machine: ${clientId}`);
-  }
-  updateRemoteState({ clients: state.clients.filter((client) => client.id !== clientId) });
+  const missing = `その端末は登録されていません / no such paired machine: ${clientId}`;
+  updateRemoteState({ clients: recordDropped(remoteState().clients, clientId, missing) });
 }
 
 export function listPeers(): readonly RemotePeerRecord[] {
@@ -186,7 +204,7 @@ export function listPeers(): readonly RemotePeerRecord[] {
 }
 
 export function findPeer(peerId: string): RemotePeerRecord | null {
-  return remoteState().peers.find((peer) => peer.id === peerId) ?? null;
+  return byId(remoteState().peers, peerId);
 }
 
 export function peerToken(peer: RemotePeerRecord): string {
@@ -204,8 +222,8 @@ export interface PeerDraft {
 
 export function rememberPeer(draft: PeerDraft): RemotePeerRecord {
   const state = remoteState();
-  const existing = state.peers.find((peer) => peer.id === draft.id) ?? null;
-  const addresses = [...new Set([...draft.addresses, ...(existing?.addresses ?? [])])].slice(0, 12);
+  const existing = byId(state.peers, draft.id);
+  const addresses = [...new Set([...draft.addresses, ...(existing?.addresses ?? [])])].slice(0, MAX_PEER_ADDRESSES);
   const record: RemotePeerRecord = {
     id: draft.id,
     name: draft.name,
@@ -215,28 +233,20 @@ export function rememberPeer(draft: PeerDraft): RemotePeerRecord {
     clientId: draft.clientId,
     lastConnectedAt: existing?.lastConnectedAt ?? null,
   };
-  updateRemoteState({ peers: [...state.peers.filter((peer) => peer.id !== draft.id), record] });
+  updateRemoteState({ peers: [...withoutId(state.peers, draft.id), record] });
   return record;
 }
 
 export function touchPeer(peerId: string, address: string): void {
-  const state = remoteState();
-  const index = state.peers.findIndex((peer) => peer.id === peerId);
-  const peer = state.peers[index];
-  if (index === -1 || peer === undefined) return;
-  const peers = [...state.peers];
-  peers[index] = {
+  const peers = recordReplaced(remoteState().peers, peerId, (peer) => ({
     ...peer,
     lastConnectedAt: new Date().toISOString(),
-    addresses: [address, ...peer.addresses.filter((known) => known !== address)].slice(0, 12),
-  };
-  updateRemoteState({ peers });
+    addresses: [address, ...peer.addresses.filter((known) => known !== address)].slice(0, MAX_PEER_ADDRESSES),
+  }));
+  if (peers !== null) updateRemoteState({ peers });
 }
 
 export function forgetPeer(peerId: string): void {
-  const state = remoteState();
-  if (!state.peers.some((peer) => peer.id === peerId)) {
-    throw new AppFailure('INVALID_INPUT', `その接続先は登録されていません / no such saved machine: ${peerId}`);
-  }
-  updateRemoteState({ peers: state.peers.filter((peer) => peer.id !== peerId) });
+  const missing = `その接続先は登録されていません / no such saved machine: ${peerId}`;
+  updateRemoteState({ peers: recordDropped(remoteState().peers, peerId, missing) });
 }

@@ -137,32 +137,45 @@ function commandVoid<A extends readonly unknown[]>(
   );
 }
 
-function commandConfigEdit<A extends readonly unknown[]>(channel: string, fn: (...args: A) => AppConfig): void {
-  command<A, AppConfig>(channel, (...args) => {
-    const next = fn(...args);
+async function notifyingAfter<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } finally {
     notifyStateChanged();
-    return next;
+  }
+}
+
+function commandThenNotify<A extends readonly unknown[], T>(channel: string, fn: (...args: A) => T): void {
+  command<A, T>(channel, (...args) => {
+    const value = fn(...args);
+    notifyStateChanged();
+    return value;
   });
+}
+
+function commandConfigEdit<A extends readonly unknown[]>(channel: string, fn: (...args: A) => AppConfig): void {
+  commandThenNotify<A, AppConfig>(channel, fn);
+}
+
+function commandImageStart<A extends readonly unknown[]>(channel: string, fn: (...args: A) => ImageOperation): void {
+  commandThenNotify<A, ImageOperation>(channel, fn);
 }
 
 function commandTaskAction<A extends readonly unknown[]>(channel: string, fn: (...args: A) => Promise<unknown>): void {
   command<A, Snapshot>(
     channel,
     async (...args) => {
-      try {
-        await fn(...args);
-      } finally {
-        notifyStateChanged();
-      }
+      await notifyingAfter(() => fn(...args));
       return snapshot();
     },
     { adapt: adaptSnapshot, timeoutMs: LONG_CALL_MS },
   );
 }
 
-function commandRemoteAction<A extends readonly unknown[]>(
+function commandSnapshotAction<A extends readonly unknown[]>(
   channel: string,
   fn: (...args: A) => Promise<void> | void,
+  options: CommandOptions,
 ): void {
   command<A, Snapshot>(
     channel,
@@ -171,8 +184,15 @@ function commandRemoteAction<A extends readonly unknown[]>(
       notifyStateChanged();
       return snapshot();
     },
-    { local: true, denyRemote: true },
+    options,
   );
+}
+
+function commandRemoteAction<A extends readonly unknown[]>(
+  channel: string,
+  fn: (...args: A) => Promise<void> | void,
+): void {
+  commandSnapshotAction<A>(channel, fn, { local: true, denyRemote: true });
 }
 
 function storeProblems(catalogProblem: string | null): readonly string[] {
@@ -346,11 +366,7 @@ export function registerIpc(version: string): void {
   command<[unknown], AppConfig>(CHANNELS.profileDelete, async (id) => {
     const profileId = requireProfileId(id);
     const next = deleteProfile(profileId);
-    try {
-      await forgetProfile(profileId);
-    } finally {
-      notifyStateChanged();
-    }
+    await notifyingAfter(() => forgetProfile(profileId));
     return next;
   });
   command<[unknown], readonly string[]>(
@@ -376,21 +392,15 @@ export function registerIpc(version: string): void {
 
   command<[], Snapshot>(CHANNELS.dockerProbe, snapshot, READ);
 
-  command<[unknown], ImageOperation>(CHANNELS.imageDownloadStart, (request) => {
-    const operation = startDownload(parseDownloadRequest(request).catalogEntryId);
-    notifyStateChanged();
-    return operation;
-  });
-  command<[unknown], ImageOperation>(CHANNELS.imageCustomStart, (request) => {
-    const operation = startCustomRegistration(parseCustomRequest(request));
-    notifyStateChanged();
-    return operation;
-  });
-  command<[unknown], ImageOperation>(CHANNELS.imageRepairStart, (request) => {
-    const operation = startRepair(parseRepairRequest(request).imageId);
-    notifyStateChanged();
-    return operation;
-  });
+  commandImageStart<[unknown]>(CHANNELS.imageDownloadStart, (request) =>
+    startDownload(parseDownloadRequest(request).catalogEntryId),
+  );
+  commandImageStart<[unknown]>(CHANNELS.imageCustomStart, (request) =>
+    startCustomRegistration(parseCustomRequest(request)),
+  );
+  commandImageStart<[unknown]>(CHANNELS.imageRepairStart, (request) =>
+    startRepair(parseRepairRequest(request).imageId),
+  );
   command<[unknown], ImageOperation>(CHANNELS.imageCancel, (request) =>
     cancelImageOperation(parseCancelRequest(request).operationId),
   );
@@ -414,22 +424,12 @@ export function registerIpc(version: string): void {
 
   command<[unknown], CreateTaskResult>(
     CHANNELS.taskCreate,
-    async (input) => {
-      try {
-        return await createTask(parseNewTaskInput(input));
-      } finally {
-        notifyStateChanged();
-      }
-    },
+    (input) => notifyingAfter(() => createTask(parseNewTaskInput(input))),
     { timeoutMs: LONG_CALL_MS },
   );
-  command<[unknown, unknown], Task>(CHANNELS.taskUpdate, async (id, patch) => {
-    try {
-      return await updateTaskDetails(requireTaskId(id), parseTaskPatch(patch));
-    } finally {
-      notifyStateChanged();
-    }
-  });
+  command<[unknown, unknown], Task>(CHANNELS.taskUpdate, (id, patch) =>
+    notifyingAfter(() => updateTaskDetails(requireTaskId(id), parseTaskPatch(patch))),
+  );
   commandTaskAction<[unknown]>(CHANNELS.taskStart, (id) => startTask(requireTaskId(id)));
   commandTaskAction<[unknown]>(CHANNELS.taskStop, (id) => stopTask(requireTaskId(id)));
   commandTaskAction<[unknown]>(CHANNELS.taskRecreate, (id) => recreateTask(requireTaskId(id)));
@@ -439,11 +439,7 @@ export function registerIpc(version: string): void {
       const taskId = requireTaskId(id);
       const exportFirst = wantsExport(request);
       const destination = exportFirst ? await pickDirectory(getConfig().lastExportDir) : null;
-      try {
-        return await deleteTask(taskId, { exportFirst }, destination);
-      } finally {
-        notifyStateChanged();
-      }
+      return notifyingAfter(() => deleteTask(taskId, { exportFirst }, destination));
     },
     {
       timeoutMs: LONG_CALL_MS,
@@ -491,23 +487,13 @@ export function registerIpc(version: string): void {
       const taskId = requireTaskId(id);
       const destination = await pickDirectory(getConfig().lastExportDir);
       if (destination === null) return null;
-      try {
-        return await exportTask(taskId, destination);
-      } finally {
-        notifyStateChanged();
-      }
+      return notifyingAfter(() => exportTask(taskId, destination));
     },
     { denyRemote: true, remote: (router, id) => exportFromRemote(router, requireTaskId(id)) },
   );
   command<[unknown, unknown], ImportSummary>(
     CHANNELS.taskImport,
-    async (id, paths) => {
-      try {
-        return await importIntoTask(requireTaskId(id), requirePaths(paths));
-      } finally {
-        notifyStateChanged();
-      }
-    },
+    (id, paths) => notifyingAfter(() => importIntoTask(requireTaskId(id), requirePaths(paths))),
     {
       denyRemote: true,
       remote: (router, id, paths) => pushImports(router, requireTaskId(id), requirePaths(paths)),
@@ -519,11 +505,7 @@ export function registerIpc(version: string): void {
       const taskId = requireTaskId(id);
       const paths = await pickImportPaths(pick);
       if (paths.length === 0) return null;
-      try {
-        return await importIntoTask(taskId, paths);
-      } finally {
-        notifyStateChanged();
-      }
+      return notifyingAfter(() => importIntoTask(taskId, paths));
     },
     {
       denyRemote: true,
@@ -551,41 +533,19 @@ export function registerIpc(version: string): void {
     hostImportStream(requireTaskId(id), requireTransferId(transferId)),
   );
 
-  command<[unknown], Snapshot>(
+  const REMOTE_EDIT: CommandOptions = { adapt: adaptSnapshot };
+
+  commandSnapshotAction<[unknown]>(
     CHANNELS.remoteHostingSave,
-    async (patch) => {
-      await applyHosting(parseHostingPatch(patch));
-      notifyStateChanged();
-      return snapshot();
-    },
-    { adapt: adaptSnapshot },
+    (patch) => applyHosting(parseHostingPatch(patch)),
+    REMOTE_EDIT,
   );
-  command<[], Snapshot>(
-    CHANNELS.remoteInviteCreate,
-    async () => {
-      await issueInvite();
-      notifyStateChanged();
-      return snapshot();
-    },
-    { adapt: adaptSnapshot },
-  );
-  command<[], Snapshot>(
-    CHANNELS.remoteInviteCancel,
-    async () => {
-      cancelInvite();
-      notifyStateChanged();
-      return snapshot();
-    },
-    { adapt: adaptSnapshot },
-  );
-  command<[unknown], Snapshot>(
+  commandSnapshotAction<[]>(CHANNELS.remoteInviteCreate, () => issueInvite(), REMOTE_EDIT);
+  commandSnapshotAction<[]>(CHANNELS.remoteInviteCancel, () => cancelInvite(), REMOTE_EDIT);
+  commandSnapshotAction<[unknown]>(
     CHANNELS.remoteClientRevoke,
-    async (clientId) => {
-      revokePairedClient(requireString(clientId, 'client id'));
-      notifyStateChanged();
-      return snapshot();
-    },
-    { adapt: adaptSnapshot },
+    (clientId) => revokePairedClient(requireString(clientId, 'client id')),
+    REMOTE_EDIT,
   );
 
   commandRemoteAction<[unknown]>(CHANNELS.remotePair, (request) => pairWithPeer(parsePairRequest(request)));

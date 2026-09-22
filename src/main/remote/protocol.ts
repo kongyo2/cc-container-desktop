@@ -143,6 +143,8 @@ export type RemoteMessage =
 
 const MAX_TEXT = 4096;
 
+const MAX_CHUNK = 16 * 1024 * 1024;
+
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new ProtocolError('a frame must be a JSON object');
@@ -179,6 +181,25 @@ function nullableText(source: Record<string, unknown>, field: string): string | 
   const value = source[field];
   if (value === null || value === undefined) return null;
   return text(source, field);
+}
+
+const MAX_ID = 64;
+
+function frameId(source: Record<string, unknown>): string {
+  return text(source, 'id', MAX_ID);
+}
+
+function peerIdentity(source: Record<string, unknown>): Omit<WelcomeMessage, 't' | 'sessionId'> {
+  return {
+    instanceId: text(source, 'instanceId', MAX_ID),
+    name: text(source, 'name', 256),
+    appVersion: text(source, 'appVersion', MAX_ID),
+    platform: text(source, 'platform', MAX_ID),
+  };
+}
+
+function clientIdentity(source: Record<string, unknown>): Pick<AuthMessage, 'clientId' | 'clientName'> {
+  return { clientId: text(source, 'clientId', MAX_ID), clientName: text(source, 'clientName', 256) };
 }
 
 const DENY_REASONS: readonly DenyReason[] = [
@@ -220,60 +241,36 @@ export function parseRemoteMessage(raw: unknown): RemoteMessage {
       return {
         t: 'hello',
         protocol: count(source, 'protocol'),
-        instanceId: text(source, 'instanceId', 64),
-        name: text(source, 'name', 256),
-        appVersion: text(source, 'appVersion', 64),
-        platform: text(source, 'platform', 64),
+        ...peerIdentity(source),
         nonce: text(source, 'nonce', 256),
         pairing: flag(source, 'pairing'),
       };
     case 'auth':
-      return {
-        t: 'auth',
-        clientId: text(source, 'clientId', 64),
-        clientName: text(source, 'clientName', 256),
-        token: text(source, 'token', 512),
-      };
+      return { t: 'auth', ...clientIdentity(source), token: text(source, 'token', 512) };
     case 'pair':
       return {
         t: 'pair',
-        clientId: text(source, 'clientId', 64),
-        clientName: text(source, 'clientName', 256),
+        ...clientIdentity(source),
         nonce: text(source, 'nonce', 256),
         proof: text(source, 'proof', 256),
       };
     case 'welcome':
-      return {
-        t: 'welcome',
-        sessionId: text(source, 'sessionId', 64),
-        instanceId: text(source, 'instanceId', 64),
-        name: text(source, 'name', 256),
-        appVersion: text(source, 'appVersion', 64),
-        platform: text(source, 'platform', 64),
-      };
+      return { t: 'welcome', sessionId: text(source, 'sessionId', MAX_ID), ...peerIdentity(source) };
     case 'paired':
       return {
         t: 'paired',
-        sessionId: text(source, 'sessionId', 64),
-        instanceId: text(source, 'instanceId', 64),
-        name: text(source, 'name', 256),
-        appVersion: text(source, 'appVersion', 64),
-        platform: text(source, 'platform', 64),
-        clientId: text(source, 'clientId', 64),
+        sessionId: text(source, 'sessionId', MAX_ID),
+        ...peerIdentity(source),
+        clientId: text(source, 'clientId', MAX_ID),
         token: text(source, 'token', 512),
         proof: text(source, 'proof', 256),
       };
     case 'denied':
       return { t: 'denied', reason: denyReason(source), message: text(source, 'message', 8192) };
     case 'call':
-      return {
-        t: 'call',
-        id: text(source, 'id', 64),
-        channel: text(source, 'channel', 128),
-        args: list(source, 'args'),
-      };
+      return { t: 'call', id: frameId(source), channel: text(source, 'channel', 128), args: list(source, 'args') };
     case 'reply':
-      return { t: 'reply', id: text(source, 'id', 64), result: result(source['result']) };
+      return { t: 'reply', id: frameId(source), result: result(source['result']) };
     case 'event':
       return { t: 'event', channel: text(source, 'channel', 128), payload: source['payload'] ?? null };
     case 'ping':
@@ -281,20 +278,15 @@ export function parseRemoteMessage(raw: unknown): RemoteMessage {
     case 'pong':
       return { t: 'pong', at: count(source, 'at') };
     case 'stream':
-      return { t: 'stream', id: text(source, 'id', 64), meta: source['meta'] ?? null };
+      return { t: 'stream', id: frameId(source), meta: source['meta'] ?? null };
     case 'chunk':
-      return {
-        t: 'chunk',
-        id: text(source, 'id', 64),
-        seq: count(source, 'seq'),
-        data: text(source, 'data', 16 * 1024 * 1024),
-      };
+      return { t: 'chunk', id: frameId(source), seq: count(source, 'seq'), data: text(source, 'data', MAX_CHUNK) };
     case 'streamEnd':
-      return { t: 'streamEnd', id: text(source, 'id', 64), error: nullableText(source, 'error') };
+      return { t: 'streamEnd', id: frameId(source), error: nullableText(source, 'error') };
     case 'streamAck':
-      return { t: 'streamAck', id: text(source, 'id', 64), seq: count(source, 'seq') };
+      return { t: 'streamAck', id: frameId(source), seq: count(source, 'seq') };
     case 'streamAbort':
-      return { t: 'streamAbort', id: text(source, 'id', 64), message: text(source, 'message') };
+      return { t: 'streamAbort', id: frameId(source), message: text(source, 'message') };
     default:
       throw new ProtocolError(`unknown message: ${typeof kind === 'string' ? kind.slice(0, 32) : typeof kind}`);
   }

@@ -58,6 +58,23 @@ function AddButton({ onClick }: { onClick: () => void }): JSX.Element {
   );
 }
 
+interface ListEditor<T> {
+  readonly add: (entry: T) => void;
+  readonly remove: (id: string) => void;
+  readonly patch: (index: number, entry: T, changes: Partial<T>) => void;
+}
+
+function listEditor<T extends { readonly id: string }>(
+  entries: readonly T[],
+  write: (next: readonly T[]) => void,
+): ListEditor<T> {
+  return {
+    add: (entry) => write([...entries, entry]),
+    remove: (id) => write(withoutId(entries, id)),
+    patch: (index, entry, changes) => write(entries.with(index, { ...entry, ...changes })),
+  };
+}
+
 function newMcpServer(): McpServerConfig {
   return {
     id: newId('mcp'),
@@ -116,6 +133,11 @@ export function ExtensionsPanel(): JSX.Element {
   const update = (patch: Partial<Extensions>): void => {
     setDraft({ base: savedKey, value: { ...extensions, ...patch } });
   };
+
+  const servers = listEditor(extensions.mcpServers, (mcpServers) => update({ mcpServers }));
+  const markets = listEditor(extensions.marketplaces, (marketplaces) => update({ marketplaces }));
+  const plugins = listEditor(extensions.plugins, (pluginList) => update({ plugins: pluginList }));
+  const installs = listEditor(extensions.skillInstalls, (skillInstalls) => update({ skillInstalls }));
 
   const save = async (): Promise<boolean> => {
     const result = await run('extensions', () => window.cc.extensionsSave(extensions));
@@ -190,7 +212,7 @@ export function ExtensionsPanel(): JSX.Element {
             >
               <RefreshCw size={13} /> {t('extMcpStatus')}
             </button>
-            <AddButton onClick={() => update({ mcpServers: [...extensions.mcpServers, newMcpServer()] })} />
+            <AddButton onClick={() => servers.add(newMcpServer())} />
           </>
         }
       >
@@ -200,16 +222,14 @@ export function ExtensionsPanel(): JSX.Element {
         {extensions.mcpServers.map((server, index) => {
           const status = statusFor(server.name);
           const problem = server.enabled ? validateMcpServer(server) : null;
-          const replace = (patch: Partial<McpServerConfig>): void => {
-            update({ mcpServers: extensions.mcpServers.with(index, { ...server, ...patch }) });
-          };
+          const replace = (patch: Partial<McpServerConfig>): void => servers.patch(index, server, patch);
           return (
             <div className="entry-card" key={server.id}>
               <EntryHead
                 title={server.name || t('commonUnset')}
                 enabled={server.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ mcpServers: withoutId(extensions.mcpServers, server.id) })}
+                onDelete={() => servers.remove(server.id)}
               >
                 <span className="tag">{server.transport}</span>
                 {problem === null ? null : <span className="tag err">!</span>}
@@ -296,24 +316,19 @@ export function ExtensionsPanel(): JSX.Element {
         })}
       </Section>
 
-      <Section
-        title={t('extMarketTitle')}
-        actions={<AddButton onClick={() => update({ marketplaces: [...extensions.marketplaces, newMarketplace()] })} />}
-      >
+      <Section title={t('extMarketTitle')} actions={<AddButton onClick={() => markets.add(newMarketplace())} />}>
         <p className="hint">{t('extMarketHint')}</p>
         {extensions.marketplaces.length === 0 ? <p className="empty">{t('extMarketEmpty')}</p> : null}
 
         {extensions.marketplaces.map((market, index) => {
-          const replace = (patch: Partial<MarketplaceConfig>): void => {
-            update({ marketplaces: extensions.marketplaces.with(index, { ...market, ...patch }) });
-          };
+          const replace = (patch: Partial<MarketplaceConfig>): void => markets.patch(index, market, patch);
           return (
             <div className="entry-card" key={market.id}>
               <EntryHead
                 title={market.name || t('commonUnset')}
                 enabled={market.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ marketplaces: withoutId(extensions.marketplaces, market.id) })}
+                onDelete={() => markets.remove(market.id)}
               >
                 <span className="tag">{market.sourceKind}</span>
               </EntryHead>
@@ -354,17 +369,12 @@ export function ExtensionsPanel(): JSX.Element {
         })}
       </Section>
 
-      <Section
-        title={t('extPluginTitle')}
-        actions={<AddButton onClick={() => update({ plugins: [...extensions.plugins, newPlugin()] })} />}
-      >
+      <Section title={t('extPluginTitle')} actions={<AddButton onClick={() => plugins.add(newPlugin())} />}>
         <p className="hint">{t('extPluginHint')}</p>
         {extensions.plugins.length === 0 ? <p className="empty">{t('extPluginEmpty')}</p> : null}
 
         {extensions.plugins.map((plugin, index) => {
-          const replace = (patch: Partial<PluginConfig>): void => {
-            update({ plugins: extensions.plugins.with(index, { ...plugin, ...patch }) });
-          };
+          const replace = (patch: Partial<PluginConfig>): void => plugins.patch(index, plugin, patch);
           return (
             <div className="entry-card" key={plugin.id}>
               <EntryHead
@@ -375,7 +385,7 @@ export function ExtensionsPanel(): JSX.Element {
                 }
                 enabled={plugin.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ plugins: withoutId(extensions.plugins, plugin.id) })}
+                onDelete={() => plugins.remove(plugin.id)}
               />
               <div className="grid2">
                 <TextField
@@ -394,20 +404,13 @@ export function ExtensionsPanel(): JSX.Element {
         })}
       </Section>
 
-      <Section
-        title={t('extSkillTitle')}
-        actions={
-          <AddButton onClick={() => update({ skillInstalls: [...extensions.skillInstalls, newSkillInstall()] })} />
-        }
-      >
+      <Section title={t('extSkillTitle')} actions={<AddButton onClick={() => installs.add(newSkillInstall())} />}>
         <p className="hint">{t('extSkillHint')}</p>
         <p className="hint">{t('extSkillRemoveHint')}</p>
         {extensions.skillInstalls.length === 0 ? <p className="empty">{t('extSkillEmpty')}</p> : null}
 
         {extensions.skillInstalls.map((skill, index) => {
-          const replace = (patch: Partial<SkillInstallConfig>): void => {
-            update({ skillInstalls: extensions.skillInstalls.with(index, { ...skill, ...patch }) });
-          };
+          const replace = (patch: Partial<SkillInstallConfig>): void => installs.patch(index, skill, patch);
           const problem = skill.enabled ? skillInstallProblem(skill) : null;
           return (
             <div className="entry-card" key={skill.id}>
@@ -415,7 +418,7 @@ export function ExtensionsPanel(): JSX.Element {
                 title={skill.source.trim() === '' ? t('commonUnset') : skill.source.trim()}
                 enabled={skill.enabled}
                 onToggle={(enabled) => replace({ enabled })}
-                onDelete={() => update({ skillInstalls: withoutId(extensions.skillInstalls, skill.id) })}
+                onDelete={() => installs.remove(skill.id)}
               >
                 {skill.skills
                   .filter((name) => name.trim() !== '')

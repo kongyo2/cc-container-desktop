@@ -1,4 +1,6 @@
+import { byId } from './collections.ts';
 import { envNameProblems, parseEnvText } from './env.ts';
+import { normalizeDisplayName } from './text.ts';
 import type { AppConfig, Environment, Language } from './types.ts';
 
 const MAX_ENVIRONMENT_NAME = 64;
@@ -16,11 +18,7 @@ npm install`;
 export const ENV_FORMAT_URL = 'https://github.com/motdotla/dotenv#what-rules-does-the-parsing-engine-follow';
 
 export function normalizeEnvironmentName(name: string): string {
-  return name
-    .replaceAll(/[\p{Cc}\p{Cf}]/gu, '')
-    .replaceAll(/\s+/gu, ' ')
-    .trim()
-    .slice(0, MAX_ENVIRONMENT_NAME);
+  return normalizeDisplayName(name, MAX_ENVIRONMENT_NAME);
 }
 
 export function environmentNameProblem(name: string, language: Language): string | null {
@@ -55,8 +53,7 @@ export function environmentEnvEntries(environment: Environment | null): readonly
 }
 
 export function environmentById(config: AppConfig, id: string | null): Environment | null {
-  if (id === null) return null;
-  return config.environments.find((environment) => environment.id === id) ?? null;
+  return byId(config.environments, id);
 }
 
 export function activeEnvironments(config: AppConfig): readonly Environment[] {

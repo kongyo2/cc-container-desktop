@@ -94,6 +94,17 @@ function mergeOperations(
   return next;
 }
 
+async function unwrap<T>(call: () => Promise<Result<T>>, report: (message: string) => void): Promise<T | null> {
+  try {
+    const result = await call();
+    if (result.ok) return result.value;
+    report(result.error.message);
+  } catch (error) {
+    report(error instanceof Error ? error.message : String(error));
+  }
+  return null;
+}
+
 function initialView(snapshot: Snapshot): View {
   const nothingYet =
     snapshot.images.length === 0 && snapshot.config.environments.length === 0 && snapshot.tasks.length === 0;
@@ -184,15 +195,7 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
   run: async (label, call) => {
     set({ busy: label, error: null });
     try {
-      const result = await call();
-      if (!result.ok) {
-        set({ error: result.error.message });
-        return null;
-      }
-      return result.value;
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
-      return null;
+      return await unwrap(call, (error) => set({ error }));
     } finally {
       set({ busy: null });
       await get().refresh();
@@ -201,19 +204,13 @@ export const useApp: UseBoundStore<StoreApi<UiState>> = create<UiState>()((set, 
 
   request: async (call) => {
     set({ error: null });
-    try {
-      const result = await call();
-      if (!result.ok) {
-        set({ error: result.error.message });
-        return null;
-      }
-      return result.value;
-    } catch (error) {
-      set({ error: error instanceof Error ? error.message : String(error) });
-      return null;
-    }
+    return unwrap(call, (error) => set({ error }));
   },
 }));
+
+export function useBusy(): boolean {
+  return useApp((state) => state.busy) !== null;
+}
 
 export function selectedTaskView(state: UiState): TaskView | null {
   if (state.snapshot === null || state.selectedTaskId === null) return null;

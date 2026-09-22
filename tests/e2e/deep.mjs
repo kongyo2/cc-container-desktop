@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   call,
   check,
+  countOf,
   errorText,
   finish,
   goView,
@@ -19,6 +20,8 @@ import {
   shoot,
   taskById,
   TASK_PREFIX,
+  textOf,
+  tmuxSessions,
   waitFor,
   writeContainerFile,
 } from './helpers.mjs';
@@ -115,64 +118,47 @@ try {
     'an unknown default environment falls back to a real one',
     ghostDefault.defaultEnvironmentId === defaultEnvironmentId,
   );
-  const badEnvName = await call(page, 'environmentUpsert', [
-    { id: 'e2e-env', name: '   ', imageId: baseImage.image.id, envText: '', setupScript: '' },
-  ]);
+  const envDraft = (changes) => ({
+    id: 'e2e-env',
+    name: 'x',
+    imageId: baseImage.image.id,
+    envText: '',
+    setupScript: '',
+    ...changes,
+  });
+  const badEnvName = await call(page, 'environmentUpsert', [envDraft({ name: '   ' })]);
   check('an environment needs a name', badEnvName.ok === false, errorText(badEnvName));
-  const badVarName = await call(page, 'environmentUpsert', [
-    { id: 'e2e-env', name: 'x', imageId: baseImage.image.id, envText: '1BAD=1', setupScript: '' },
-  ]);
+  const badVarName = await call(page, 'environmentUpsert', [envDraft({ envText: '1BAD=1' })]);
   check('an invalid variable name is refused', badVarName.ok === false, errorText(badVarName));
-  const badVarLine = await call(page, 'environmentUpsert', [
-    { id: 'e2e-env', name: 'x', imageId: baseImage.image.id, envText: 'not a pair', setupScript: '' },
-  ]);
+  const badVarLine = await call(page, 'environmentUpsert', [envDraft({ envText: 'not a pair' })]);
   check('a line that is not KEY=VALUE is refused', badVarLine.ok === false, errorText(badVarLine));
-  const extraEnvKey = await call(page, 'environmentUpsert', [
-    { id: 'e2e-env', name: 'x', imageId: baseImage.image.id, envText: '', setupScript: '', archived: true },
-  ]);
+  const extraEnvKey = await call(page, 'environmentUpsert', [envDraft({ archived: true })]);
   check('an environment draft with extra keys is refused', extraEnvKey.ok === false);
-  const reservedName = await call(page, 'environmentUpsert', [
-    { id: 'e2e-env', name: 'x', imageId: baseImage.image.id, envText: 'HOME=/elsewhere', setupScript: '' },
-  ]);
+  const reservedName = await call(page, 'environmentUpsert', [envDraft({ envText: 'HOME=/elsewhere' })]);
   check('a variable the app sets itself is refused', reservedName.ok === false, errorText(reservedName));
   const archiveNoFlag = await call(page, 'environmentArchive', [defaultEnvironmentId, 'true']);
   check('a non-boolean archive state is refused', archiveNoFlag.ok === false);
-  const unknownEnvironment = await call(page, 'taskCreate', [
-    { name: 'x', note: '', profileId: null, environmentId: 'no-such-env', source: { kind: 'empty' } },
-  ]);
+  const newTask = (changes) => ({ name: 'x', note: '', profileId: null, source: { kind: 'empty' }, ...changes });
+  const unknownEnvironment = await call(page, 'taskCreate', [newTask({ environmentId: 'no-such-env' })]);
   check('an unknown environment is refused', unknownEnvironment.ok === false, errorText(unknownEnvironment));
   const archiveGhost = await call(page, 'environmentArchive', ['no-such-env', true]);
   check('archiving an unknown environment is an error', archiveGhost.ok === false);
 
-  const noName = await call(page, 'taskCreate', [
-    { name: '   ', note: '', profileId: null, source: { kind: 'empty' } },
-  ]);
+  const noName = await call(page, 'taskCreate', [newTask({ name: '   ' })]);
   check('a task needs a name', noName.ok === false, errorText(noName));
   const sshUrl = await call(page, 'taskCreate', [
-    { name: 'x', note: '', profileId: null, source: { kind: 'git', url: 'git@github.com:a/b.git', ref: '' } },
+    newTask({ source: { kind: 'git', url: 'git@github.com:a/b.git', ref: '' } }),
   ]);
   check('an ssh clone URL is refused', sshUrl.ok === false, errorText(sshUrl));
   const credUrl = await call(page, 'taskCreate', [
-    {
-      name: 'x',
-      note: '',
-      profileId: null,
-      source: { kind: 'git', url: 'https://user:token@github.com/a/b', ref: '' },
-    },
+    newTask({ source: { kind: 'git', url: 'https://user:token@github.com/a/b', ref: '' } }),
   ]);
   check('credentials in a clone URL are refused', credUrl.ok === false, errorText(credUrl));
   const optionRef = await call(page, 'taskCreate', [
-    {
-      name: 'x',
-      note: '',
-      profileId: null,
-      source: { kind: 'git', url: 'https://github.com/a/b', ref: '--upload-pack=x' },
-    },
+    newTask({ source: { kind: 'git', url: 'https://github.com/a/b', ref: '--upload-pack=x' } }),
   ]);
   check('a branch that reads as an option is refused', optionRef.ok === false, errorText(optionRef));
-  const badProfile = await call(page, 'taskCreate', [
-    { name: 'x', note: '', profileId: 'no-such-profile', source: { kind: 'empty' } },
-  ]);
+  const badProfile = await call(page, 'taskCreate', [newTask({ profileId: 'no-such-profile' })]);
   check('an unknown profile is refused', badProfile.ok === false, errorText(badProfile));
   check('none of the refused creations left a task behind', (await ok(page, 'snapshot')).tasks.length === 0);
 
@@ -578,11 +564,11 @@ try {
 
   const claudeTab = await ok(page, 'termOpen', [{ taskId: alpha.id, kind: 'claude', cols: 100, rows: 30 }]);
   await page.waitForTimeout(3000);
-  let tmux = await sh(page, alpha.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  let tmux = await tmuxSessions(page, alpha.id);
   check('the Claude Code tab runs inside the cc tmux session', /^cc 1$/mu.test(tmux.stdout), tmux.stdout.trim());
   await ok(page, 'termClose', [claudeTab.id]);
   await page.waitForTimeout(2500);
-  tmux = await sh(page, alpha.id, "tmux list-sessions -F '#{session_name} #{session_attached}' 2>/dev/null");
+  tmux = await tmuxSessions(page, alpha.id);
   check('closing the tab leaves the session running and detached', /^cc 0$/mu.test(tmux.stdout), tmux.stdout.trim());
   const leaked = await sh(page, alpha.id, 'tmux list-clients 2>/dev/null | wc -l');
   check('no tmux client is left behind', leaked.stdout.trim() === '0');
@@ -964,21 +950,18 @@ try {
   check('the task header shows the selected task', headerName === `${TASK_PREFIX}alpha`, headerName);
   await page.click('[data-testid="open-shell"]');
   await page.waitForTimeout(2500);
-  const tabCount = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  const tabCount = await countOf(page, '.term-tabs .tab');
   check('opening a shell from the header adds a tab', tabCount === 1, String(tabCount));
   await selectTask(page, beta.id);
-  const betaTabs = await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length);
+  const betaTabs = await countOf(page, '.term-tabs .tab');
   check('tabs belong to their task', betaTabs === 0, String(betaTabs));
   await selectTask(page, alpha.id);
-  check(
-    'switching back shows the tab again',
-    (await page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length)) === 1,
-  );
+  check('switching back shows the tab again', (await countOf(page, '.term-tabs .tab')) === 1);
   await shoot(page, 'deep-task');
   await page.click('[data-testid="task-stop"]');
   const tabsAfterStop = await waitFor(
     page,
-    () => page.evaluate(() => document.querySelectorAll('.term-tabs .tab').length),
+    () => countOf(page, '.term-tabs .tab'),
     (count) => count === 0,
     20000,
   );
@@ -999,17 +982,15 @@ try {
   check('starting from the header brings it back', runningAgain === true);
 
   await goView(page, 'images');
-  const cards = await page.evaluate(() => document.querySelectorAll('[data-testid="image-card"]').length);
+  const cards = await countOf(page, '[data-testid="image-card"]');
   check('the images page lists the catalog', cards === 2, String(cards));
-  const registeredRows = await page.evaluate(
-    () => document.querySelectorAll('[data-testid="registered-image"]').length,
-  );
+  const registeredRows = await countOf(page, '[data-testid="registered-image"]');
   check('and both registrations', registeredRows === 2, String(registeredRows));
   await shoot(page, 'deep-images');
   await goView(page, 'environments');
   await page.click('[data-testid="env-new"]');
   await page.waitForSelector('[data-testid="environment-dialog"]');
-  const dialogTitle = await page.evaluate(() => document.querySelector('#env-modal-title')?.textContent ?? '');
+  const dialogTitle = await textOf(page, '#env-modal-title');
   check('the create dialog opens', dialogTitle === '環境を作成', dialogTitle);
   await page.fill('#env-dialog-name', 'UI env');
   await page.fill('#env-dialog-vars', 'UI_MARKER=1');
@@ -1025,7 +1006,7 @@ try {
   );
   await page.click(`.env-row[data-environment-id="${uiEnv.id}"] [data-testid="env-edit"]`);
   await page.waitForSelector('[data-testid="environment-dialog"]');
-  const editTitle = await page.evaluate(() => document.querySelector('#env-modal-title')?.textContent ?? '');
+  const editTitle = await textOf(page, '#env-modal-title');
   check('the edit dialog opens with the reference title', editTitle === '環境を編集', editTitle);
   await shoot(page, 'deep-environment-dialog');
   await page.fill('#env-dialog-vars', 'UI_MARKER=1\nBROKEN LINE');

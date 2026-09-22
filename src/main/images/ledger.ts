@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { byId } from '../../shared/collections.ts';
 import { imageTargetKey, normalizeRepository, registrationIdentity } from '../../shared/images.ts';
 import type { ImagePlatform, RegisteredImage } from '../../shared/images.ts';
 
@@ -33,21 +34,22 @@ export function upsertRegistration(
     throw new LedgerConflictError(`registration ${next.id} does not match its key (${expectedId})`);
   }
   const nextKey = registrationKey(next);
-  const byId = images.find((image) => image.id === next.id) ?? null;
-  const byKey = images.find((image) => registrationKey(image) === nextKey) ?? null;
-  if (byId !== null && registrationKey(byId) !== nextKey) {
+  const sameId = byId(images, next.id);
+  const sameKey = images.find((image) => registrationKey(image) === nextKey) ?? null;
+  if (sameId !== null && registrationKey(sameId) !== nextKey) {
     throw new LedgerConflictError(`registration ${next.id} already exists with a different key`);
   }
-  if (byKey !== null && byKey.id !== next.id) {
-    throw new LedgerConflictError(`the same image is already registered as ${byKey.id}`);
+  if (sameKey !== null && sameKey.id !== next.id) {
+    throw new LedgerConflictError(`the same image is already registered as ${sameKey.id}`);
   }
-  if (byId === null) return [...images, next];
+  if (sameId === null) return [...images, next];
   const merged: RegisteredImage =
-    next.catalogEntryId === null && byId.catalogEntryId !== null ? { ...byId, registeredAt: next.registeredAt } : next;
+    next.catalogEntryId === null && sameId.catalogEntryId !== null
+      ? { ...sameId, registeredAt: next.registeredAt }
+      : next;
   return images.map((image) => (image.id === next.id ? merged : image));
 }
 
 export function findRegistration(images: readonly RegisteredImage[], id: string | null): RegisteredImage | null {
-  if (id === null) return null;
-  return images.find((image) => image.id === id) ?? null;
+  return byId(images, id);
 }

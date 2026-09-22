@@ -20,7 +20,7 @@ import { Check, DeferredTextField, Field, Pill, Section, formatTime } from '../c
 import type { Tone } from '../components/ui.tsx';
 import { useT } from '../i18n.ts';
 import type { Translator } from '../i18n.ts';
-import { useApp } from '../store.ts';
+import { useApp, useBusy } from '../store.ts';
 
 function linkTone(state: RemoteLinkView['state']): Tone {
   if (state === 'online') return 'ok';
@@ -67,7 +67,7 @@ function CopyRow({ value, label }: { value: string; label: string }): JSX.Elemen
 function LinkStatus({ link }: { link: RemoteLinkView }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
 
   return (
     <Section title={t('remoteTitle')}>
@@ -102,7 +102,7 @@ function LinkStatus({ link }: { link: RemoteLinkView }): JSX.Element {
 function Invite({ hosting }: { hosting: RemoteHostingView }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
   const invite = hosting.invite;
 
   if (invite === null) {
@@ -149,7 +149,7 @@ function Invite({ hosting }: { hosting: RemoteHostingView }): JSX.Element {
 function Hosting({ status }: { status: RemoteStatus }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
   const { hosting, identity, link } = status;
   const driving = link.state === 'online';
 
@@ -246,7 +246,7 @@ function Discovered({
 }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
 
   return (
     <>
@@ -299,7 +299,7 @@ function Discovered({
 function SavedPeers({ peers, link }: { peers: readonly RemotePeerView[]; link: RemoteLinkView }): JSX.Element {
   const t = useT();
   const run = useApp((state) => state.run);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
 
   return (
     <>
@@ -347,7 +347,7 @@ function PairForm({ address, setAddress }: { address: string; setAddress: (value
   const t = useT();
   const run = useApp((state) => state.run);
   const setToast = useApp((state) => state.setToast);
-  const busy = useApp((state) => state.busy) !== null;
+  const busy = useBusy();
   const [ticket, setTicket] = useState('');
   const [code, setCode] = useState('');
 

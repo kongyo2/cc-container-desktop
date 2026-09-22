@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  activeView,
   call,
   check,
+  countOf,
   errorCode,
   finish,
   goView,
@@ -17,6 +19,7 @@ import {
   shoot,
   taskById,
   TASK_PREFIX,
+  textOf,
   waitFor,
   waitForOperation,
   writeContainerFile,
@@ -71,15 +74,11 @@ try {
     snapshot.storeProblems.length === 0,
     JSON.stringify(snapshot.storeProblems),
   );
-  const activeView = await page.evaluate(
-    () => document.querySelector('.sidebar-nav button.active')?.dataset.view ?? '',
-  );
-  check('the app opens on the Images page when nothing exists yet', activeView === 'images', activeView);
-  const cards = await page.evaluate(() => document.querySelectorAll('[data-testid="image-card"]').length);
+  const openedView = await activeView(page);
+  check('the app opens on the Images page when nothing exists yet', openedView === 'images', openedView);
+  const cards = await countOf(page, '[data-testid="image-card"]');
   check('both catalog entries render as cards', cards === 2, String(cards));
-  const dockerState = await page.evaluate(
-    () => document.querySelector('[data-testid="images-docker-state"]')?.textContent ?? '',
-  );
+  const dockerState = await textOf(page, '[data-testid="images-docker-state"]');
   check('the Docker state line names the platform', dockerState.includes(fixture.platform), dockerState);
   await shoot(page, 'images-01-fresh');
 
@@ -162,7 +161,7 @@ try {
   check('the sidebar showed one active download while it ran', badges.includes('1'), JSON.stringify(badges));
   const badgeAfter = await waitFor(
     page,
-    () => page.evaluate(() => document.querySelector('[data-testid="images-nav-badge"]')?.textContent ?? ''),
+    () => textOf(page, '[data-testid="images-nav-badge"]'),
     (text) => text === '',
     5_000,
   );
@@ -348,7 +347,7 @@ try {
   check('the applied image is still release one', view?.appliedImageId === done.registeredImageId);
   await page.click(`.task-item[data-task-id="${task.id}"]`);
   await page.waitForTimeout(400);
-  const staleTag = await page.evaluate(() => document.querySelector('[data-testid="image-stale"]')?.textContent ?? '');
+  const staleTag = await textOf(page, '[data-testid="image-stale"]');
   check('the task page shows the pending image change', staleTag !== '', staleTag);
   await shoot(page, 'images-04-stale');
 
@@ -464,9 +463,7 @@ try {
   );
   if (onMissing.ok) session.created.set(onMissing.value.task.id, onMissing.value.task);
   await goView(page, 'images');
-  const repairButton = await page.evaluate(
-    () => document.querySelectorAll('[data-testid="image-repair"], [data-testid="registered-image-repair"]').length,
-  );
+  const repairButton = await countOf(page, '[data-testid="image-repair"], [data-testid="registered-image-repair"]');
   check('the Images page offers a re-download', repairButton > 0, String(repairButton));
   await shoot(page, 'images-05-missing');
   const repair = await ok(page, 'imageRepairStart', [{ imageId: two.image.id }]);
